@@ -19,7 +19,6 @@
         "resizable": false,
         "decorations": false,
         "alwaysOnBottom": true,
-        "transparent": true,
         "visible": false,
         "fullscreen": false,
         "closable": true
