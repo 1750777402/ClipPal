@@ -1,5 +1,6 @@
+mod tray;
+
 use tauri::{Manager, PhysicalPosition, PhysicalSize};
-use tauri::tray::TrayIconBuilder;
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 #[tauri::command]
@@ -12,10 +13,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
-            // 设置图标栏图标
-            let tray = TrayIconBuilder::new()
-                .icon(app.default_window_icon().unwrap().clone())
-                .build(app)?;
+            tray::create_tray(app.handle())?;
             // 获取主显示器
             let main_window = app.get_webview_window("main").unwrap();
             // 获取主显示器信息

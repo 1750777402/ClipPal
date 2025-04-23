@@ -22,6 +22,19 @@
         "visible": false,
         "fullscreen": false,
         "closable": true
+      },
+      {
+        "label": "tray",
+        "url": "/tray",
+        "resizable": false,
+        "center": false,
+        "visible": false,
+        "width": 130,
+        "height": 44,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "decorations": false,
+        "transparent": true
       }
     ],
     "security": {
@@ -37,6 +50,9 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
+    ],
+    "resources": [
+      "tray"
     ]
   }
 }
