@@ -15,6 +15,5 @@ impl<R: Runtime> CustomInit for tauri::Builder<R> {
                 MacosLauncher::LaunchAgent,
                 Some(vec!["--flag1", "--flag2"]),
             ))
-
     }
 }
