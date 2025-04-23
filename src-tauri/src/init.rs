@@ -15,5 +15,7 @@ impl<R: Runtime> CustomInit for tauri::Builder<R> {
                 MacosLauncher::LaunchAgent,
                 Some(vec!["--flag1", "--flag2"]),
             ))
+            // http请求插件
+            .plugin(tauri_plugin_http::init())
     }
 }
