@@ -17,5 +17,9 @@ impl<R: Runtime> CustomInit for tauri::Builder<R> {
             ))
             // http请求插件
             .plugin(tauri_plugin_http::init())
+            // 全局快捷键设置插件
+            .plugin(tauri_plugin_global_shortcut::Builder::new().build())
+            // sql功能插件，比如使用SQLite等
+            .plugin(tauri_plugin_sql::Builder::default().build())
     }
 }
