@@ -1,4 +1,6 @@
+use crate::init::CustomInit;
 mod tray;
+mod init;
 
 use tauri::{Manager, PhysicalPosition, PhysicalSize};
 
@@ -11,7 +13,7 @@ fn greet(name: &str) -> String {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
-        .plugin(tauri_plugin_opener::init())
+        .init_plugin()
         .setup(|app| {
             tray::create_tray(app.handle())?;
             // 获取主显示器

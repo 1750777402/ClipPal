@@ -13,6 +13,15 @@
     "core:window:allow-toggle-maximize",
     "core:window:allow-destroy",
     "core:window:allow-hide",
-    "core:window:allow-show"
+    "core:window:allow-show",
+    "autostart:allow-enable",
+    "autostart:allow-disable",
+    "autostart:allow-is-enabled",
+    "clipboard-manager:allow-clear",
+    "clipboard-manager:allow-read-image",
+    "clipboard-manager:allow-read-text",
+    "clipboard-manager:allow-write-html",
+    "clipboard-manager:allow-write-image",
+    "clipboard-manager:allow-write-text"
   ]
 }
