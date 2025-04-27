@@ -7,9 +7,11 @@ pub trait CustomInit {
 
 impl<R: Runtime> CustomInit for tauri::Builder<R> {
     fn init_plugin(self) -> Self {
-        self.plugin(tauri_plugin_opener::init())
+        self
+            // opener 插件  用于在程序中打开文件和URL 还支持在系统的文件资源管理器中“显示”文件
+            .plugin(tauri_plugin_opener::init())
             // 粘贴板插件
-            .plugin(tauri_plugin_clipboard_manager::init())
+            .plugin(tauri_plugin_clipboard_pal::init())
             // 开机自启插件
             .plugin(tauri_plugin_autostart::init(
                 MacosLauncher::LaunchAgent,

@@ -1,0 +1,9 @@
+[workspace]
+members = ["src-tauri","tauri-plugin-clipboard-pal"]
+
+[workspace.package]
+authors = ["jingchuan"]
+description = "A ClipPal App"
+edition = "2021"
+name = "Clip"
+version = "0.1.0"

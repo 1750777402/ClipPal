@@ -1,4 +1,6 @@
 use crate::init::CustomInit;
+mod biz;
+mod clip_board;
 mod init;
 mod tray;
 mod window;
@@ -16,6 +18,7 @@ pub fn run() {
         .setup(|app| {
             tray::create_tray(app.handle())?;
             let _ = window::init_main_window(&app);
+            let _ = clip_board::init_clip_board_listener(&app);
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![greet])
