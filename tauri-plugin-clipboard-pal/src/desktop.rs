@@ -1,13 +1,10 @@
-use base64::{engine::general_purpose, Engine as _};
 use clipboard_rs::{
-    common::RustImage, Clipboard as ClipboardRS, ClipboardContent,
-    ClipboardContext as ClipboardRsContext, ClipboardHandler, ClipboardWatcher,
-    ClipboardWatcherContext, ContentFormat, RustImageData, WatcherShutdown,
+    Clipboard as ClipboardRS, ClipboardContext as ClipboardRsContext, ClipboardHandler,
+    ClipboardWatcher, ClipboardWatcherContext, ContentFormat, WatcherShutdown,
 };
-use image::EncodableLayout;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use std::sync::{Arc, Mutex};
-use tauri::{plugin::PluginApi, AppHandle, Emitter, Runtime};
+use tauri::{plugin::PluginApi, Runtime};
 
 pub fn init<R: Runtime, C: DeserializeOwned>(_api: PluginApi<R, C>) -> crate::Result<ClipboardPal> {
     Ok(ClipboardPal {
@@ -31,7 +28,7 @@ pub struct ClipboardPal {
 }
 
 impl ClipboardPal {
-    pub fn start_monitor<R: Runtime>(&self, app_handle: AppHandle<R>) -> Result<(), String> {
+    pub fn start_monitor(&self) -> Result<(), String> {
         let clipboard = ClipboardMonitor::new(self.clipboard.clone());
         let mut watcher: ClipboardWatcherContext<ClipboardMonitor> =
             ClipboardWatcherContext::new().unwrap();
@@ -47,7 +44,7 @@ impl ClipboardPal {
         Ok(())
     }
 
-    pub fn stop_monitor<R: Runtime>(&self, app_handle: AppHandle<R>) -> Result<(), String> {
+    pub fn stop_monitor(&self) -> Result<(), String> {
         let mut watcher_shutdown_state = self.watcher_shutdown.lock().unwrap();
         if let Some(watcher_shutdown) = (*watcher_shutdown_state).take() {
             watcher_shutdown.stop();
