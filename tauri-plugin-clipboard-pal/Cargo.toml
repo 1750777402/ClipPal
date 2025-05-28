@@ -1,20 +1,24 @@
 [package]
 name = "tauri-plugin-clipboard-pal"
-version = "0.1.0"
-authors = [ "You" ]
+version = {workspace=true}
+authors = {workspace=true}
 description = ""
-edition = "2021"
-rust-version = "1.77.2"
+edition = {workspace=true}
 exclude = ["/examples", "/webview-dist", "/webview-src", "/node_modules"]
 links = "tauri-plugin-clipboard-pal"
 
+[lib]
+lib="src/lib.rs"
+
 [dependencies]
-tauri = { version = "2.1.0" }
-serde = "1.0"
-thiserror = "2"
-clipboard-rs = "0.2.1"
-base64 = "0.22.1"
-image = "0.25.1"
+tauri = { workspace = true}
+serde = { workspace = true}
+thiserror = { workspace = true}
+clipboard-rs = { workspace = true}
+base64 = { workspace = true}
+image = { workspace = true}
+
+clipboard-listener = {version = "0.1.0", path = "../clipboard-listener"}
 
 [build-dependencies]
 tauri-plugin = { version = "2.0.2", features = ["build"] }

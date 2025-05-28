@@ -1,9 +1,26 @@
 [workspace]
-members = ["src-tauri","tauri-plugin-clipboard-pal"]
+members = ["src-tauri","tauri-plugin-clipboard-pal", "clipboard-listener"]
 
 [workspace.package]
 authors = ["jingchuan"]
 description = "A ClipPal App"
-edition = "2021"
-name = "Clip"
+edition = "2024"
+name = "Clip-Pal"
 version = "0.1.0"
+
+
+[workspace.dependencies]
+thiserror = "2"
+clipboard-rs = "0.2.1"
+base64 = "0.22.1"
+image = "0.25.1"
+serde = {version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1.0", features = ["full"] } 
+rbs = { version = "4.5"}
+rbatis = { version = "4.5"}
+rbdc-sqlite = { version = "4.5" }
+tauri = {version = "2.2.5", features = ["tray-icon", "image-png"] }
+tauri-plugin-http = "2.4.3"
+tauri-plugin-opener = "2"
+tauri-plugin-sql = { version = "2.2.0", features = ["sqlite"] }

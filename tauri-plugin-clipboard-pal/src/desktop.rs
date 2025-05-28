@@ -1,3 +1,4 @@
+use clipboard_listener::{ClipBoardEventListener, ClipboardEvent};
 use clipboard_rs::{
     Clipboard as ClipboardRS, ClipboardContext as ClipboardRsContext, ClipboardHandler,
     ClipboardWatcher, ClipboardWatcherContext, ContentFormat, WatcherShutdown,
@@ -109,5 +110,13 @@ impl ClipboardHandler for ClipboardMonitor {
                 println!("复制了文件:{:?}", content);
             }
         }
+    }
+}
+
+#[derive(Debug, Clone)]
+struct ClipboardEventTigger;
+impl ClipBoardEventListener<ClipboardEvent> for ClipboardEventTigger {
+    fn handle_event(&self, event: &ClipboardEvent) {
+        todo!()
     }
 }
