@@ -1,5 +1,7 @@
 use std::sync::{Arc, Mutex};
 
+use serde::{Deserialize, Serialize};
+
 // 事件监听器Trait
 pub trait ClipBoardEventListener<T>: Send + Sync {
     fn handle_event(&self, event_data: &T);
@@ -7,11 +9,11 @@ pub trait ClipBoardEventListener<T>: Send + Sync {
 
 // 线程安全的事件管理器
 #[derive(Default)]
-pub struct EventSystem<T> {
+pub struct EventManager<T> {
     listeners: Arc<Mutex<Vec<Arc<dyn ClipBoardEventListener<T>>>>>, // 单一监听器列表
 }
 
-impl<T> EventSystem<T>
+impl<T> EventManager<T>
 where
     T: Clone + Send + 'static,
 {
@@ -40,12 +42,31 @@ where
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub enum ClipType {
+    Text,
+    Img,
+    File,
+    Rtf,
+    Html,
+    #[default]
+    Unknown,
+}
+
+#[derive(Debug, Clone, Default)]
 pub struct ClipboardEvent {
     // 类型
-    r#type: String,
+    pub r#type: ClipType,
     // 内容
-    content: String,
+    pub content: String,
     // 文件内容
-    file: Vec<u8>,
+    pub file: Vec<u8>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ClipboardEventTigger;
+impl ClipBoardEventListener<ClipboardEvent> for ClipboardEventTigger {
+    fn handle_event(&self, event: &ClipboardEvent) {
+        dbg!(event);
+    }
 }

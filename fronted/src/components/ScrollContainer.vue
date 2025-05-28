@@ -28,7 +28,6 @@
             v-for="(card, index) in cards"
             :key="index"
             class="card"
-            :ref="el => cardRefs[index] = el"
         >
           <h3>{{ card.title }}</h3>
           <p>{{ card.content }}</p>

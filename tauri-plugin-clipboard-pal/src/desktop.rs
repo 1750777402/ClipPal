@@ -1,13 +1,12 @@
-use clipboard_listener::{ClipBoardEventListener, ClipboardEvent};
+use clipboard_listener::{ClipBoardEventListener, ClipType, ClipboardEvent, EventManager};
 use clipboard_rs::{
-    Clipboard as ClipboardRS, ClipboardContext as ClipboardRsContext, ClipboardHandler,
-    ClipboardWatcher, ClipboardWatcherContext, ContentFormat, WatcherShutdown,
+    common::RustImage, Clipboard as ClipboardRS, ClipboardContext as ClipboardRsContext,
+    ClipboardHandler, ClipboardWatcher, ClipboardWatcherContext, ContentFormat, WatcherShutdown,
 };
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex};
-use tauri::{plugin::PluginApi, Runtime};
 
-pub fn init<R: Runtime, C: DeserializeOwned>(_api: PluginApi<R, C>) -> crate::Result<ClipboardPal> {
+pub fn init() -> crate::Result<ClipboardPal> {
     Ok(ClipboardPal {
         clipboard: Arc::new(Mutex::new(ClipboardRsContext::new().unwrap())),
         watcher_shutdown: Arc::default(),
@@ -29,8 +28,8 @@ pub struct ClipboardPal {
 }
 
 impl ClipboardPal {
-    pub fn start_monitor(&self) -> Result<(), String> {
-        let clipboard = ClipboardMonitor::new(self.clipboard.clone());
+    pub fn start_monitor(&self, manager: Arc<EventManager<ClipboardEvent>>) -> Result<(), String> {
+        let clipboard = ClipboardMonitor::new(self.clipboard.clone(), manager);
         let mut watcher: ClipboardWatcherContext<ClipboardMonitor> =
             ClipboardWatcherContext::new().unwrap();
         let watcher_shutdown = watcher.add_handler(clipboard).get_shutdown_channel();
@@ -60,36 +59,55 @@ impl ClipboardPal {
 }
 
 pub struct ClipboardMonitor {
+    pub manager: Arc<EventManager<ClipboardEvent>>,
     pub clipboard: Arc<Mutex<ClipboardRsContext>>,
 }
 
 impl ClipboardMonitor {
-    pub fn new(clipboard: Arc<Mutex<ClipboardRsContext>>) -> Self {
-        Self { clipboard }
+    pub fn new(
+        clipboard: Arc<Mutex<ClipboardRsContext>>,
+        manager: Arc<EventManager<ClipboardEvent>>,
+    ) -> Self {
+        Self { clipboard, manager }
     }
 }
 
 impl ClipboardHandler for ClipboardMonitor {
     fn on_clipboard_change(&mut self) {
-        println!("");
         let clipboard_context = self
             .clipboard
             .lock()
             .map_err(|err| err.to_string())
             .unwrap();
-
-        if clipboard_context.has(ContentFormat::Text) {
-            let text_context = clipboard_context.get_text().map_err(|err| err.to_string());
-            if let Ok(text) = text_context {
-                println!("复制了文本{:?}", text);
-            }
-        }
+        // 先判断是不是图片   这里的图片特指PNG
         if clipboard_context.has(ContentFormat::Image) {
             let text_context = clipboard_context.get_image().map_err(|err| err.to_string());
             if let Ok(image) = text_context {
-                println!("复制了图片");
+                if let Ok(png) = image.to_png() {
+                    self.manager.emit(ClipboardEvent {
+                        r#type: ClipType::Img,
+                        content: "".to_string(),
+                        file: png.get_bytes().to_vec(),
+                    });
+                } else {
+                    self.manager.emit(ClipboardEvent {
+                        r#type: ClipType::Unknown,
+                        content: "".to_string(),
+                        file: vec![],
+                    });
+                }
             }
         }
+        // 再判断是不是文件
+        if clipboard_context.has(ContentFormat::Files) {
+            let text_context = clipboard_context.get_files().map_err(|err| err.to_string());
+            if let Ok(content) = text_context {
+                println!("复制了文件:{:?}", content);
+            }
+        }
+        // 文件类型的就判断完了
+
+        // 再判断是不是富文本内容
         if clipboard_context.has(ContentFormat::Rtf) {
             let text_context = clipboard_context
                 .get_rich_text()
@@ -98,25 +116,20 @@ impl ClipboardHandler for ClipboardMonitor {
                 println!("复制了富文本内容:{}", content);
             }
         }
+        // 再判断是不是html
         if clipboard_context.has(ContentFormat::Html) {
             let text_context = clipboard_context.get_html().map_err(|err| err.to_string());
             if let Ok(content) = text_context {
                 println!("复制了html内容:{}", content);
             }
         }
-        if clipboard_context.has(ContentFormat::Files) {
-            let text_context = clipboard_context.get_files().map_err(|err| err.to_string());
-            if let Ok(content) = text_context {
-                println!("复制了文件:{:?}", content);
+        // 最后判断是不是普通文本
+        if clipboard_context.has(ContentFormat::Text) {
+            let text_context = clipboard_context.get_text().map_err(|err| err.to_string());
+            if let Ok(text) = text_context {
+                // self.manager.emit(data);
+                println!("复制了文本{:?}", text);
             }
         }
-    }
-}
-
-#[derive(Debug, Clone)]
-struct ClipboardEventTigger;
-impl ClipBoardEventListener<ClipboardEvent> for ClipboardEventTigger {
-    fn handle_event(&self, event: &ClipboardEvent) {
-        todo!()
     }
 }
