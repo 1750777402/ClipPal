@@ -1,14 +1,10 @@
-use clipboard_listener::{ClipBoardEventListener, ClipType, ClipboardEvent, EventManager};
+use clipboard_listener::{ClipType, ClipboardEvent, EventManager};
 use clipboard_rs::{
     common::RustImage, Clipboard as ClipboardRS, ClipboardContext as ClipboardRsContext,
     ClipboardHandler, ClipboardWatcher, ClipboardWatcherContext, ContentFormat, WatcherShutdown,
 };
 use serde::{Deserialize, Serialize};
-use std::{
-    env::current_dir,
-    sync::{Arc, Mutex},
-    thread::current,
-};
+use std::sync::{Arc, Mutex};
 
 pub fn init() -> crate::Result<ClipboardPal> {
     Ok(ClipboardPal {

@@ -1,7 +1,6 @@
 use std::sync::Arc;
 
 use clipboard_listener::{ClipboardEvent, EventManager};
-use tauri::Manager;
 use tauri_plugin_autostart::MacosLauncher;
 
 mod biz;

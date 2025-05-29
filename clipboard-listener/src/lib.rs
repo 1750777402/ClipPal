@@ -1,4 +1,4 @@
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, RwLock};
 
 use async_channel::{Receiver, Sender};
 use serde::{Deserialize, Serialize};
@@ -66,6 +66,7 @@ where
                             });
                         },
                         Err(e) => {
+                            println!("rx.recv Error: {}", e);
                             break;
                         },
                     },
@@ -80,6 +81,7 @@ where
                                 break;
                             },
                             Err(e) => {
+                                println!("shutdown_signal Error: {}", e);
                                 let _ = join_set.shutdown().await;
                                 break;
                             }
