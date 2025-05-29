@@ -11,12 +11,15 @@ version = "0.1.0"
 
 [workspace.dependencies]
 thiserror = "2"
+uuid = "1"
 clipboard-rs = "0.2.1"
 base64 = "0.22.1"
 image = "0.25.1"
 serde = {version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1.0", features = ["full"] } 
+async-channel = "2.3.1"
+async-trait = "0.1"
 rbs = { version = "4.5"}
 rbatis = { version = "4.5"}
 rbdc-sqlite = { version = "4.5" }

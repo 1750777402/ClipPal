@@ -17,6 +17,7 @@ thiserror = { workspace = true}
 clipboard-rs = { workspace = true}
 base64 = { workspace = true}
 image = { workspace = true}
+tokio = { workspace = true}
 
 clipboard-listener = {version = "0.1.0", path = "../clipboard-listener"}
 

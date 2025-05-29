@@ -4,7 +4,11 @@ use clipboard_rs::{
     ClipboardHandler, ClipboardWatcher, ClipboardWatcherContext, ContentFormat, WatcherShutdown,
 };
 use serde::{Deserialize, Serialize};
-use std::sync::{Arc, Mutex};
+use std::{
+    env::current_dir,
+    sync::{Arc, Mutex},
+    thread::current,
+};
 
 pub fn init() -> crate::Result<ClipboardPal> {
     Ok(ClipboardPal {
@@ -81,8 +85,8 @@ impl ClipboardHandler for ClipboardMonitor {
             .unwrap();
         // 先判断是不是图片   这里的图片特指PNG
         if clipboard_context.has(ContentFormat::Image) {
-            let text_context = clipboard_context.get_image().map_err(|err| err.to_string());
-            if let Ok(image) = text_context {
+            let img_context = clipboard_context.get_image().map_err(|err| err.to_string());
+            if let Ok(image) = img_context {
                 if let Ok(png) = image.to_png() {
                     self.manager.emit(ClipboardEvent {
                         r#type: ClipType::Img,
@@ -100,8 +104,8 @@ impl ClipboardHandler for ClipboardMonitor {
         }
         // 再判断是不是文件
         if clipboard_context.has(ContentFormat::Files) {
-            let text_context = clipboard_context.get_files().map_err(|err| err.to_string());
-            if let Ok(content) = text_context {
+            let file_context = clipboard_context.get_files().map_err(|err| err.to_string());
+            if let Ok(content) = file_context {
                 println!("复制了文件:{:?}", content);
             }
         }

@@ -16,7 +16,7 @@ pub use error::{Error, Result};
 /// Initializes the plugin.
 pub fn init<R: Runtime>(manager: Arc<EventManager<ClipboardEvent>>) -> TauriPlugin<R> {
     // 注册监听器
-    manager.subscribe(Arc::new(ClipboardEventTigger));
+    manager.add_event_listener(Arc::new(ClipboardEventTigger));
     // 初始化插件
     Builder::new("clipboard-pal")
         .invoke_handler(tauri::generate_handler![])
