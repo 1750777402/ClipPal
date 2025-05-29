@@ -26,4 +26,3 @@ rbdc-sqlite = { version = "4.5" }
 tauri = {version = "2.2.5", features = ["tray-icon", "image-png"] }
 tauri-plugin-http = "2.4.3"
 tauri-plugin-opener = "2"
-tauri-plugin-sql = { version = "2.2.0", features = ["sqlite"] }

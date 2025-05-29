@@ -29,9 +29,9 @@ rbdc-sqlite = { workspace = true }
 tauri = {workspace = true , features = ["tray-icon", "image-png"] }
 tauri-plugin-http = { workspace = true }
 tauri-plugin-opener = { workspace = true }
-tauri-plugin-sql = { workspace = true, features = ["sqlite"] }
 tauri-plugin-clipboard-pal = { path = "../tauri-plugin-clipboard-pal" }
 clipboard-listener = { path = "../clipboard-listener" }
+state ="0.6.0"
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-autostart = "2"

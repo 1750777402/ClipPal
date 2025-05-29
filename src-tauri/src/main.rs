@@ -3,5 +3,5 @@
 
 #[tokio::main]
 async fn main() {
-    clip_pal::run();
+    clip_pal::run().await;
 }

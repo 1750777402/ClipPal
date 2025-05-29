@@ -2,12 +2,17 @@ use std::sync::Arc;
 
 use biz::clip_board_sync::ClipboardEventTigger;
 use clipboard_listener::{ClipboardEvent, EventManager};
+use state::TypeMap;
 use tauri_plugin_autostart::MacosLauncher;
 
 mod biz;
 mod clip_board;
+mod sqlite_storage;
 mod tray;
 mod window;
+
+// 全局上下文存储
+pub static CONTEXT: TypeMap![Send + Sync] = <TypeMap![Send + Sync]>::new();
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 #[tauri::command]
@@ -16,11 +21,12 @@ fn greet(name: &str) -> String {
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
-pub fn run() {
+pub async fn run() {
     // 初始化粘贴板内容变化后的监听管理器
     let manager: Arc<EventManager<ClipboardEvent>> = Arc::new(EventManager::default());
     let m1 = manager.clone();
     manager.start_event_loop();
+    sqlite_storage::init_sqlite().await;
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         // 粘贴板插件  同时把事件管理器传入在粘贴板插件内部注册
@@ -34,9 +40,9 @@ pub fn run() {
         .plugin(tauri_plugin_http::init())
         // 全局快捷键设置插件
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
-        // sql功能插件，比如使用SQLite等
-        .plugin(tauri_plugin_sql::Builder::default().build())
         .setup(move |app| {
+            // 初始化sqlite链接
+
             // 注册粘贴板内容变化的监听器
             m1.add_event_listener(Arc::new(ClipboardEventTigger));
             // 创建托盘区图标
