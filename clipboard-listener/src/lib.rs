@@ -113,13 +113,3 @@ pub struct ClipboardEvent {
     // 文件内容
     pub file: Option<Vec<u8>>,
 }
-
-#[derive(Debug, Clone)]
-pub struct ClipboardEventTigger;
-#[async_trait::async_trait]
-impl ClipBoardEventListener<ClipboardEvent> for ClipboardEventTigger {
-    async fn handle_event(&self, event: &ClipboardEvent) {
-        println!("触发了粘贴板监听器");
-        dbg!(event);
-    }
-}

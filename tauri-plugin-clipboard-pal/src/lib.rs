@@ -1,6 +1,3 @@
-use std::sync::Arc;
-
-use clipboard_listener::{ClipboardEvent, ClipboardEventTigger, EventManager};
 use tauri::{
     plugin::{Builder, TauriPlugin},
     Manager, Runtime,
@@ -14,9 +11,7 @@ mod error;
 pub use error::{Error, Result};
 
 /// Initializes the plugin.
-pub fn init<R: Runtime>(manager: Arc<EventManager<ClipboardEvent>>) -> TauriPlugin<R> {
-    // 注册监听器
-    manager.add_event_listener(Arc::new(ClipboardEventTigger));
+pub fn init<R: Runtime>() -> TauriPlugin<R> {
     // 初始化插件
     Builder::new("clipboard-pal")
         .invoke_handler(tauri::generate_handler![])

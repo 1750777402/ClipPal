@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use biz::clip_board_sync::ClipboardEventTigger;
 use clipboard_listener::{ClipboardEvent, EventManager};
 use tauri_plugin_autostart::MacosLauncher;
 
@@ -23,7 +24,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         // 粘贴板插件  同时把事件管理器传入在粘贴板插件内部注册
-        .plugin(tauri_plugin_clipboard_pal::init(manager.clone()))
+        .plugin(tauri_plugin_clipboard_pal::init())
         // 开机自启插件
         .plugin(tauri_plugin_autostart::init(
             MacosLauncher::LaunchAgent,
@@ -36,6 +37,8 @@ pub fn run() {
         // sql功能插件，比如使用SQLite等
         .plugin(tauri_plugin_sql::Builder::default().build())
         .setup(move |app| {
+            // 注册粘贴板内容变化的监听器
+            m1.add_event_listener(Arc::new(ClipboardEventTigger));
             // 创建托盘区图标
             tray::create_tray(app.handle())?;
             // 初始化主窗口

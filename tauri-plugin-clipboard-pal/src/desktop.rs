@@ -114,31 +114,31 @@ impl ClipboardHandler for ClipboardMonitor {
         // 文件类型的就判断完了
 
         // 再判断是不是富文本内容
-        if clipboard_context.has(ContentFormat::Rtf) {
-            let text_context = clipboard_context
-                .get_rich_text()
-                .map_err(|err| err.to_string());
-            if let Ok(content) = text_context {
-                self.manager.emit(ClipboardEvent {
-                    r#type: ClipType::Rtf,
-                    content: content,
-                    file: None,
-                });
-                return;
-            }
-        }
-        // 再判断是不是html
-        if clipboard_context.has(ContentFormat::Html) {
-            let text_context = clipboard_context.get_html().map_err(|err| err.to_string());
-            if let Ok(content) = text_context {
-                self.manager.emit(ClipboardEvent {
-                    r#type: ClipType::Html,
-                    content: content,
-                    file: None,
-                });
-                return;
-            }
-        }
+        // if clipboard_context.has(ContentFormat::Rtf) {
+        //     let text_context = clipboard_context
+        //         .get_rich_text()
+        //         .map_err(|err| err.to_string());
+        //     if let Ok(content) = text_context {
+        //         self.manager.emit(ClipboardEvent {
+        //             r#type: ClipType::Rtf,
+        //             content: content,
+        //             file: None,
+        //         });
+        //         return;
+        //     }
+        // }
+        // // 再判断是不是html
+        // if clipboard_context.has(ContentFormat::Html) {
+        //     let text_context = clipboard_context.get_html().map_err(|err| err.to_string());
+        //     if let Ok(content) = text_context {
+        //         self.manager.emit(ClipboardEvent {
+        //             r#type: ClipType::Html,
+        //             content: content,
+        //             file: None,
+        //         });
+        //         return;
+        //     }
+        // }
         // 最后判断是不是普通文本
         if clipboard_context.has(ContentFormat::Text) {
             let text_context = clipboard_context.get_text().map_err(|err| err.to_string());
