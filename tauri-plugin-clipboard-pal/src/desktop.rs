@@ -79,7 +79,7 @@ impl ClipboardHandler for ClipboardMonitor {
             .lock()
             .map_err(|err| err.to_string())
             .unwrap();
-        // 先判断是不是图片   这里的图片特指PNG
+        // 先判断是不是图片   这里的图片特指PNG，其实主要是针对截图软件的截图功能，截图软件截取的图片是没有形成真实文件的，只有图片二进制数据
         if clipboard_context.has(ContentFormat::Image) {
             let img_context = clipboard_context.get_image().map_err(|err| err.to_string());
             if let Ok(image) = img_context {
@@ -87,22 +87,28 @@ impl ClipboardHandler for ClipboardMonitor {
                     self.manager.emit(ClipboardEvent {
                         r#type: ClipType::Img,
                         content: "".to_string(),
-                        file: png.get_bytes().to_vec(),
+                        file: Some(png.get_bytes().to_vec()),
                     });
                 } else {
                     self.manager.emit(ClipboardEvent {
                         r#type: ClipType::Unknown,
                         content: "".to_string(),
-                        file: vec![],
+                        file: None,
                     });
                 }
+                return;
             }
         }
-        // 再判断是不是文件
+        // 再判断是不是文件   这个文件包含了各种类型的文件，比如图片、视频、文件夹等等，是实际存在于我们硬盘中的文件
         if clipboard_context.has(ContentFormat::Files) {
             let file_context = clipboard_context.get_files().map_err(|err| err.to_string());
             if let Ok(content) = file_context {
-                println!("复制了文件:{:?}", content);
+                self.manager.emit(ClipboardEvent {
+                    r#type: ClipType::File,
+                    content: content.join(","),
+                    file: None,
+                });
+                return;
             }
         }
         // 文件类型的就判断完了
@@ -113,22 +119,36 @@ impl ClipboardHandler for ClipboardMonitor {
                 .get_rich_text()
                 .map_err(|err| err.to_string());
             if let Ok(content) = text_context {
-                println!("复制了富文本内容:{}", content);
+                self.manager.emit(ClipboardEvent {
+                    r#type: ClipType::Rtf,
+                    content: content,
+                    file: None,
+                });
+                return;
             }
         }
         // 再判断是不是html
         if clipboard_context.has(ContentFormat::Html) {
             let text_context = clipboard_context.get_html().map_err(|err| err.to_string());
             if let Ok(content) = text_context {
-                println!("复制了html内容:{}", content);
+                self.manager.emit(ClipboardEvent {
+                    r#type: ClipType::Html,
+                    content: content,
+                    file: None,
+                });
+                return;
             }
         }
         // 最后判断是不是普通文本
         if clipboard_context.has(ContentFormat::Text) {
             let text_context = clipboard_context.get_text().map_err(|err| err.to_string());
             if let Ok(text) = text_context {
-                // self.manager.emit(data);
-                println!("复制了文本{:?}", text);
+                self.manager.emit(ClipboardEvent {
+                    r#type: ClipType::Text,
+                    content: text,
+                    file: None,
+                });
+                return;
             }
         }
     }
