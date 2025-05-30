@@ -18,14 +18,12 @@ pub struct ClipboardEventTigger;
 impl ClipBoardEventListener<ClipboardEvent> for ClipboardEventTigger {
     async fn handle_event(&self, event: &ClipboardEvent) {
         let rb: &RBatis = CONTEXT.get::<RBatis>();
-        println!("触发了粘贴板监听器，内容：{:?}", &event.r#type);
         let timestamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_millis() as u64;
         match event.r#type {
             ClipType::Text => {
-                println!("文本内容：{}", event.content);
                 let insert_res = ClipRecord::insert(
                     rb,
                     &ClipRecord {
@@ -42,7 +40,6 @@ impl ClipBoardEventListener<ClipboardEvent> for ClipboardEventTigger {
                 }
             }
             ClipType::Img => {
-                println!("图片内容：{}", event.content);
                 let uid = Uuid::new_v4().to_string();
                 if let Some(file) = &event.file {
                     let insert_res = ClipRecord::insert(
@@ -64,7 +61,6 @@ impl ClipBoardEventListener<ClipboardEvent> for ClipboardEventTigger {
                 }
             }
             ClipType::File => {
-                println!("文件内容：{}", event.content);
                 let insert_res = ClipRecord::insert(
                     rb,
                     &ClipRecord {
