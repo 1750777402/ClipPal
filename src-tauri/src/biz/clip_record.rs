@@ -1,4 +1,5 @@
-use rbatis::crud;
+use rbatis::{crud, Error, RBatis};
+use rbs::to_value;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -15,3 +16,12 @@ pub struct ClipRecord {
 }
 
 crud!(ClipRecord {}, "clip_record");
+
+impl ClipRecord {
+    pub async fn update_content(rb: &RBatis, id: &str, content: &str) -> Result<(), Error> {
+        let sql = "UPDATE clip_record SET content = ? WHERE id = ?";
+        let tx = rb.acquire_begin().await?;
+        let _ = tx.exec(sql, vec![to_value!(content), to_value!(id)]).await;
+        tx.commit().await
+    }
+}
