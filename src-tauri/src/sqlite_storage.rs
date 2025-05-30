@@ -1,4 +1,7 @@
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::{
+    env::current_dir,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 use rbatis::{table_sync::SqliteTableMapper, RBatis};
 
@@ -7,7 +10,17 @@ use crate::{biz::clip_record::ClipRecord, CONTEXT};
 pub async fn init_sqlite() {
     // 创建sqlite链接
     let rb = RBatis::new();
-    rb.init(rbdc_sqlite::Driver {}, &format!("sqlite://clip_pal.db"))
+    let db_path = current_dir()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .join("build")
+        .join("clip_record.db")
+        .to_str()
+        .unwrap()
+        .to_string();
+    println!("db_path:{}", db_path);
+    rb.init(rbdc_sqlite::Driver {}, &format!("sqlite://{}", db_path))
         .unwrap();
     let timestamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)

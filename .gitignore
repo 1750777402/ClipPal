@@ -16,9 +16,9 @@ node_modules/
 dist-js
 dist
 
-clip_Pal.db
-clip_Pal.db-shm
-clip_Pal.db-wal
+clip_record.db
+clip_record.db-shm
+clip_record.db-wal
 
 /src-tauri/target/
 /src-tauri/gen/schemas
