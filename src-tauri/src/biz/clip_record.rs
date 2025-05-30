@@ -9,7 +9,7 @@ pub struct ClipRecord {
     // 内容
     pub content: String,
     // 时间戳
-    pub created: u32,
+    pub created: u64,
     // 用户id
     pub user_id: i32,
 }

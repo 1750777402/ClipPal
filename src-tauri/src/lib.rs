@@ -25,8 +25,13 @@ pub async fn run() {
     // 初始化粘贴板内容变化后的监听管理器
     let manager: Arc<EventManager<ClipboardEvent>> = Arc::new(EventManager::default());
     let m1 = manager.clone();
+    // 注册粘贴板内容变化的监听器
+    manager.add_event_listener(Arc::new(ClipboardEventTigger));
+    // 开启监听器
     manager.start_event_loop();
+    // 初始化sqlite链接
     sqlite_storage::init_sqlite().await;
+
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         // 粘贴板插件  同时把事件管理器传入在粘贴板插件内部注册
@@ -41,10 +46,6 @@ pub async fn run() {
         // 全局快捷键设置插件
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .setup(move |app| {
-            // 初始化sqlite链接
-
-            // 注册粘贴板内容变化的监听器
-            m1.add_event_listener(Arc::new(ClipboardEventTigger));
             // 创建托盘区图标
             tray::create_tray(app.handle())?;
             // 初始化主窗口
@@ -57,8 +58,8 @@ pub async fn run() {
         .build(tauri::generate_context!())
         .unwrap()
         .run(move |_, event| match event {
+            // 程序关闭事件处理
             tauri::RunEvent::ExitRequested { api: _, .. } => {
-                // 程序关闭事件处理
                 // 1.关闭监听器
                 let _ = manager.shutdown.0.send_blocking(());
             }
