@@ -1,6 +1,6 @@
 use std::{
     env::current_dir,
-    fs::File,
+    fs::{self, File},
     io::Write,
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -83,6 +83,7 @@ impl ClipBoardEventListener<ClipboardEvent> for ClipboardEventTigger {
 
 async fn save_img_to_resource(data_id: String, rb: &RBatis, image: &Vec<u8>) {
     let uid = Uuid::new_v4().to_string();
+    check_resource_dir().await;
     let path = &format!("resources\\{}.png", uid);
     let resource_path = current_dir()
         .unwrap()
@@ -102,3 +103,17 @@ async fn save_img_to_resource(data_id: String, rb: &RBatis, image: &Vec<u8>) {
 }
 
 async fn save_file_to_resource(data_id: String, rb: &RBatis, file_path: Vec<String>) {}
+
+
+async fn check_resource_dir(){
+     // 1. 准备资源目录路径
+    let resources_dir = current_dir().unwrap()
+        .parent()
+        .unwrap()
+        .join("resources");
+    
+    // 2. 检查并创建目录（如果不存在）
+    if !resources_dir.exists() {
+        fs::create_dir(&resources_dir).unwrap();
+    }
+}
