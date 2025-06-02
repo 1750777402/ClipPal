@@ -23,4 +23,3 @@ clip_record.db-wal
 /src-tauri/target/
 /src-tauri/gen/schemas
 
-/resources/*
