@@ -1,4 +1,8 @@
-use std::sync::{Arc, RwLock};
+use std::{
+    fmt,
+    str::FromStr,
+    sync::{Arc, RwLock},
+};
 
 use async_channel::{Receiver, Sender};
 use serde::{Deserialize, Serialize};
@@ -96,12 +100,42 @@ where
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub enum ClipType {
     Text,
-    Img,
+    Image,
     File,
     Rtf,
     Html,
     #[default]
     Unknown,
+}
+
+// 实现枚举值到字符串的转换
+impl fmt::Display for ClipType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let s = match self {
+            ClipType::Text => "Text",
+            ClipType::Image => "Image",
+            ClipType::File => "File",
+            ClipType::Rtf => "Rtf",
+            ClipType::Html => "Html",
+            ClipType::Unknown => "Unknown",
+        };
+        write!(f, "{}", s)
+    }
+}
+
+// 实现字符串到枚举值的转换
+impl FromStr for ClipType {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "Text" => Ok(ClipType::Text),
+            "Image" => Ok(ClipType::Image),
+            "File" => Ok(ClipType::File),
+            "Rtf" => Ok(ClipType::Rtf),
+            "Html" => Ok(ClipType::Html),
+            _ => Ok(ClipType::Unknown),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default)]

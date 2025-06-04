@@ -9,7 +9,7 @@ use clipboard_listener::{ClipBoardEventListener, ClipType, ClipboardEvent};
 use rbatis::RBatis;
 use uuid::Uuid;
 
-use crate::{biz::clip_record::ClipRecord, CONTEXT};
+use crate::{CONTEXT, biz::clip_record::ClipRecord};
 
 #[derive(Debug, Clone)]
 pub struct ClipboardEventTigger;
@@ -28,10 +28,11 @@ impl ClipBoardEventListener<ClipboardEvent> for ClipboardEventTigger {
                     rb,
                     &ClipRecord {
                         id: Uuid::new_v4().to_string(),
-                        r#type: "Text".to_string(),
+                        r#type: ClipType::Text.to_string(),
                         content: event.content.clone(),
                         created: timestamp,
-                        user_id: 1,
+                        user_id: 0,
+                        os_type: "win".to_string(),
                     },
                 )
                 .await;
@@ -39,17 +40,18 @@ impl ClipBoardEventListener<ClipboardEvent> for ClipboardEventTigger {
                     println!("insert text record error {}", e);
                 }
             }
-            ClipType::Img => {
+            ClipType::Image => {
                 let uid = Uuid::new_v4().to_string();
                 if let Some(file) = &event.file {
                     let insert_res = ClipRecord::insert(
                         rb,
                         &ClipRecord {
                             id: uid.clone(),
-                            r#type: "Img".to_string(),
+                            r#type: ClipType::Image.to_string(),
                             content: String::new(),
                             created: timestamp,
-                            user_id: 1,
+                            user_id: 0,
+                            os_type: "win".to_string(),
                         },
                     )
                     .await;
@@ -65,10 +67,11 @@ impl ClipBoardEventListener<ClipboardEvent> for ClipboardEventTigger {
                     rb,
                     &ClipRecord {
                         id: Uuid::new_v4().to_string(),
-                        r#type: "File".to_string(),
+                        r#type: ClipType::File.to_string(),
                         content: event.content.clone(),
                         created: timestamp,
-                        user_id: 1,
+                        user_id: 0,
+                        os_type: "win".to_string(),
                     },
                 )
                 .await;
@@ -102,16 +105,10 @@ async fn save_img_to_resource(data_id: String, rb: &RBatis, image: &Vec<u8>) {
     }
 }
 
-async fn save_file_to_resource(data_id: String, rb: &RBatis, file_path: Vec<String>) {}
+async fn check_resource_dir() {
+    // 1. 准备资源目录路径
+    let resources_dir = current_dir().unwrap().parent().unwrap().join("resources");
 
-
-async fn check_resource_dir(){
-     // 1. 准备资源目录路径
-    let resources_dir = current_dir().unwrap()
-        .parent()
-        .unwrap()
-        .join("resources");
-    
     // 2. 检查并创建目录（如果不存在）
     if !resources_dir.exists() {
         fs::create_dir(&resources_dir).unwrap();

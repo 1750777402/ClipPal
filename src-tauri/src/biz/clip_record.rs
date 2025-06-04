@@ -1,4 +1,4 @@
-use rbatis::{crud, Error, RBatis};
+use rbatis::{Error, RBatis, crud};
 use rbs::to_value;
 use serde::{Deserialize, Serialize};
 
@@ -13,6 +13,8 @@ pub struct ClipRecord {
     pub created: u64,
     // 用户id
     pub user_id: i32,
+    // os类型
+    pub os_type: String,
 }
 
 crud!(ClipRecord {}, "clip_record");

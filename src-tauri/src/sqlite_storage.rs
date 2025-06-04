@@ -1,20 +1,18 @@
 use std::{
-    env::current_dir, fs, time::{SystemTime, UNIX_EPOCH}
+    env::current_dir,
+    fs,
+    time::{SystemTime, UNIX_EPOCH},
 };
 
-use rbatis::{table_sync::SqliteTableMapper, RBatis};
+use rbatis::{RBatis, table_sync::SqliteTableMapper};
 
-use crate::{biz::clip_record::ClipRecord, CONTEXT};
+use crate::{CONTEXT, biz::clip_record::ClipRecord};
 
 pub async fn init_sqlite() {
     // 创建sqlite链接
     let rb = RBatis::new();
-    let build_dir = current_dir()
-    .unwrap() 
-    .parent() 
-    .unwrap()
-    .join("build");
-    if let false = build_dir.exists(){
+    let build_dir = current_dir().unwrap().parent().unwrap().join("build");
+    if let false = build_dir.exists() {
         fs::create_dir_all(build_dir).unwrap();
     }
     let db_path = current_dir()
@@ -38,6 +36,7 @@ pub async fn init_sqlite() {
         content: "".to_string(),
         created: timestamp,
         user_id: 0,
+        os_type: "win".to_string(),
     };
     let _ = RBatis::sync(&rb, &SqliteTableMapper {}, &table, "clip_record").await;
     // 把sqlite链接放入全局变量中

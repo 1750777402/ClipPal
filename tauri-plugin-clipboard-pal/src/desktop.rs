@@ -1,7 +1,7 @@
 use clipboard_listener::{ClipType, ClipboardEvent, EventManager};
 use clipboard_rs::{
-    common::RustImage, Clipboard as ClipboardRS, ClipboardContext as ClipboardRsContext,
-    ClipboardHandler, ClipboardWatcher, ClipboardWatcherContext, ContentFormat, WatcherShutdown,
+    Clipboard as ClipboardRS, ClipboardContext as ClipboardRsContext, ClipboardHandler,
+    ClipboardWatcher, ClipboardWatcherContext, ContentFormat, WatcherShutdown, common::RustImage,
 };
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex};
@@ -85,7 +85,7 @@ impl ClipboardHandler for ClipboardMonitor {
             if let Ok(image) = img_context {
                 if let Ok(png) = image.to_png() {
                     self.manager.emit(ClipboardEvent {
-                        r#type: ClipType::Img,
+                        r#type: ClipType::Image,
                         content: "".to_string(),
                         file: Some(png.get_bytes().to_vec()),
                     });
@@ -105,7 +105,7 @@ impl ClipboardHandler for ClipboardMonitor {
             if let Ok(content) = file_context {
                 self.manager.emit(ClipboardEvent {
                     r#type: ClipType::File,
-                    content: content.join(","),
+                    content: serde_json::to_string(&content).unwrap_or("".to_string()),
                     file: None,
                 });
                 return;

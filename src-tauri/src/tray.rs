@@ -1,7 +1,7 @@
 use tauri::image::Image;
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, TrayIconEvent};
-use tauri::{tray::TrayIconBuilder, Manager, Runtime};
+use tauri::{Manager, Runtime, tray::TrayIconBuilder};
 
 pub fn create_tray<R: Runtime>(app: &tauri::AppHandle<R>) -> tauri::Result<()> {
     // 为系统创建托盘图标

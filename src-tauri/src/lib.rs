@@ -33,6 +33,9 @@ pub async fn run() {
     sqlite_storage::init_sqlite().await;
 
     tauri::Builder::default()
+        // 保存窗口位置和大小，并在应用程序重新打开时恢复它们
+        .plugin(tauri_plugin_window_state::Builder::new().build())
+        // 使用特定或者默认的应用程序打开文件或者 URL
         .plugin(tauri_plugin_opener::init())
         // 粘贴板插件  同时把事件管理器传入在粘贴板插件内部注册
         .plugin(tauri_plugin_clipboard_pal::init())
