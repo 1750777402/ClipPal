@@ -7,6 +7,7 @@ use std::{
 
 use clipboard_listener::{ClipBoardEventListener, ClipType, ClipboardEvent};
 use rbatis::RBatis;
+use tauri::{AppHandle, Emitter};
 use uuid::Uuid;
 
 use crate::{CONTEXT, biz::clip_record::ClipRecord};
@@ -81,6 +82,9 @@ impl ClipBoardEventListener<ClipboardEvent> for ClipboardEventTigger {
             }
             _ => {}
         }
+        // 触发粘贴板变化事件通知前端
+        let app_handle = CONTEXT.get::<AppHandle>();
+        let _ = app_handle.emit("clip_record_change", ());
     }
 }
 

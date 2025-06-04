@@ -1,4 +1,4 @@
-use rbatis::{Error, RBatis, crud};
+use rbatis::{Error, RBatis, crud, impl_select, impl_select_page};
 use rbs::to_value;
 use serde::{Deserialize, Serialize};
 
@@ -18,6 +18,7 @@ pub struct ClipRecord {
 }
 
 crud!(ClipRecord {}, "clip_record");
+impl_select!(ClipRecord{select_order_by() =>"`order by created desc`"});
 
 impl ClipRecord {
     pub async fn update_content(rb: &RBatis, id: &str, content: &str) -> Result<(), Error> {

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
 import { ref, onMounted } from 'vue'
 
 // 菜单数据
@@ -21,6 +22,7 @@ interface ClipRecord {
 }
 
 const container = ref<HTMLElement | null>(null)
+let eventUnlisten: (() => void) | null = null;
 
 // 从后端获取剪贴板记录
 const fetchClipRecords = async () => {
@@ -29,28 +31,24 @@ const fetchClipRecords = async () => {
     // 调用Tauri命令获取数据 
     const data: ClipRecord[] = await invoke('get_clip_records');
     cards.value = data;
-    
-    // 添加模拟数据（实际应用中移除）
-    if (data.length === 0) {
-      for (let i = 0; i < 20; i++) {
-        cards.value.push({
-          id: `${i}`,
-          type: i % 3 === 0 ? 'text' : 'image',
-          content: i % 3 === 0 
-            ? `这是第${i}条文本记录，包含重要信息...` 
-            : `screenshot-${i}.png`,
-          created: Date.now() - i * 3600000,
-          user_id: 1001,
-          os_type: i % 2 === 0 ? 'macOS' : 'Windows'
-        });
-      }
-    }
+    console.log('获取数据成功:', cards.value);
   } catch (error) {
     console.error('获取数据失败:', error);
   } finally {
     isLoading.value = false;
   }
 };
+
+const initEventListeners = async () => {
+  try {
+    eventUnlisten = await listen('clip_record_change', () => {
+      fetchClipRecords();
+    });
+  } catch (error) {
+    console.error('事件监听失败:', error);
+  }
+};
+
 
 // 获取单个记录详情
 const fetchClipRecordDetail = async (id: string) => {
@@ -107,11 +105,12 @@ const formatDate = (timestamp: number) => {
 // 初始化
 onMounted(() => {
   fetchClipRecords();
-  
+  initEventListeners();
   window.addEventListener('resize', () => {
     if (container.value) container.value.scrollLeft = 0
   })
 })
+
 </script>
 
 <template>

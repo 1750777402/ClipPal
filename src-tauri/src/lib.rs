@@ -3,6 +3,7 @@ use std::sync::Arc;
 use biz::clip_board_sync::ClipboardEventTigger;
 use clipboard_listener::{ClipboardEvent, EventManager};
 use state::TypeMap;
+use tauri::Manager;
 use tauri_plugin_autostart::MacosLauncher;
 
 use crate::biz::query_clip_record::get_clip_records;
@@ -45,10 +46,15 @@ pub async fn run() {
         // 全局快捷键设置插件
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .setup(move |app| {
+            CONTEXT.set(app.handle().clone());
             // 创建托盘区图标
             tray::create_tray(app.handle())?;
             // 初始化主窗口
             let _ = window::init_main_window(&app);
+            app.app_handle()
+                .get_webview_window("main")
+                .unwrap()
+                .open_devtools();
             // 初始化剪贴板监听器
             let _ = clip_board::init_clip_board_listener(&app, m1);
             Ok(())
