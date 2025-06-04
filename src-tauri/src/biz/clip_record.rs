@@ -1,4 +1,4 @@
-use rbatis::{Error, RBatis, crud, impl_select, impl_select_page};
+use rbatis::{Error, RBatis, crud, impl_select};
 use rbs::to_value;
 use serde::{Deserialize, Serialize};
 
