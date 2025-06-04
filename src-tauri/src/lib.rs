@@ -5,6 +5,8 @@ use clipboard_listener::{ClipboardEvent, EventManager};
 use state::TypeMap;
 use tauri_plugin_autostart::MacosLauncher;
 
+use crate::biz::query_clip_record::get_clip_records;
+
 mod biz;
 mod clip_board;
 mod sqlite_storage;
@@ -13,12 +15,6 @@ mod window;
 
 // 全局上下文存储
 pub static CONTEXT: TypeMap![Send + Sync] = <TypeMap![Send + Sync]>::new();
-
-// Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-#[tauri::command]
-fn greet(name: &str) -> String {
-    format!("Hello, {}! You've been greeted from Rust!", name)
-}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub async fn run() {
@@ -57,7 +53,7 @@ pub async fn run() {
             let _ = clip_board::init_clip_board_listener(&app, m1);
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![greet])
+        .invoke_handler(tauri::generate_handler![get_clip_records])
         .build(tauri::generate_context!())
         .unwrap()
         .run(move |_, event| match event {
