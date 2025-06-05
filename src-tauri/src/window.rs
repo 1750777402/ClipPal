@@ -15,8 +15,11 @@ pub fn init_main_window(app: &App) -> tauri::Result<()> {
     let screen_width = screen_size.width as i32;
     let screen_height = screen_size.height as i32;
 
-    // 设置窗口参数 - 右侧贴边，高度与屏幕同高
-    let window_width = 400; // 可以根据需要调整窗口宽度
+    // 设置窗口参数 - 右侧贴边，高度与屏幕同高  宽度为屏幕宽度六分之一，最小400
+    let mut window_width = screen_width / 6;
+    if window_width > 400 {
+        window_width = 400;
+    }
     let x_position = (screen_width - window_width).max(0);
 
     // 设置窗口大小和位置
