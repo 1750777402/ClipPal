@@ -8,7 +8,7 @@ use tauri_plugin_autostart::MacosLauncher;
 use crate::biz::query_clip_record::get_clip_records;
 
 mod biz;
-mod clip_board;
+mod clip_board_listener;
 mod sqlite_storage;
 mod tray;
 mod window;
@@ -56,7 +56,7 @@ pub async fn run() {
             //     .unwrap()
             //     .open_devtools();
             // 初始化剪贴板监听器
-            let _ = clip_board::init_clip_board_listener(&app, m1);
+            let _ = clip_board_listener::init_clip_board_listener(&app, m1);
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![get_clip_records])

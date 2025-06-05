@@ -7,6 +7,7 @@ use std::{
 
 use clipboard_listener::{ClipBoardEventListener, ClipType, ClipboardEvent};
 use rbatis::RBatis;
+use serde_json::Value;
 use tauri::{AppHandle, Emitter};
 use uuid::Uuid;
 
@@ -23,6 +24,11 @@ impl ClipBoardEventListener<ClipboardEvent> for ClipboardEventTigger {
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_millis() as u64;
+        let mut max_sort = 0;
+        let max_sort_record = ClipRecord::select_max_sort(rb, 0).await.unwrap_or(vec![]);
+        if max_sort_record.len() > 0 {
+            max_sort = max_sort_record[0].sort + 1;
+        }
         match event.r#type {
             ClipType::Text => {
                 let old_text_record = ClipRecord::check_by_type_and_content(
@@ -34,7 +40,8 @@ impl ClipBoardEventListener<ClipboardEvent> for ClipboardEventTigger {
                 .unwrap_or(vec![]);
                 if old_text_record.len() > 0 {
                     // 存在相同的文本   把这个文本排序到最前面
-                    todo!()
+                    let _ =
+                        ClipRecord::update_sort(rb, old_text_record[0].id.as_str(), max_sort).await;
                 } else {
                     // 新增一条记录
                     let insert_res = ClipRecord::insert(
@@ -47,7 +54,7 @@ impl ClipBoardEventListener<ClipboardEvent> for ClipboardEventTigger {
                             created: timestamp,
                             user_id: 0,
                             os_type: "win".to_string(),
-                            sort: 1,
+                            sort: max_sort,
                         },
                     )
                     .await;
@@ -57,47 +64,83 @@ impl ClipBoardEventListener<ClipboardEvent> for ClipboardEventTigger {
                 }
             }
             ClipType::Image => {
-                let uid = Uuid::new_v4().to_string();
-                if let Some(file) = &event.file {
-                    let img_md5 = format!("{:x}", md5::compute(file));
-                    let insert_res = ClipRecord::insert(
-                        rb,
-                        &ClipRecord {
-                            id: uid.clone(),
-                            r#type: ClipType::Image.to_string(),
-                            content: serde_json::Value::String("".to_string()),
-                            md5_str: img_md5,
-                            created: timestamp,
-                            user_id: 0,
-                            os_type: "win".to_string(),
-                            sort: 1,
-                        },
-                    )
-                    .await;
-                    if let Err(e) = insert_res {
-                        println!("insert img record error {}", e);
-                    } else {
-                        save_img_to_resource(uid, rb, file).await;
+                let file_data = &event.file.clone().unwrap_or(vec![]);
+                // 计算图片的md5
+                let img_md5 = format!("{:x}", md5::compute(file_data));
+                let old_image_record = ClipRecord::check_by_type_and_md5(
+                    rb,
+                    ClipType::Image.to_string().as_str(),
+                    img_md5.as_str(),
+                )
+                .await
+                .unwrap_or(vec![]);
+                if old_image_record.len() > 0 {
+                    // 存在相同的图片   把这个图片排序到最前面
+                    let _ = ClipRecord::update_sort(rb, old_image_record[0].id.as_str(), max_sort)
+                        .await;
+                } else {
+                    let uid = Uuid::new_v4().to_string();
+                    if let Some(file) = &event.file {
+                        let insert_res = ClipRecord::insert(
+                            rb,
+                            &ClipRecord {
+                                id: uid.clone(),
+                                r#type: ClipType::Image.to_string(),
+                                content: serde_json::Value::String("".to_string()),
+                                md5_str: img_md5,
+                                created: timestamp,
+                                user_id: 0,
+                                os_type: "win".to_string(),
+                                sort: max_sort,
+                            },
+                        )
+                        .await;
+                        if let Err(e) = insert_res {
+                            println!("insert img record error {}", e);
+                        } else {
+                            // 把图片存到resource文件夹
+                            save_img_to_resource(uid, rb, file).await;
+                        }
                     }
                 }
             }
             ClipType::File => {
-                let insert_res = ClipRecord::insert(
+                let file_path = &event.file_path_vec.clone().unwrap_or(vec![]);
+                let mut new_file_path = file_path.to_vec();
+                // 根据字典序排序
+                new_file_path.sort();
+                let file_path_md5 =
+                    format!("{:x}", md5::compute(new_file_path.join("").as_bytes()));
+                let old_file_record = ClipRecord::check_by_type_and_md5(
                     rb,
-                    &ClipRecord {
-                        id: Uuid::new_v4().to_string(),
-                        r#type: ClipType::File.to_string(),
-                        content: serde_json::Value::String(event.content.clone()),
-                        md5_str: "".to_string(),
-                        created: timestamp,
-                        user_id: 0,
-                        os_type: "win".to_string(),
-                        sort: 1,
-                    },
+                    ClipType::File.to_string().as_str(),
+                    file_path_md5.as_str(),
                 )
-                .await;
-                if let Err(e) = insert_res {
-                    println!("insert file error {}", e);
+                .await
+                .unwrap_or(vec![]);
+                if old_file_record.len() > 0 {
+                    // 存在相同的文件   把这个文件排序到最前面
+                    let _ =
+                        ClipRecord::update_sort(rb, old_file_record[0].id.as_str(), max_sort).await;
+                } else {
+                    let insert_res = ClipRecord::insert(
+                        rb,
+                        &ClipRecord {
+                            id: Uuid::new_v4().to_string(),
+                            r#type: ClipType::File.to_string(),
+                            content: serde_json::to_value(file_path)
+                                .unwrap_or(Value::String("".to_string())),
+                            md5_str: file_path_md5,
+                            created: timestamp,
+                            user_id: 0,
+                            os_type: "win".to_string(),
+                            sort: max_sort,
+                        },
+                    )
+                    .await;
+                    if let Err(e) = insert_res {
+                        println!("insert file error {}", e);
+                    }
                 }
             }
             _ => {}

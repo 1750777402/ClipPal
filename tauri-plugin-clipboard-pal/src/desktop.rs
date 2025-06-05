@@ -100,7 +100,7 @@ impl ClipboardHandler for ClipboardMonitor {
             if let Ok(content) = file_context {
                 self.manager.emit(ClipboardEvent {
                     r#type: ClipType::File,
-                    content: serde_json::to_string(&content).unwrap_or("".to_string()),
+                    content: "".to_string(),
                     file: None,
                     file_path_vec: Some(content),
                 });
