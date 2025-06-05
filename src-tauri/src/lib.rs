@@ -51,6 +51,7 @@ pub async fn run() {
             tray::create_tray(app.handle())?;
             // 初始化主窗口
             let _ = window::init_main_window(&app);
+            // 开启devtools工具
             app.app_handle()
                 .get_webview_window("main")
                 .unwrap()
