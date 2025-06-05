@@ -14,14 +14,14 @@
       {
         "label": "main",
         "title": "ClipPal",
-        "width": 800,
-        "height": 600,
+        "width": 0,
+        "height": 0,
         "resizable": false,
         "decorations": false,
-        "alwaysOnBottom": true,
         "visible": false,
         "fullscreen": false,
-        "closable": true
+        "closable": true,
+        "skipTaskbar": true
       }
     ],
     "security": {

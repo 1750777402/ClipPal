@@ -23,6 +23,8 @@ async-trait = "0.1"
 rbs = { version = "=4.5"}
 rbatis = { version = "=4.5"}
 rbdc-sqlite = { version = "=4.5" }
-tauri = {version = "2.2.5", features = ["tray-icon", "image-png"] }
-tauri-plugin-http = "2.4.3"
+state = {version = "0.6.0"}
+tauri = {version = "=2.5.1", features = ["tray-icon", "image-png"] }
+tauri-plugin-http = "=2.4.4"
 tauri-plugin-opener = "2"
+md5 = "0.7.0"

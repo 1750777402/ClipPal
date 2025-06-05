@@ -33,10 +33,12 @@ pub async fn init_sqlite() {
     let table = ClipRecord {
         id: "".to_string(),
         r#type: "".to_string(),
-        content: "".to_string(),
+        content: serde_json::Value::String("".to_string()),
+        md5_str: "".to_string(),
         created: timestamp,
         user_id: 0,
         os_type: "win".to_string(),
+        sort: 1,
     };
     let _ = RBatis::sync(&rb, &SqliteTableMapper {}, &table, "clip_record").await;
     // 把sqlite链接放入全局变量中

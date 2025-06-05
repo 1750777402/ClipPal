@@ -3,7 +3,6 @@ use std::sync::Arc;
 use biz::clip_board_sync::ClipboardEventTigger;
 use clipboard_listener::{ClipboardEvent, EventManager};
 use state::TypeMap;
-use tauri::Manager;
 use tauri_plugin_autostart::MacosLauncher;
 
 use crate::biz::query_clip_record::get_clip_records;
@@ -52,10 +51,10 @@ pub async fn run() {
             // 初始化主窗口
             let _ = window::init_main_window(&app);
             // 开启devtools工具
-            app.app_handle()
-                .get_webview_window("main")
-                .unwrap()
-                .open_devtools();
+            // app.app_handle()
+            //     .get_webview_window("main")
+            //     .unwrap()
+            //     .open_devtools();
             // 初始化剪贴板监听器
             let _ = clip_board::init_clip_board_listener(&app, m1);
             Ok(())

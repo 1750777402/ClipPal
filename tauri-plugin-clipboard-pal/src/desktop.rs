@@ -88,12 +88,7 @@ impl ClipboardHandler for ClipboardMonitor {
                         r#type: ClipType::Image,
                         content: "".to_string(),
                         file: Some(png.get_bytes().to_vec()),
-                    });
-                } else {
-                    self.manager.emit(ClipboardEvent {
-                        r#type: ClipType::Unknown,
-                        content: "".to_string(),
-                        file: None,
+                        file_path_vec: None,
                     });
                 }
                 return;
@@ -107,6 +102,7 @@ impl ClipboardHandler for ClipboardMonitor {
                     r#type: ClipType::File,
                     content: serde_json::to_string(&content).unwrap_or("".to_string()),
                     file: None,
+                    file_path_vec: Some(content),
                 });
                 return;
             }
@@ -147,6 +143,7 @@ impl ClipboardHandler for ClipboardMonitor {
                     r#type: ClipType::Text,
                     content: text,
                     file: None,
+                    file_path_vec: None,
                 });
                 return;
             }

@@ -142,8 +142,10 @@ impl FromStr for ClipType {
 pub struct ClipboardEvent {
     // 类型
     pub r#type: ClipType,
-    // 内容
+    // 内容  文本类型使用
     pub content: String,
-    // 文件内容
+    // 文件内容  png截图类型图片使用
     pub file: Option<Vec<u8>>,
+    // 文件路径   文件类型使用
+    pub file_path_vec: Option<Vec<String>>,
 }

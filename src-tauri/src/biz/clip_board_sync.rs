@@ -30,10 +30,12 @@ impl ClipBoardEventListener<ClipboardEvent> for ClipboardEventTigger {
                     &ClipRecord {
                         id: Uuid::new_v4().to_string(),
                         r#type: ClipType::Text.to_string(),
-                        content: event.content.clone(),
+                        content: serde_json::Value::String(event.content.clone()),
+                        md5_str: "".to_string(),
                         created: timestamp,
                         user_id: 0,
                         os_type: "win".to_string(),
+                        sort: 1,
                     },
                 )
                 .await;
@@ -44,15 +46,18 @@ impl ClipBoardEventListener<ClipboardEvent> for ClipboardEventTigger {
             ClipType::Image => {
                 let uid = Uuid::new_v4().to_string();
                 if let Some(file) = &event.file {
+                    let img_md5 = format!("{:x}", md5::compute(file));
                     let insert_res = ClipRecord::insert(
                         rb,
                         &ClipRecord {
                             id: uid.clone(),
                             r#type: ClipType::Image.to_string(),
-                            content: String::new(),
+                            content: serde_json::Value::String("".to_string()),
+                            md5_str: img_md5,
                             created: timestamp,
                             user_id: 0,
                             os_type: "win".to_string(),
+                            sort: 1,
                         },
                     )
                     .await;
@@ -69,10 +74,12 @@ impl ClipBoardEventListener<ClipboardEvent> for ClipboardEventTigger {
                     &ClipRecord {
                         id: Uuid::new_v4().to_string(),
                         r#type: ClipType::File.to_string(),
-                        content: event.content.clone(),
+                        content: serde_json::Value::String(event.content.clone()),
+                        md5_str: "".to_string(),
                         created: timestamp,
                         user_id: 0,
                         os_type: "win".to_string(),
+                        sort: 1,
                     },
                 )
                 .await;
@@ -104,7 +111,12 @@ async fn save_img_to_resource(data_id: String, rb: &RBatis, image: &Vec<u8>) {
     if let Ok(mut file) = file {
         if let Ok(_) = file.write_all(image) {
             let _ = file.flush();
-            let _ = ClipRecord::update_content(rb, data_id.as_str(), path.as_str()).await;
+            let _ = ClipRecord::update_content(
+                rb,
+                data_id.as_str(),
+                &serde_json::Value::String(path.clone()),
+            )
+            .await;
         }
     }
 }
