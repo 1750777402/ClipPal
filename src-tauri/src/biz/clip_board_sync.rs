@@ -25,22 +25,35 @@ impl ClipBoardEventListener<ClipboardEvent> for ClipboardEventTigger {
             .as_millis() as u64;
         match event.r#type {
             ClipType::Text => {
-                let insert_res = ClipRecord::insert(
+                let old_text_record = ClipRecord::check_by_type_and_content(
                     rb,
-                    &ClipRecord {
-                        id: Uuid::new_v4().to_string(),
-                        r#type: ClipType::Text.to_string(),
-                        content: serde_json::Value::String(event.content.clone()),
-                        md5_str: "".to_string(),
-                        created: timestamp,
-                        user_id: 0,
-                        os_type: "win".to_string(),
-                        sort: 1,
-                    },
+                    ClipType::Text.to_string().as_str(),
+                    event.content.clone().as_str(),
                 )
-                .await;
-                if let Err(e) = insert_res {
-                    println!("insert text record error {}", e);
+                .await
+                .unwrap_or(vec![]);
+                if old_text_record.len() > 0 {
+                    // 存在相同的文本   把这个文本排序到最前面
+                    todo!()
+                } else {
+                    // 新增一条记录
+                    let insert_res = ClipRecord::insert(
+                        rb,
+                        &ClipRecord {
+                            id: Uuid::new_v4().to_string(),
+                            r#type: ClipType::Text.to_string(),
+                            content: serde_json::Value::String(event.content.clone()),
+                            md5_str: "".to_string(),
+                            created: timestamp,
+                            user_id: 0,
+                            os_type: "win".to_string(),
+                            sort: 1,
+                        },
+                    )
+                    .await;
+                    if let Err(e) = insert_res {
+                        println!("insert text record error {}", e);
+                    }
                 }
             }
             ClipType::Image => {
