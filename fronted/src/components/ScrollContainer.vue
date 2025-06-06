@@ -57,10 +57,10 @@ interface ClipRecord {
 }
 
 
-let eventUnlisten: (() => void) | null = null;
+
 const initEventListeners = async () => {
   try {
-    eventUnlisten = await listen('clip_record_change', () => {
+    await listen('clip_record_change', () => {
       fetchClipRecords();
     });
   } catch (error) {
