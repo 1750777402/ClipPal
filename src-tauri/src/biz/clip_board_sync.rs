@@ -7,7 +7,6 @@ use std::{
 
 use clipboard_listener::{ClipBoardEventListener, ClipType, ClipboardEvent};
 use rbatis::RBatis;
-use serde_json::Value;
 use tauri::{AppHandle, Emitter};
 use uuid::Uuid;
 

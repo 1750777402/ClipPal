@@ -1,7 +1,6 @@
 use rbatis::{Error, RBatis, crud, impl_select};
 use rbs::to_value;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ClipRecord {
