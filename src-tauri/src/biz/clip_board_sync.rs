@@ -62,7 +62,7 @@ async fn handle_text(rb: &RBatis, content: &str, sort: i32) {
         let record = ClipRecord {
             id: Uuid::new_v4().to_string(),
             r#type: "Text".to_string(),
-            content: Value::String(content.to_string()),
+            content: content.to_string(),
             md5_str: String::new(),
             created: current_timestamp(),
             user_id: 0,
@@ -92,7 +92,7 @@ async fn handle_image(rb: &RBatis, file_data: Option<&Vec<u8>>, sort: i32) {
             let record = ClipRecord {
                 id: id.clone(),
                 r#type: "Image".to_string(),
-                content: Value::String(String::new()),
+                content: String::new(),
                 md5_str,
                 created: current_timestamp(),
                 user_id: 0,
@@ -125,7 +125,7 @@ async fn handle_file(rb: &RBatis, file_paths: Option<&Vec<String>>, sort: i32) {
             let record = ClipRecord {
                 id: Uuid::new_v4().to_string(),
                 r#type: "File".to_string(),
-                content: serde_json::to_value(paths).unwrap_or(Value::String(String::new())),
+                content: paths.join(":::"),
                 md5_str,
                 created: current_timestamp(),
                 user_id: 0,
@@ -151,8 +151,7 @@ async fn save_img_to_resource(data_id: &str, rb: &RBatis, image: &Vec<u8>) {
     {
         if let Ok(mut file) = File::create(&resource_path) {
             if file.write_all(image).is_ok() && file.flush().is_ok() {
-                let _ =
-                    ClipRecord::update_content(rb, data_id, &Value::String(relative_path)).await;
+                let _ = ClipRecord::update_content(rb, data_id, &relative_path).await;
             }
         }
     }

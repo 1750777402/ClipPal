@@ -33,7 +33,7 @@ pub async fn init_sqlite() {
     let table = ClipRecord {
         id: "".to_string(),
         r#type: "".to_string(),
-        content: serde_json::Value::String("".to_string()),
+        content: "".to_string(),
         md5_str: "".to_string(),
         created: timestamp,
         user_id: 0,

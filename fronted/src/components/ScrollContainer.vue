@@ -14,6 +14,7 @@
         v-for="item in cards"
         :key="item.id"
         class="clip-card"
+        @click="handleCardClick(item)"
       >
         <div class="clip-content">
           <template v-if="item.type === 'Text'">
@@ -27,11 +28,6 @@
               <span>{{ item.content }}</span>
             </div>
           </template>
-        </div>
-
-        <div class="clip-actions">
-          <button class="action-button" title="置顶"></button>
-          <button class="action-button" title="删除"></button>
         </div>
       </div>
     </div>
@@ -56,6 +52,11 @@ interface ClipRecord {
   os_type: string;
 }
 
+
+const handleCardClick = async (item: ClipRecord) => {
+  await invoke('copy_clip_record', { param: {record_id: item.id }});
+  fetchClipRecords();
+}
 
 
 const initEventListeners = async () => {

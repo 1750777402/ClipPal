@@ -127,7 +127,7 @@ impl fmt::Display for ClipType {
 impl FromStr for ClipType {
     type Err = String;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.to_lowercase().as_str() {
+        match s {
             "Text" => Ok(ClipType::Text),
             "Image" => Ok(ClipType::Image),
             "File" => Ok(ClipType::File),

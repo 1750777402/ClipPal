@@ -5,7 +5,7 @@ use clipboard_listener::{ClipboardEvent, EventManager};
 use state::TypeMap;
 use tauri_plugin_autostart::MacosLauncher;
 
-use crate::biz::query_clip_record::get_clip_records;
+use crate::biz::{copy_clip_record::copy_clip_record, query_clip_record::get_clip_records};
 
 mod biz;
 mod clip_board_listener;
@@ -59,7 +59,7 @@ pub async fn run() {
             let _ = clip_board_listener::init_clip_board_listener(&app, m1);
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![get_clip_records])
+        .invoke_handler(tauri::generate_handler![get_clip_records, copy_clip_record])
         .build(tauri::generate_context!())
         .unwrap()
         .run(move |_, event| match event {

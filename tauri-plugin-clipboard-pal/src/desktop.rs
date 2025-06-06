@@ -1,8 +1,11 @@
+use base64::{Engine, engine::general_purpose};
 use clipboard_listener::{ClipType, ClipboardEvent, EventManager};
 use clipboard_rs::{
-    Clipboard as ClipboardRS, ClipboardContext as ClipboardRsContext, ClipboardHandler,
-    ClipboardWatcher, ClipboardWatcherContext, ContentFormat, WatcherShutdown, common::RustImage,
+    Clipboard as ClipboardRS, ClipboardContent, ClipboardContext as ClipboardRsContext,
+    ClipboardHandler, ClipboardWatcher, ClipboardWatcherContext, ContentFormat, RustImageData,
+    WatcherShutdown, common::RustImage,
 };
+use image::EncodableLayout;
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex};
 
@@ -28,6 +31,97 @@ pub struct ClipboardPal {
 }
 
 impl ClipboardPal {
+    /// Write files uris to clipboard. The files should be in uri format: `file:///path/to/file` on Mac and Linux. File path is absolute path.
+    /// On Windows, the path should be in the format `C:\\path\\to\\file`.
+    pub fn write_files_uris(&self, files: Vec<String>) -> Result<(), String> {
+        // iterate through files, check if it starts with files://, if not throw error (only linux and mac)
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
+        {
+            for file in &files {
+                if !file.starts_with("file://") {
+                    return Err(format!(
+                        "Invalid file uri: {}. File uri should start with file://",
+                        file
+                    ));
+                }
+            }
+        }
+        // On Windows, we don't need the file:// prefix, so we remove it if it's there
+        #[cfg(target_os = "windows")]
+        {
+            for file in &files {
+                if file.starts_with("file://") {
+                    return Err(format!(
+                        "Invalid file uri: {}. File uri on Windows should not start with file://",
+                        file
+                    ));
+                }
+            }
+        }
+
+        self.clipboard
+            .lock()
+            .map_err(|err| err.to_string())?
+            .set_files(files)
+            .map_err(|err| err.to_string())
+    }
+
+    // Write to Clipboard APIs
+    pub fn write_text(&self, text: String) -> Result<(), String> {
+        self.clipboard
+            .lock()
+            .map_err(|err| err.to_string())?
+            .set_text(text)
+            .map_err(|err| err.to_string())
+    }
+
+    pub fn write_html(&self, html: String) -> Result<(), String> {
+        self.clipboard
+            .lock()
+            .map_err(|err| err.to_string())?
+            .set_html(html)
+            .map_err(|err| err.to_string())
+    }
+
+    pub fn write_html_and_text(&self, html: String, text: String) -> Result<(), String> {
+        self.clipboard
+            .lock()
+            .map_err(|err| err.to_string())?
+            .set(vec![
+                ClipboardContent::Text(text),
+                ClipboardContent::Html(html),
+            ])
+            .map_err(|err| err.to_string())
+    }
+
+    pub fn write_rtf(&self, rtf: String) -> Result<(), String> {
+        self.clipboard
+            .lock()
+            .map_err(|err| err.to_string())?
+            .set_rich_text(rtf)
+            .map_err(|err| err.to_string())
+    }
+
+    /// write base64 png image to clipboard
+    pub fn write_image_base64(&self, base64_image: String) -> Result<(), String> {
+        let decoded = general_purpose::STANDARD
+            .decode(base64_image)
+            .map_err(|err| err.to_string())?;
+        self.write_image_binary(decoded)
+            .map_err(|err| err.to_string())?;
+        Ok(())
+    }
+
+    pub fn write_image_binary(&self, bytes: Vec<u8>) -> Result<(), String> {
+        let img = RustImageData::from_bytes(bytes.as_bytes()).map_err(|err| err.to_string())?;
+        self.clipboard
+            .lock()
+            .map_err(|err| err.to_string())?
+            .set_image(img)
+            .unwrap();
+        Ok(())
+    }
+
     pub fn start_monitor(&self, manager: Arc<EventManager<ClipboardEvent>>) -> Result<(), String> {
         let clipboard = ClipboardMonitor::new(self.clipboard.clone(), manager);
         let mut watcher: ClipboardWatcherContext<ClipboardMonitor> =
