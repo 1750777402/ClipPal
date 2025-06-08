@@ -18,6 +18,9 @@ fn get_clippal_root() -> Option<PathBuf> {
     })
 }
 
+/// win: "C:\\Users\\<User>\\AppData\\Roaming\\ClipPal\\data"
+/// mac: "/Users/<User>/Library/Application Support/ClipPal/data"
+
 pub fn get_data_dir() -> Option<PathBuf> {
     get_clippal_root().map(|mut path| {
         path.push("data");
@@ -26,17 +29,12 @@ pub fn get_data_dir() -> Option<PathBuf> {
     })
 }
 
+/// win: "C:\\Users\\<User>\\AppData\\Roaming\\ClipPal\\resources"
+/// mac:  "/Users/<User>/Library/Application Support/ClipPal/resources"
 pub fn get_resources_dir() -> Option<PathBuf> {
     get_clippal_root().map(|mut path| {
         path.push("resources");
         ensure_directory(&path);
-        path
-    })
-}
-
-pub fn get_db_path() -> Option<PathBuf> {
-    get_data_dir().map(|mut path| {
-        path.push("clipboard.sqlite");
         path
     })
 }
