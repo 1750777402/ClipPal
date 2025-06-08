@@ -11,6 +11,7 @@ mod biz;
 mod clip_board_listener;
 mod sqlite_storage;
 mod tray;
+mod utils;
 mod window;
 
 // 全局上下文存储

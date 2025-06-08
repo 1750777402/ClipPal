@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager};
 use tauri_plugin_clipboard_pal::desktop::ClipboardPal;
 
-use crate::{CONTEXT, biz::clip_record::ClipRecord};
+use crate::{biz::clip_record::ClipRecord, utils::file_dir::get_resources_dir, CONTEXT};
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct CopyClipRecord {
@@ -28,10 +28,7 @@ pub async fn copy_clip_record(param: CopyClipRecord) -> Result<String, String> {
             let _ = clipboard.write_text(record.content);
         }
         ClipType::Image => {
-            let base_path = current_dir()
-                .ok()
-                .and_then(|p| p.parent().map(|p| p.to_path_buf()))
-                .unwrap();
+            let base_path = get_resources_dir().unwrap();
             let abs_path = base_path.join(record.content.to_string());
             if let Ok(img_bytes) = fs::read(abs_path) {
                 let _ = clipboard.write_image_binary(img_bytes);

@@ -1,8 +1,5 @@
 use std::{
-    env::current_dir,
-    fs::{self, File},
-    io::Write,
-    time::{SystemTime, UNIX_EPOCH},
+    env::current_dir, fs::{self, File}, io::Write, path::PathBuf, time::{SystemTime, UNIX_EPOCH}
 };
 
 use clipboard_listener::{ClipBoardEventListener, ClipType, ClipboardEvent};
@@ -10,7 +7,7 @@ use rbatis::RBatis;
 use tauri::{AppHandle, Emitter};
 use uuid::Uuid;
 
-use crate::{CONTEXT, biz::clip_record::ClipRecord};
+use crate::{biz::clip_record::ClipRecord, utils::file_dir::get_resources_dir, CONTEXT};
 
 #[derive(Debug, Clone)]
 pub struct ClipboardEventTigger;
@@ -140,19 +137,31 @@ async fn handle_file(rb: &RBatis, file_paths: Option<&Vec<String>>, sort: i32) {
 }
 
 async fn save_img_to_resource(data_id: &str, rb: &RBatis, image: &Vec<u8>) {
-    check_resource_dir().await;
-    let uid = Uuid::new_v4().to_string();
-    let relative_path = format!("resources\\{}.png", uid);
+    if let Some(resource_path) = get_resources_dir() {
+        // 生成唯一文件名
+        let uid = Uuid::new_v4().to_string();
+        let filename = format!("{}.png", uid);
 
-    if let Some(resource_path) = current_dir()
-        .ok()
-        .and_then(|p| p.parent().map(|pp| pp.join(&relative_path)))
-    {
-        if let Ok(mut file) = File::create(&resource_path) {
-            if file.write_all(image).is_ok() && file.flush().is_ok() {
-                let _ = ClipRecord::update_content(rb, data_id, &relative_path).await;
+        // 拼接完整路径
+        let mut full_path: PathBuf = resource_path.clone();
+        full_path.push(&filename);
+
+        // 创建并写入图片
+        match File::create(&full_path) {
+            Ok(mut file) => {
+                if file.write_all(image).is_ok() && file.flush().is_ok() {
+                    // 写成功后，记录相对路径到数据库
+                    let _ = ClipRecord::update_content(rb, data_id, &filename).await;
+                } else {
+                    eprintln!("写入图片失败");
+                }
+            }
+            Err(e) => {
+                eprintln!("创建图片文件失败: {}", e);
             }
         }
+    } else {
+        eprintln!("资源路径获取失败");
     }
 }
 
