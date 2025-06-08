@@ -1,6 +1,5 @@
 use std::{
-    env::current_dir,
-    fs::{self, File},
+    fs::File,
     io::Write,
     path::PathBuf,
     time::{SystemTime, UNIX_EPOCH},
@@ -166,16 +165,5 @@ async fn save_img_to_resource(data_id: &str, rb: &RBatis, image: &Vec<u8>) {
         }
     } else {
         eprintln!("资源路径获取失败");
-    }
-}
-
-async fn check_resource_dir() {
-    if let Some(resources_dir) = current_dir()
-        .ok()
-        .and_then(|p| p.parent().map(|pp| pp.join("resources")))
-    {
-        if !resources_dir.exists() {
-            let _ = fs::create_dir(&resources_dir);
-        }
     }
 }
