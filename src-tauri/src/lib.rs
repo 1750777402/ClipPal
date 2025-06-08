@@ -9,6 +9,7 @@ use crate::biz::{copy_clip_record::copy_clip_record, query_clip_record::get_clip
 
 mod biz;
 mod clip_board_listener;
+mod global_shortcut;
 mod sqlite_storage;
 mod tray;
 mod utils;
@@ -43,14 +44,14 @@ pub async fn run() {
         ))
         // http请求插件
         .plugin(tauri_plugin_http::init())
-        // 全局快捷键设置插件
-        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .setup(move |app| {
             CONTEXT.set(app.handle().clone());
             // 创建托盘区图标
             tray::create_tray(app.handle())?;
             // 初始化主窗口
             let _ = window::init_main_window(&app);
+            // 注册全局快捷键
+            let _ = global_shortcut::init_global_shortcut(&app);
             // 开启devtools工具
             // app.app_handle()
             //     .get_webview_window("main")
