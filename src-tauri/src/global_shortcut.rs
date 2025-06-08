@@ -9,7 +9,6 @@ pub fn init_global_shortcut(app: &App) -> tauri::Result<()> {
         app.handle().plugin(
             tauri_plugin_global_shortcut::Builder::new()
                 .with_handler(move |app, shortcut, _| {
-                    println!("快捷键触发：{:?}", shortcut);
                     if shortcut == &ctrl_n_shortcut {
                         use tauri::Manager;
                         if let Some(window) = app.get_webview_window("main") {
