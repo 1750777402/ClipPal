@@ -20,7 +20,6 @@ fn get_clippal_root() -> Option<PathBuf> {
 
 /// win: "C:\\Users\\<User>\\AppData\\Roaming\\ClipPal\\data"
 /// mac: "/Users/<User>/Library/Application Support/ClipPal/data"
-
 pub fn get_data_dir() -> Option<PathBuf> {
     get_clippal_root().map(|mut path| {
         path.push("data");
