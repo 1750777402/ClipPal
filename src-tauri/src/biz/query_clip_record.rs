@@ -1,11 +1,11 @@
-use std::{env::current_dir, path::Path};
+use std::path::Path;
 
 use base64::{Engine as _, engine::general_purpose};
 use clipboard_listener::ClipType;
 use rbatis::RBatis;
 use std::fs;
 
-use crate::{biz::clip_record::ClipRecord, utils::file_dir::get_resources_dir, CONTEXT};
+use crate::{CONTEXT, biz::clip_record::ClipRecord, utils::file_dir::get_resources_dir};
 
 #[tauri::command]
 pub async fn get_clip_records() -> Vec<ClipRecord> {
@@ -21,8 +21,7 @@ pub async fn get_clip_records() -> Vec<ClipRecord> {
     if all_data.is_empty() {
         return vec![];
     }
-    let base_path = match get_resources_dir()
-    {
+    let base_path = match get_resources_dir() {
         Some(p) => p,
         None => return all_data,
     };

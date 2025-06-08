@@ -1,4 +1,4 @@
-use std::{env::current_dir, fs};
+use std::fs;
 
 use clipboard_listener::ClipType;
 use rbatis::RBatis;
@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager};
 use tauri_plugin_clipboard_pal::desktop::ClipboardPal;
 
-use crate::{biz::clip_record::ClipRecord, utils::file_dir::get_resources_dir, CONTEXT};
+use crate::{CONTEXT, biz::clip_record::ClipRecord, utils::file_dir::get_resources_dir};
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct CopyClipRecord {

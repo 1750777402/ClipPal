@@ -5,11 +5,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use crate::{
-    CONTEXT,
-    biz::clip_record::ClipRecord,
-    utils::file_dir::{get_data_dir},
-};
+use crate::{CONTEXT, biz::clip_record::ClipRecord, utils::file_dir::get_data_dir};
 
 pub async fn init_sqlite() {
     // 创建sqlite链接
@@ -18,7 +14,12 @@ pub async fn init_sqlite() {
     if let false = build_dir.exists() {
         fs::create_dir_all(build_dir).unwrap();
     }
-    let db_path = get_data_dir().unwrap().join("clip_record.db").to_str().unwrap().to_string();
+    let db_path = get_data_dir()
+        .unwrap()
+        .join("clip_record.db")
+        .to_str()
+        .unwrap()
+        .to_string();
     rb.init(rbdc_sqlite::Driver {}, &format!("sqlite://{}", db_path))
         .unwrap();
     let timestamp = SystemTime::now()

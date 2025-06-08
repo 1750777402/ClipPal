@@ -1,5 +1,9 @@
 use std::{
-    env::current_dir, fs::{self, File}, io::Write, path::PathBuf, time::{SystemTime, UNIX_EPOCH}
+    env::current_dir,
+    fs::{self, File},
+    io::Write,
+    path::PathBuf,
+    time::{SystemTime, UNIX_EPOCH},
 };
 
 use clipboard_listener::{ClipBoardEventListener, ClipType, ClipboardEvent};
@@ -7,7 +11,7 @@ use rbatis::RBatis;
 use tauri::{AppHandle, Emitter};
 use uuid::Uuid;
 
-use crate::{biz::clip_record::ClipRecord, utils::file_dir::get_resources_dir, CONTEXT};
+use crate::{CONTEXT, biz::clip_record::ClipRecord, utils::file_dir::get_resources_dir};
 
 #[derive(Debug, Clone)]
 pub struct ClipboardEventTigger;
