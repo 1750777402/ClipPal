@@ -1,5 +1,6 @@
 [workspace]
 members = ["src-tauri","tauri-plugin-clipboard-pal", "clipboard-listener"]
+resolver = "3"
 
 [workspace.package]
 authors = ["jingchuan"]
