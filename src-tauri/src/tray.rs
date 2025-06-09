@@ -5,7 +5,7 @@ use tauri::{Manager, Runtime, tray::TrayIconBuilder};
 
 pub fn create_tray<R: Runtime>(app: &tauri::AppHandle<R>) -> tauri::Result<()> {
     // 为系统创建托盘图标
-    let icon = Image::from_bytes(include_bytes!("../icons/icon.png"))?;
+    let icon = Image::from_bytes(include_bytes!("../icons/icon_32x32.png"))?;
     let quit_i = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
     let set_sys = MenuItem::with_id(app, "setSys", "设置", true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&set_sys, &quit_i])?;
