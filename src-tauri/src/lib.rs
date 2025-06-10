@@ -10,6 +10,7 @@ use crate::biz::{copy_clip_record::copy_clip_record, query_clip_record::get_clip
 mod biz;
 mod clip_board_listener;
 mod global_shortcut;
+mod single_instance;
 mod sqlite_storage;
 mod tray;
 mod utils;
@@ -52,6 +53,8 @@ pub async fn run() {
             let _ = window::init_main_window(&app);
             // 注册全局快捷键
             let _ = global_shortcut::init_global_shortcut(&app);
+            // 使用单实例插件确保 Tauri 应用程序在同一时间只运行单个实例
+            let _ = single_instance::init_single_instance(&app);
             // 开启devtools工具
             // app.app_handle()
             //     .get_webview_window("main")

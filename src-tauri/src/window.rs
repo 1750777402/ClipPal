@@ -30,6 +30,7 @@ pub fn init_main_window(app: &App) -> tauri::Result<()> {
     // 延迟显示
     std::thread::sleep(std::time::Duration::from_millis(100));
     main_window.show().unwrap();
+    main_window.set_focus();
     let main1 = main_window.clone();
 
     // 设置一个窗口计数器，用于记录窗口是否被聚焦或者失去焦点
