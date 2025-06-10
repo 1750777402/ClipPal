@@ -25,7 +25,15 @@
             </p>
           </template>
           <template v-else-if="item.type === 'Image'">
-            <img :src="item.content" class="image-preview" />
+            <!-- 用放大镜组件替代 img -->
+            <InnerImageZoom 
+              :src="item.content" 
+              :zoomSrc="item.content"
+              :zoomScale="0.8"
+              moveType="pan" 
+              zoomType="hover"
+              class="image-preview"
+            />
           </template>
           <template v-else-if="item.type === 'File'">
             <div class="file-preview">
@@ -41,7 +49,9 @@
 <script setup lang="ts">
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-import { ref, onMounted } from 'vue'
+import { ref, onMounted } from 'vue';
+
+import InnerImageZoom from 'vue-inner-image-zoom';
 
 const search = ref('')
 const isLoading = ref(false)
