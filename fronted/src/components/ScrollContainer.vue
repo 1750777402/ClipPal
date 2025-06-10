@@ -29,9 +29,10 @@
             <InnerImageZoom 
               :src="item.content" 
               :zoomSrc="item.content"
-              :zoomScale="0.8"
+              :zoomScale="0.7"
               moveType="pan" 
               zoomType="hover"
+              :fadeDuration=300
               class="image-preview"
             />
           </template>
