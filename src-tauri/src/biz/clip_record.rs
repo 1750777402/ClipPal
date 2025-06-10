@@ -24,6 +24,8 @@ pub struct ClipRecord {
 crud!(ClipRecord {}, "clip_record");
 impl_select!(ClipRecord{select_by_id(id: &str) =>"`where id = #{id}`"});
 impl_select!(ClipRecord{select_order_by() =>"`order by sort desc, created desc`"});
+//  根据limit和offset 查询   获取limit条数据(-1表示全部)   跳过前offset条数据
+impl_select!(ClipRecord{select_order_by_limit(limit:i32, offset:i32) =>"`order by sort desc, created desc limit #{limit} offset #{offset}`"});
 // 根据type和content 查看是否有重复的    有的话取出一个
 impl_select!(ClipRecord{check_by_type_and_content(content_type:&str, content:&str) =>"`where type = #{content_type} and content = #{content} limit 1`"});
 // 根据type和content 查看是否有重复的    有的话取出一个
@@ -43,6 +45,26 @@ impl ClipRecord {
         let sql = "UPDATE clip_record SET sort = ? WHERE id = ?";
         let tx = rb.acquire_begin().await?;
         let _ = tx.exec(sql, vec![to_value!(sort), to_value!(id)]).await;
+        tx.commit().await
+    }
+
+    pub async fn count(rb: &RBatis) -> i64 {
+        let count_res: Result<i64, rbs::Error> = rb
+            .query_decode("SELECT COUNT(*) FROM clip_record", vec![])
+            .await;
+        match count_res {
+            Ok(count) => return count,
+            Err(_) => return 0,
+        }
+    }
+
+    pub async fn del_by_ids(rb: &RBatis, ids: Vec<String>) -> Result<(), Error> {
+        let sql = format!(
+            "DELETE FROM clip_record WHERE id IN ({})",
+            ids.iter().map(|_| "?").collect::<Vec<_>>().join(",")
+        );
+        let tx = rb.acquire_begin().await?;
+        let _ = tx.exec(&sql, vec![to_value!(ids)]).await;
         tx.commit().await
     }
 }
