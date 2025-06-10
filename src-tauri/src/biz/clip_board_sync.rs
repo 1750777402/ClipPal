@@ -10,7 +10,11 @@ use rbatis::RBatis;
 use tauri::{AppHandle, Emitter};
 use uuid::Uuid;
 
-use crate::{CONTEXT, biz::clip_record::ClipRecord, utils::file_dir::get_resources_dir};
+use crate::{
+    CONTEXT,
+    biz::{clip_record::ClipRecord, clip_record_clean::clip_record_clean},
+    utils::file_dir::get_resources_dir,
+};
 
 #[derive(Debug, Clone)]
 pub struct ClipboardEventTigger;
@@ -31,6 +35,7 @@ impl ClipBoardEventListener<ClipboardEvent> for ClipboardEventTigger {
         // 通知前端粘贴板变更
         let app_handle = CONTEXT.get::<AppHandle>();
         let _ = app_handle.emit("clip_record_change", ());
+        clip_record_clean().await;
     }
 }
 

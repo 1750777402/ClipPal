@@ -37,7 +37,9 @@
           </template>
           <template v-else-if="item.type === 'File'">
             <div class="file-preview">
-              <span>{{ item.content }}</span>
+              <div class="file-name" :title="item.content">{{ item.content }}</div>
+              <!-- 如果有额外信息，可以放这里，比如文件大小或类型 -->
+              <!-- <div class="file-info">类型: PDF · 1.2MB</div> -->
             </div>
           </template>
         </div>
@@ -260,25 +262,31 @@ onMounted(() => {
 
 .file-preview {
   display: flex;
-  align-items: center;
-  gap: 12px;
-  font-size: 15px;
-  color: #4a5568;
+  flex-direction: column;
   justify-content: center;
-  padding: 12px 0;
+  padding: 14px 20px;
+  font-size: 15px;
+  color: #2d3748;
+  background-color: #f0f4f8;
+  border-radius: 14px;
+  box-shadow: 0 1px 6px rgba(50, 60, 70, 0.1);
+  word-break: break-word;
+  max-width: 300px;
+  cursor: default;
+  user-select: text;
+  line-height: 1.4;
+}
+
+.file-name {
+  white-space: normal;
+  overflow-wrap: break-word;
+  word-break: break-word;
+}
+
+.file-info {
+  margin-top: 6px;
+  font-size: 13px;
+  color: #718096;
   user-select: none;
-}
-
-.file-preview::before {
-  content: "\1F4C4";
-  font-size: 22px;
-  color: #319795;
-}
-
-.file-preview span {
-  max-width: 160px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 </style>
