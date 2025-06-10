@@ -64,7 +64,9 @@ impl ClipRecord {
             ids.iter().map(|_| "?").collect::<Vec<_>>().join(",")
         );
         let tx = rb.acquire_begin().await?;
-        let _ = tx.exec(&sql, vec![to_value!(ids)]).await;
+        // 转换ids为Vec<Value>
+        let params = ids.into_iter().map(|id| to_value!(id)).collect::<Vec<_>>();
+        let _ = tx.exec(&sql, params).await?;
         tx.commit().await
     }
 }

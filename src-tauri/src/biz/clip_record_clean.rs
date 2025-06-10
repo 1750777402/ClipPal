@@ -20,19 +20,24 @@ pub async fn clip_record_clean() {
                 }
                 del_ids.push(record.id);
             }
-            ClipRecord::del_by_ids(rb, del_ids)
-                .await
-                .unwrap_or_else(|e| println!("删除过期数据异常:{}", e));
-            if img_path_arr.len() > 0 {
-                let base_path = get_resources_dir();
-                if let Some(resource_path) = base_path {
-                    // 删除图片
-                    for path in img_path_arr {
-                        let full_path = resource_path.join(path);
-                        std::fs::remove_file(full_path).unwrap_or_else(|e| {
-                            println!("删除图片失败:{}", e);
-                        })
+            let del_res = ClipRecord::del_by_ids(rb, del_ids).await;
+            match del_res {
+                Ok(_) => {
+                    if img_path_arr.len() > 0 {
+                        let base_path = get_resources_dir();
+                        if let Some(resource_path) = base_path {
+                            // 删除图片
+                            for path in img_path_arr {
+                                let full_path = resource_path.join(path);
+                                std::fs::remove_file(full_path).unwrap_or_else(|e| {
+                                    println!("删除图片失败:{}", e);
+                                })
+                            }
+                        }
                     }
+                }
+                Err(e) => {
+                    println!("删除过期数据异常:{}", e)
                 }
             }
         }
