@@ -1,9 +1,7 @@
 <template>
   <div class="clipboard-panel">
     <header class="panel-header">
-      <span class="panel-title">
-        Clip Pal
-      </span>
+      <span class="panel-title">Clip Pal</span>
       <input v-model="search" class="search-input" placeholder="搜索剪贴记录..." />
     </header>
 
@@ -18,7 +16,13 @@
       >
         <div class="clip-content">
           <template v-if="item.type === 'Text'">
-            <p class="text-preview" :title="item.content">{{ item.content }}</p>
+            <p
+              class="text-preview"
+              :class="{ 'mask-visible': shouldShowMask(item.content) }"
+              :title="item.content"
+            >
+              {{ item.content }}
+            </p>
           </template>
           <template v-else-if="item.type === 'Image'">
             <img :src="item.content" class="image-preview" />
@@ -52,12 +56,14 @@ interface ClipRecord {
   os_type: string;
 }
 
-
 const handleCardClick = async (item: ClipRecord) => {
-  await invoke('copy_clip_record', { param: {record_id: item.id }});
+  await invoke('copy_clip_record', { param: { record_id: item.id } });
   fetchClipRecords();
 }
 
+const shouldShowMask = (text: string) => {
+  return text.split('\n').length > 3 || text.length > 100;
+}
 
 const initEventListeners = async () => {
   try {
@@ -69,14 +75,11 @@ const initEventListeners = async () => {
   }
 };
 
-// 从后端获取剪贴板记录
 const fetchClipRecords = async () => {
   try {
     isLoading.value = true
-    // 调用Tauri命令获取数据
     const data: ClipRecord[] = await invoke('get_clip_records')
     cards.value = data
-    console.log('获取数据成功:', cards.value)
   } catch (error) {
     console.error('获取数据失败:', error)
   } finally {
@@ -84,7 +87,6 @@ const fetchClipRecords = async () => {
   }
 }
 
-// 初始化
 onMounted(() => {
   fetchClipRecords();
   initEventListeners();
@@ -98,111 +100,175 @@ onMounted(() => {
   position: fixed;
   top: 0;
   right: 0;
-  background: #f9f9f9;
+  background: #f5f7fa;
   display: flex;
   flex-direction: column;
-  border-left: 1px solid #ddd;
-  box-shadow: -2px 0 8px rgba(0, 0, 0, 0.06);
+  border-left: 1px solid #d1d9e6;
+  box-shadow: -2px 0 8px rgba(0, 0, 0, 0.05);
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial;
 }
+
 .panel-header {
   padding: 16px;
   display: flex;
   align-items: center;
   gap: 12px;
-  background-color: #f1f1f1;
-  border-bottom: 1px solid #ddd;
+  background-color: #2c7a7b;
+  border-bottom: 1px solid #256d6d;
+  color: #e6fffa;
+  font-weight: 600;
+  font-size: 18px;
+  user-select: none;
 }
+
 .panel-title {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 16px;
-  color: #222;
   white-space: nowrap;
 }
+
 .search-input {
   flex: 1;
   padding: 6px 12px;
   border-radius: 8px;
-  border: 1px solid #ccc;
+  border: 1px solid #88c0d0;
   font-size: 14px;
-  background-color: #fff;
+  background-color: #e0f2f1;
+  color: #004d40;
   transition: border-color 0.2s, box-shadow 0.2s;
 }
+
+.search-input::placeholder {
+  color: #4a4a4aaa;
+}
+
 .search-input:focus {
   outline: none;
-  border-color: #3b82f6;
-  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+  border-color: #319795;
+  box-shadow: 0 0 8px rgba(49, 151, 149, 0.4);
+  background-color: #ffffff;
+  color: #222;
 }
+
 .loading {
   padding: 24px;
   text-align: center;
   font-size: 14px;
-  color: #888;
+  color: #666;
 }
+
 .clip-list {
   flex: 1;
   overflow-y: auto;
   padding-top: 12px;
   padding-bottom: 12px;
+  scrollbar-width: thin;
+  scrollbar-color: #81e6d9 transparent;
 }
+
+.clip-list::-webkit-scrollbar {
+  width: 8px;
+}
+.clip-list::-webkit-scrollbar-thumb {
+  background-color: #81e6d9;
+  border-radius: 4px;
+}
+.clip-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+
 .clip-card {
-  background: #fff;
-  border-radius: 12px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.03);
-  padding: 14px;
-  margin: 0 16px 14px 16px; /* 左右各 16px */
+  background: #ffffff;
+  border-radius: 14px;
+  box-shadow: 0 2px 10px rgba(38, 50, 56, 0.07);
+  padding: 16px;
+  margin: 0 20px 16px 20px;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  transition: box-shadow 0.3s ease;
+  transition: box-shadow 0.3s ease, transform 0.2s ease;
+  cursor: pointer;
 }
+
 .clip-card:hover {
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.08);
+  box-shadow: 0 8px 18px rgba(38, 50, 56, 0.15);
+  transform: translateY(-2px);
 }
+
 .clip-content {
   flex: 1;
   overflow: hidden;
-  padding-right: 10px;
+  padding-right: 12px;
 }
+
 .text-preview {
-  font-size: 14px;
-  color: #222;
+  font-size: 15px;
+  color: #2d3748;
   line-height: 1.5;
+  max-height: 4.5em; /* 约3行 */
+  overflow: hidden;
+  position: relative;
+  white-space: normal;
   word-break: break-word;
-  white-space: nowrap;         /* 不换行 */
-  overflow: hidden;            /* 溢出隐藏 */
-  text-overflow: ellipsis;     /* 显示省略号 */
+  padding-right: 6px;
 }
+
+.text-preview::after {
+  content: "";
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  height: 2em;
+  background: linear-gradient(to bottom, rgba(255, 255, 255, 0), #fff 90%);
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  pointer-events: none;
+}
+
+.text-preview.mask-visible::after {
+  opacity: 1;
+}
+
 .image-preview {
+  width: 180px;
   max-height: 120px;
-  max-width: 100%;
-  border-radius: 8px;
+  border-radius: 12px;
   object-fit: contain;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
+  display: block;
+  cursor: pointer;
+  margin: 0;
 }
+
+.image-preview:hover {
+  transform: scale(1.05);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15);
+}
+
 .file-preview {
   display: flex;
   align-items: center;
-  gap: 10px;
-  font-size: 14px;
-  color: #333;
+  gap: 12px;
+  font-size: 15px;
+  color: #4a5568;
+  justify-content: center;
+  padding: 12px 0;
+  user-select: none;
 }
-.clip-actions {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin-left: 10px;
+
+.file-preview::before {
+  content: "\1F4C4";
+  font-size: 22px;
+  color: #319795;
 }
-.action-button {
-  background: none;
-  border: none;
-  cursor: pointer;
-  padding: 6px;
-  border-radius: 6px;
-  transition: background-color 0.2s;
-}
-.action-button:hover {
-  background-color: #e5e7eb;
+
+.file-preview span {
+  max-width: 160px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 </style>
