@@ -34,6 +34,8 @@
     "icon": [
       "icons/icon_32x32.png",
       "icons/icon_128x128.png",
+      "icons/icon_-5.png",
+      "icons/icon_-6.png",
       "icons/icon.icns",
       "icons/icon.ico"
     ],
