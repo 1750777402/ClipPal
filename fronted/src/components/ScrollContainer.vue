@@ -1,5 +1,5 @@
 <template>
-  <div class="clipboard-panel">
+  <div class="clipboard-panel" @scroll.passive="handleScroll" ref="scrollContainer">
     <header class="panel-header">
       <span class="panel-title">Clip Pal</span>
       <input v-model="search" class="search-input" placeholder="搜索剪贴记录..." />
@@ -12,9 +12,8 @@
         v-for="item in cards"
         :key="item.id"
         class="clip-card"
-        @click="handleCardClick(item)"
       >
-        <div class="clip-content">
+        <div class="clip-content" @click="handleCardClick(item)">
           <template v-if="item.type === 'Text'">
             <p
               class="text-preview"
@@ -25,16 +24,6 @@
             </p>
           </template>
           <template v-else-if="item.type === 'Image'">
-            <!-- 用放大镜组件替代 img -->
-            <!-- <InnerImageZoom 
-              :src="item.content" 
-              :zoomSrc="item.content"
-              :zoomScale="0.7"
-              moveType="pan" 
-              zoomType="hover"
-              :fadeDuration=300
-              class="image-preview"
-            /> -->
             <div ref="container">
               <InnerImageZoom
                 v-if="visible"
@@ -52,12 +41,13 @@
           <template v-else-if="item.type === 'File'">
             <div class="file-preview">
               <div class="file-name" :title="item.content">{{ item.content }}</div>
-              <!-- 如果有额外信息，可以放这里，比如文件大小或类型 -->
-              <!-- <div class="file-info">类型: PDF · 1.2MB</div> -->
             </div>
           </template>
         </div>
       </div>
+
+      <div v-if="isFetchingMore" class="bottom-loading">加载更多...</div>
+      <div v-if="!hasMore && cards.length > 0" class="bottom-loading">没有更多了</div>
     </div>
   </div>
 </template>
@@ -66,12 +56,17 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { ref, onMounted, onBeforeUnmount } from 'vue';
-
 import InnerImageZoom from 'vue-inner-image-zoom';
 
-const search = ref('')
-const isLoading = ref(false)
-const cards = ref<ClipRecord[]>([])
+const search = ref('');
+const isLoading = ref(false);
+const isFetchingMore = ref(false);
+const cards = ref<ClipRecord[]>([]);
+const page = ref(1);
+const pageSize = 10;
+const hasMore = ref(true);
+
+const scrollContainer = ref<HTMLElement | null>(null);
 
 interface ClipRecord {
   id: string;
@@ -84,40 +79,66 @@ interface ClipRecord {
 
 const handleCardClick = async (item: ClipRecord) => {
   await invoke('copy_clip_record', { param: { record_id: item.id } });
-  fetchClipRecords();
-}
+};
 
 const shouldShowMask = (text: string) => {
   return text.split('\n').length > 3 || text.length > 100;
-}
+};
 
 const initEventListeners = async () => {
   try {
     await listen('clip_record_change', () => {
-      fetchClipRecords();
+      resetAndFetch();
     });
   } catch (error) {
     console.error('事件监听失败:', error);
   }
 };
 
+const resetAndFetch = () => {
+  cards.value = [];
+  page.value = 1;
+  hasMore.value = true;
+  fetchClipRecords();
+};
+
 const fetchClipRecords = async () => {
+  if (!hasMore.value) return;
+  const currentPage = page.value;
   try {
-    isLoading.value = true
-    const data: ClipRecord[] = await invoke('get_clip_records')
-    cards.value = data
+    if (currentPage === 1) isLoading.value = true;
+    else isFetchingMore.value = true;
+
+    const data: ClipRecord[] = await invoke('get_clip_records', {
+      param: {
+        page: currentPage,
+        size: pageSize,
+      }
+    });
+
+    if (data.length < pageSize) hasMore.value = false;
+    cards.value.push(...data);
+    page.value++;
   } catch (error) {
-    console.error('获取数据失败:', error)
+    console.error('获取数据失败:', error);
   } finally {
-    isLoading.value = false
+    isLoading.value = false;
+    isFetchingMore.value = false;
   }
-}
+};
 
 const visible = ref(false);
 const container = ref<HTMLElement | null>(null);
-
 let observer: IntersectionObserver | null = null;
 
+const handleScroll = () => {
+  if (!scrollContainer.value || isFetchingMore.value || !hasMore.value) return;
+
+  const { scrollTop, clientHeight, scrollHeight } = scrollContainer.value;
+  if (scrollTop + clientHeight >= scrollHeight - 200) {
+    fetchClipRecords();
+  }
+};
 
 onMounted(() => {
   if ('IntersectionObserver' in window && container.value) {
@@ -134,11 +155,12 @@ onMounted(() => {
     );
     observer.observe(container.value);
   } else {
-    visible.value = true; // 不支持就直接显示
+    visible.value = true;
   }
+
   fetchClipRecords();
   initEventListeners();
-})
+});
 
 onBeforeUnmount(() => {
   observer?.disconnect();
@@ -340,5 +362,12 @@ onBeforeUnmount(() => {
   font-size: 13px;
   color: #718096;
   user-select: none;
+}
+
+.bottom-loading {
+  padding: 16px;
+  text-align: center;
+  font-size: 14px;
+  color: #666;
 }
 </style>

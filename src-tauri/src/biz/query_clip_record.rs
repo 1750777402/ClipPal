@@ -3,21 +3,30 @@ use std::path::Path;
 use base64::{Engine as _, engine::general_purpose};
 use clipboard_listener::ClipType;
 use rbatis::RBatis;
+use serde::{Deserialize, Serialize};
 use std::fs;
 
 use crate::{CONTEXT, biz::clip_record::ClipRecord, utils::file_dir::get_resources_dir};
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct QueryParam {
+    pub page: i32,
+    pub size: i32,
+}
+
 #[tauri::command]
-pub async fn get_clip_records() -> Vec<ClipRecord> {
+pub async fn get_clip_records(param: QueryParam) -> Vec<ClipRecord> {
+    println!("查询粘贴记录参数:{:?}", param);
+    let offset = (param.page - 1) * param.size;
     let rb: &RBatis = CONTEXT.get::<RBatis>();
-    let mut all_data = match ClipRecord::select_order_by(rb).await {
+    let mut all_data = match ClipRecord::select_order_by_limit(rb, param.size, offset).await {
         Ok(data) => data,
         Err(e) => {
             println!("查询粘贴记录失败:{:?}", e);
             return vec![];
         }
     };
-
+    println!("查询粘贴记录成功:{:?}", all_data);
     if all_data.is_empty() {
         return vec![];
     }
