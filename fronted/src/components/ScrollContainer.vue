@@ -26,7 +26,7 @@
           </template>
           <template v-else-if="item.type === 'Image'">
             <!-- 用放大镜组件替代 img -->
-            <InnerImageZoom 
+            <!-- <InnerImageZoom 
               :src="item.content" 
               :zoomSrc="item.content"
               :zoomScale="0.7"
@@ -34,7 +34,20 @@
               zoomType="hover"
               :fadeDuration=300
               class="image-preview"
-            />
+            /> -->
+            <div ref="container">
+              <InnerImageZoom
+                v-if="visible"
+                :src="item.content"
+                :zoomSrc="item.content"
+                :zoomScale="0.7"
+                moveType="pan"
+                zoomType="hover"
+                :fadeDuration="300"
+                class="image-preview"
+              />
+              <div v-else class="image-placeholder">加载中...</div>
+            </div>
           </template>
           <template v-else-if="item.type === 'File'">
             <div class="file-preview">
@@ -52,7 +65,7 @@
 <script setup lang="ts">
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-import { ref, onMounted } from 'vue';
+import { ref, onMounted, onBeforeUnmount } from 'vue';
 
 import InnerImageZoom from 'vue-inner-image-zoom';
 
@@ -100,10 +113,36 @@ const fetchClipRecords = async () => {
   }
 }
 
+const visible = ref(false);
+const container = ref<HTMLElement | null>(null);
+
+let observer: IntersectionObserver | null = null;
+
+
 onMounted(() => {
+  if ('IntersectionObserver' in window && container.value) {
+    observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach(entry => {
+          if (entry.isIntersecting) {
+            visible.value = true;
+            observer?.disconnect();
+          }
+        });
+      },
+      { threshold: 0.1 }
+    );
+    observer.observe(container.value);
+  } else {
+    visible.value = true; // 不支持就直接显示
+  }
   fetchClipRecords();
   initEventListeners();
 })
+
+onBeforeUnmount(() => {
+  observer?.disconnect();
+});
 </script>
 
 <style scoped>
@@ -242,6 +281,18 @@ onMounted(() => {
 
 .text-preview.mask-visible::after {
   opacity: 1;
+}
+
+.image-placeholder {
+  width: 180px;
+  height: 120px;
+  background-color: #eee;
+  border-radius: 12px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  color: #999;
+  font-size: 14px;
 }
 
 .image-preview {
