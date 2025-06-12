@@ -6,6 +6,14 @@
 
 <script setup lang="ts">
 import ScrollContainer from '../src/components/ScrollContainer.vue'
+import { onMounted } from 'vue';
+
+onMounted(() => {
+  window.addEventListener('contextmenu', (e) => {
+    e.preventDefault();
+  });
+});
+
 </script>
 
 <style scoped>
