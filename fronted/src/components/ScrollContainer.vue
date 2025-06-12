@@ -7,7 +7,12 @@
 
     <div v-if="isLoading" class="loading">加载中...</div>
 
-    <div class="clip-list" v-else @scroll.passive="handleScroll" ref="scrollContainer">
+    <div
+      class="clip-list"
+      v-else
+      @scroll.passive="handleScroll"
+      ref="scrollContainer"
+    >
       <div
         v-for="item in cards"
         :key="item.id"
@@ -23,6 +28,7 @@
               {{ item.content }}
             </p>
           </template>
+
           <template v-else-if="item.type === 'Image'">
             <div ref="container">
               <InnerImageZoom
@@ -38,6 +44,7 @@
               <div v-else class="image-placeholder">加载中...</div>
             </div>
           </template>
+
           <template v-else-if="item.type === 'File'">
             <div class="file-preview">
               <div class="file-name" :title="item.content">{{ item.content }}</div>
@@ -52,6 +59,7 @@
   </div>
 </template>
 
+
 <script setup lang="ts">
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
@@ -63,7 +71,7 @@ const isLoading = ref(false);
 const isFetchingMore = ref(false);
 const cards = ref<ClipRecord[]>([]);
 const page = ref(1);
-const pageSize = 20;
+const pageSize = 10;
 const hasMore = ref(true);
 
 const scrollContainer = ref<HTMLElement | null>(null);
@@ -167,7 +175,9 @@ onBeforeUnmount(() => {
 });
 </script>
 
+
 <style scoped>
+
 .clipboard-panel {
   width: 100%;
   height: 100vh;
