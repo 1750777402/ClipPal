@@ -16,7 +16,6 @@ pub struct QueryParam {
 
 #[tauri::command]
 pub async fn get_clip_records(param: QueryParam) -> Vec<ClipRecord> {
-    println!("查询粘贴记录参数:{:?}", param);
     let offset = (param.page - 1) * param.size;
     let rb: &RBatis = CONTEXT.get::<RBatis>();
     let mut all_data = match ClipRecord::select_order_by_limit(rb, param.size, offset).await {
@@ -26,7 +25,6 @@ pub async fn get_clip_records(param: QueryParam) -> Vec<ClipRecord> {
             return vec![];
         }
     };
-    println!("查询粘贴记录成功:{:?}", all_data);
     if all_data.is_empty() {
         return vec![];
     }
