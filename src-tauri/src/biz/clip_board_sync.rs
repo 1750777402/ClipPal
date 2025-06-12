@@ -55,10 +55,14 @@ async fn get_next_sort(rb: &RBatis) -> i32 {
 }
 
 async fn handle_text(rb: &RBatis, content: &str, sort: i32) {
-    let existing =
-        ClipRecord::check_by_type_and_content(rb, ClipType::Text.to_string().as_str(), content)
-            .await
-            .unwrap_or_default();
+    let content_json = serde_json::to_string(content).unwrap_or(String::new());
+    let existing = ClipRecord::check_by_type_and_content(
+        rb,
+        ClipType::Text.to_string().as_str(),
+        content_json.as_str(),
+    )
+    .await
+    .unwrap_or_default();
 
     if let Some(record) = existing.first() {
         let _ = ClipRecord::update_sort(rb, &record.id, sort).await;
@@ -66,7 +70,7 @@ async fn handle_text(rb: &RBatis, content: &str, sort: i32) {
         let record = ClipRecord {
             id: Uuid::new_v4().to_string(),
             r#type: "Text".to_string(),
-            content: serde_json::to_string(content).unwrap_or(String::new()),
+            content: content_json,
             md5_str: String::new(),
             created: current_timestamp(),
             user_id: 0,
