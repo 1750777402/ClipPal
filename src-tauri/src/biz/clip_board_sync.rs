@@ -66,7 +66,7 @@ async fn handle_text(rb: &RBatis, content: &str, sort: i32) {
         let record = ClipRecord {
             id: Uuid::new_v4().to_string(),
             r#type: "Text".to_string(),
-            content: content.to_string(),
+            content: serde_json::to_string(content).unwrap_or(String::new()),
             md5_str: String::new(),
             created: current_timestamp(),
             user_id: 0,
@@ -129,7 +129,7 @@ async fn handle_file(rb: &RBatis, file_paths: Option<&Vec<String>>, sort: i32) {
             let record = ClipRecord {
                 id: Uuid::new_v4().to_string(),
                 r#type: "File".to_string(),
-                content: paths.join(":::"),
+                content: serde_json::to_string(paths.join(":::").as_str()).unwrap_or(String::new()),
                 md5_str,
                 created: current_timestamp(),
                 user_id: 0,
@@ -159,7 +159,12 @@ async fn save_img_to_resource(data_id: &str, rb: &RBatis, image: &Vec<u8>) {
             Ok(mut file) => {
                 if file.write_all(image).is_ok() && file.flush().is_ok() {
                     // 写成功后，记录相对路径到数据库
-                    let _ = ClipRecord::update_content(rb, data_id, &filename).await;
+                    let _ = ClipRecord::update_content(
+                        rb,
+                        data_id,
+                        &serde_json::to_string(filename.as_str()).unwrap_or(String::new()),
+                    )
+                    .await;
                 } else {
                     eprintln!("写入图片失败");
                 }
