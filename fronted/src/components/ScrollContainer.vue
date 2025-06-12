@@ -1,5 +1,5 @@
 <template>
-  <div class="clipboard-panel" @scroll.passive="handleScroll" ref="scrollContainer">
+  <div class="clipboard-panel">
     <header class="panel-header">
       <span class="panel-title">Clip Pal</span>
       <input v-model="search" class="search-input" placeholder="搜索剪贴记录..." />
@@ -7,7 +7,7 @@
 
     <div v-if="isLoading" class="loading">加载中...</div>
 
-    <div class="clip-list" v-else>
+    <div class="clip-list" v-else @scroll.passive="handleScroll" ref="scrollContainer">
       <div
         v-for="item in cards"
         :key="item.id"
