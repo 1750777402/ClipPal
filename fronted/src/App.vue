@@ -18,9 +18,8 @@ onMounted(() => {
 
 <style scoped>
 .app-container {
-  height: 100vh;
+  width: 100%;
+  height: 100%;
   overflow: hidden;
-  display: flex;
-  flex-direction: column;
 }
 </style>

@@ -71,7 +71,7 @@ const isLoading = ref(false);
 const isFetchingMore = ref(false);
 const cards = ref<ClipRecord[]>([]);
 const page = ref(1);
-const pageSize = 10;
+const pageSize = 30;
 const hasMore = ref(true);
 
 const scrollContainer = ref<HTMLElement | null>(null);
@@ -180,7 +180,7 @@ onBeforeUnmount(() => {
 
 .clipboard-panel {
   width: 100%;
-  height: 100vh;
+  height: 100%;
   position: fixed;
   top: 0;
   right: 0;
@@ -203,6 +203,8 @@ onBeforeUnmount(() => {
   font-weight: 600;
   font-size: 18px;
   user-select: none;
+  flex-shrink: 0;
+  min-height: 0;
 }
 
 .panel-title {
@@ -245,10 +247,11 @@ onBeforeUnmount(() => {
 .clip-list {
   flex: 1;
   overflow-y: auto;
-  padding-top: 12px;
-  padding-bottom: 12px;
+  padding: 12px 0;
   scrollbar-width: thin;
   scrollbar-color: #81e6d9 transparent;
+  box-sizing: border-box;
+  min-height: 0;
 }
 
 .clip-list::-webkit-scrollbar {
