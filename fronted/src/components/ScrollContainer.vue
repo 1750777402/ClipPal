@@ -63,7 +63,7 @@ const isLoading = ref(false);
 const isFetchingMore = ref(false);
 const cards = ref<ClipRecord[]>([]);
 const page = ref(1);
-const pageSize = 10;
+const pageSize = 20;
 const hasMore = ref(true);
 
 const scrollContainer = ref<HTMLElement | null>(null);
