@@ -24,6 +24,7 @@ pub struct ClipRecord {
 crud!(ClipRecord {}, "clip_record");
 impl_select!(ClipRecord{select_by_id(id: &str) =>"`where id = #{id}`"});
 impl_select!(ClipRecord{select_order_by() =>"`order by sort desc, created desc`"});
+impl_select!(ClipRecord{select_where_order_by_limit(content: &str, limit:i32, offset:i32) =>"` where content like #{content} order by sort desc, created desc limit #{limit} offset #{offset}`"});
 //  根据limit和offset 查询   获取limit条数据(-1表示全部)   跳过前offset条数据
 impl_select!(ClipRecord{select_order_by_limit(limit:i32, offset:i32) =>"`order by sort desc, created desc limit #{limit} offset #{offset}`"});
 // 根据type和content 查看是否有重复的    有的话取出一个

@@ -13,19 +13,29 @@ use crate::{CONTEXT, biz::clip_record::ClipRecord, utils::file_dir::get_resource
 pub struct QueryParam {
     pub page: i32,
     pub size: i32,
+    pub search: Option<String>,
 }
 
 #[tauri::command]
 pub async fn get_clip_records(param: QueryParam) -> Vec<ClipRecord> {
     let offset = (param.page - 1) * param.size;
     let rb: &RBatis = CONTEXT.get::<RBatis>();
-    let mut all_data = match ClipRecord::select_order_by_limit(rb, param.size, offset).await {
+    // 执行数据库查询逻辑
+    let query_result = match param.search.as_deref().filter(|s| !s.is_empty()) {
+        Some(search) => {
+            let content: String = format!("%{}%", search);
+            ClipRecord::select_where_order_by_limit(rb, content.as_str(), param.size, offset).await
+        }
+        None => ClipRecord::select_order_by_limit(rb, param.size, offset).await,
+    };
+    let mut all_data = match query_result {
         Ok(data) => data,
         Err(e) => {
-            println!("查询粘贴记录失败:{:?}", e);
+            eprintln!("查询粘贴记录失败: {:?}", e);
             return vec![];
         }
     };
+
     if all_data.is_empty() {
         return vec![];
     }
@@ -35,19 +45,23 @@ pub async fn get_clip_records(param: QueryParam) -> Vec<ClipRecord> {
     };
 
     for item in &mut all_data {
-        let content: String = from_str(&item.content).unwrap_or_default();
-        if item.r#type == ClipType::Text.to_string() {
-            item.content = content.clone();
-        }
-        if item.r#type == ClipType::Image.to_string() {
-            let abs_path = base_path.join(content.clone());
-            if let Some(base64_img) = file_to_base64(&abs_path) {
-                item.content = base64_img;
+        let raw_content: String = from_str(&item.content).unwrap_or_default();
+        match item.r#type.as_str() {
+            t if t == ClipType::Text.to_string() => {
+                item.content = raw_content;
             }
-        }
-        if item.r#type == ClipType::File.to_string() {
-            let restored: Vec<String> = content.split(":::").map(|s| s.to_string()).collect();
-            item.content = serde_json::to_string(&restored).unwrap_or("".to_string());
+            t if t == ClipType::Image.to_string() => {
+                let abs_path = base_path.join(&raw_content);
+                if let Some(base64_img) = file_to_base64(&abs_path) {
+                    item.content = base64_img;
+                }
+            }
+            t if t == ClipType::File.to_string() => {
+                let restored: Vec<String> =
+                    raw_content.split(":::").map(|s| s.to_string()).collect();
+                item.content = serde_json::to_string(&restored).unwrap_or_default();
+            }
+            _ => {}
         }
     }
 

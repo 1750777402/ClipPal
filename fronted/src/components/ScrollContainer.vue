@@ -63,8 +63,9 @@
 <script setup lang="ts">
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-import { ref, onMounted, onBeforeUnmount } from 'vue';
+import { ref, onMounted, onBeforeUnmount, watch } from 'vue';
 import InnerImageZoom from 'vue-inner-image-zoom';
+import { debounce } from 'lodash-es';
 
 const search = ref('');
 const isLoading = ref(false);
@@ -121,6 +122,7 @@ const fetchClipRecords = async () => {
       param: {
         page: currentPage,
         size: pageSize,
+        search: search.value
       }
     });
 
@@ -147,6 +149,19 @@ const handleScroll = () => {
     fetchClipRecords();
   }
 };
+
+watch(search, (newValue, oldValue) => {
+  console.log('搜索内容变化了：', newValue)
+  fetchClipRecordsDebounced();
+})
+
+const fetchClipRecordsDebounced = debounce(() => {
+  // 重置分页，重新加载数据
+  cards.value = [];
+  page.value = 1;
+  hasMore.value = true;
+  fetchClipRecords();
+}, 500);
 
 onMounted(() => {
   if ('IntersectionObserver' in window && container.value) {
