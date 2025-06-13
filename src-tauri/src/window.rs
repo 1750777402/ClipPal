@@ -22,7 +22,8 @@ pub fn init_main_window(app: &App) -> tauri::Result<()> {
 
     // 设置窗口参数 - 右侧贴边，高度与屏幕同高  宽度为屏幕宽度六分之一，最小400
     let window_width = (screen_width / 6).max(400);
-    let x_position = (screen_width - window_width).max(0);
+    // 设置x轴时在右侧贴边，但是留出一点距离防止边框溢出
+    let x_position = (screen_width - window_width - 8).max(0);
 
     // 设置窗口大小和位置
     main_window.set_size(PhysicalSize::new(window_width, screen_height))?;
