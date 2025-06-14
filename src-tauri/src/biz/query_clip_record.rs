@@ -4,7 +4,7 @@ use base64::{Engine as _, engine::general_purpose};
 use clipboard_listener::ClipType;
 use rbatis::RBatis;
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, from_str};
+use serde_json::Value;
 use std::fs;
 
 use crate::{CONTEXT, biz::clip_record::ClipRecord, utils::file_dir::get_resources_dir};

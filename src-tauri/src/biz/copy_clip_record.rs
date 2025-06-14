@@ -3,7 +3,7 @@ use std::fs;
 use clipboard_listener::ClipType;
 use rbatis::RBatis;
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, from_str, to_string};
+use serde_json::Value;
 use tauri::{AppHandle, Manager};
 use tauri_plugin_clipboard_pal::desktop::ClipboardPal;
 
