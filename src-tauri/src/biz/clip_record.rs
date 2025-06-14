@@ -1,6 +1,7 @@
 use rbatis::{Error, RBatis, crud, impl_select};
 use rbs::to_value;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ClipRecord {
@@ -8,7 +9,7 @@ pub struct ClipRecord {
     // 类型
     pub r#type: String,
     // 内容
-    pub content: String,
+    pub content: Value,
     // 内容md5值
     pub md5_str: String,
     // 时间戳
