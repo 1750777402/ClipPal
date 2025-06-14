@@ -150,8 +150,7 @@ const handleScroll = () => {
   }
 };
 
-watch(search, (newValue, oldValue) => {
-  console.log('搜索内容变化了：', newValue)
+watch(search, (_newValue, _oldValue) => {
   fetchClipRecordsDebounced();
 })
 
