@@ -56,7 +56,6 @@ async fn get_next_sort(rb: &RBatis) -> i32 {
 }
 
 async fn handle_text(rb: &RBatis, content: &str, sort: i32) {
-    // let content_json = serde_json::to_string(content).unwrap_or(String::new());
     let existing =
         ClipRecord::check_by_type_and_content(rb, ClipType::Text.to_string().as_str(), content)
             .await
