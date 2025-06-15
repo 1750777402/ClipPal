@@ -6,7 +6,7 @@
       <div class="header-icons">
         <img :src="sync_cloud" alt="云图标" class="icon-button" title="云同步"/>
         <img :src="user_head" alt="用户信息" class="icon-button" title="用户信息"/>
-        <img :src="settings" alt="云图标" class="icon-button" title="设置"/>
+        <img :src="settings" alt="设置" class="icon-button" title="设置" @click="showSettings = true"/>
       </div>
     </header>
 
@@ -71,6 +71,11 @@
       </div>
       <div v-if="!hasMore && cards.length > 0" class="bottom-loading">没有更多了</div>
     </div>
+
+    <SettingsDialog
+      v-model="showSettings"
+      @save="handleSettingsSave"
+    />
   </div>
 </template>
 
@@ -84,6 +89,7 @@ import { debounce } from 'lodash-es';
 import settings from '../assets/icons/settings.svg';
 import user_head from '../assets/icons/head.svg';
 import sync_cloud from '../assets/icons/sync_cloud.svg';
+import SettingsDialog from './SettingsDialog.vue';
 
 const search = ref('');
 const isLoading = ref(false);
@@ -186,6 +192,14 @@ const isMobile = ref(window.innerWidth <= 768);
 const handleResize = debounce(() => {
   isMobile.value = window.innerWidth <= 768;
 }, 200);
+
+const showSettings = ref(false);
+
+const handleSettingsSave = async (newSettings: any) => {
+  // 处理设置保存
+  console.log('设置已保存:', newSettings);
+  // 这里可以添加其他处理逻辑，比如重新加载数据等
+};
 
 onMounted(() => {
   if ('IntersectionObserver' in window && container.value) {
