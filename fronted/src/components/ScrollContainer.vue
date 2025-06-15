@@ -4,9 +4,9 @@
       <span class="panel-title">Clip Pal</span>
       <input v-model="search" class="search-input" placeholder="搜索剪贴记录..." />
       <div class="header-icons">
-        <img :src="sync_cloud" alt="云图标" class="icon-button" title="云同步"/>
-        <img :src="user_head" alt="用户信息" class="icon-button" title="用户信息"/>
-        <img :src="settings" alt="设置" class="icon-button" title="设置" @click="showSettings = true"/>
+        <img :src="sync_cloud" alt="云图标" class="icon-button" title="云同步" />
+        <img :src="user_head" alt="用户信息" class="icon-button" title="用户信息" />
+        <img :src="settings" alt="设置" class="icon-button" title="设置" @click="showSettings = true" />
       </div>
     </header>
 
@@ -15,55 +15,8 @@
       <span class="loading-text">加载中...</span>
     </div>
 
-    <div
-      class="clip-list"
-      v-else
-      @scroll.passive="handleScroll"
-      ref="scrollContainer"
-    >
-      <div
-        v-for="item in cards"
-        :key="item.id"
-        class="clip-card"
-        :class="{ 'clip-card-hover': !isMobile }"
-      >
-        <div class="clip-content" @click="handleCardClick(item)">
-          <template v-if="item.type === 'Text'">
-            <p
-              class="text-preview"
-              :class="{ 'mask-visible': shouldShowMask(item.content) }"
-              :title="item.content"
-            >
-              {{ item.content }}
-            </p>
-          </template>
-
-          <template v-else-if="item.type === 'Image'">
-            <div ref="container" class="image-container">
-              <InnerImageZoom
-                v-if="visible"
-                :src="item.content"
-                :zoomSrc="item.content"
-                :zoomScale="0.7"
-                moveType="pan"
-                zoomType="hover"
-                :fadeDuration="300"
-                class="image-preview"
-                loading="lazy"
-              />
-              <div v-else class="image-placeholder">
-                <div class="placeholder-spinner"></div>
-              </div>
-            </div>
-          </template>
-
-          <template v-else-if="item.type === 'File'">
-            <div class="file-preview">
-              <div class="file-name" :title="item.content">{{ item.content }}</div>
-            </div>
-          </template>
-        </div>
-      </div>
+    <div class="clip-list" v-else @scroll.passive="handleScroll" ref="scrollContainer">
+      <ClipCard v-for="item in cards" :key="item.id" :record="item" :is-mobile="isMobile" @click="handleCardClick" />
 
       <div v-if="isFetchingMore" class="bottom-loading">
         <div class="loading-spinner small"></div>
@@ -72,10 +25,7 @@
       <div v-if="!hasMore && cards.length > 0" class="bottom-loading">没有更多了</div>
     </div>
 
-    <SettingsDialog
-      v-model="showSettings"
-      @save="handleSettingsSave"
-    />
+    <SettingsDialog v-model="showSettings" @save="handleSettingsSave" />
   </div>
 </template>
 
@@ -84,12 +34,12 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { ref, onMounted, onBeforeUnmount, watch } from 'vue';
-import InnerImageZoom from 'vue-inner-image-zoom';
 import { debounce } from 'lodash-es';
 import settings from '../assets/icons/settings.svg';
 import user_head from '../assets/icons/head.svg';
 import sync_cloud from '../assets/icons/sync_cloud.svg';
 import SettingsDialog from './SettingsDialog.vue';
+import ClipCard from './ClipCard.vue';
 
 const search = ref('');
 const isLoading = ref(false);
@@ -108,14 +58,11 @@ interface ClipRecord {
   created: number;
   user_id: number;
   os_type: string;
+  fileSize?: number;
 }
 
 const handleCardClick = async (item: ClipRecord) => {
   await invoke('copy_clip_record', { param: { record_id: item.id } });
-};
-
-const shouldShowMask = (text: string) => {
-  return text.split('\n').length > 3 || text.length > 100;
 };
 
 const initEventListeners = async () => {
@@ -161,10 +108,6 @@ const fetchClipRecords = async () => {
   }
 };
 
-const visible = ref(false);
-const container = ref<HTMLElement | null>(null);
-let observer: IntersectionObserver | null = null;
-
 const handleScroll = () => {
   if (!scrollContainer.value || isFetchingMore.value || !hasMore.value) return;
 
@@ -202,30 +145,12 @@ const handleSettingsSave = async (newSettings: any) => {
 };
 
 onMounted(() => {
-  if ('IntersectionObserver' in window && container.value) {
-    observer = new IntersectionObserver(
-      (entries) => {
-        entries.forEach(entry => {
-          if (entry.isIntersecting) {
-            visible.value = true;
-            observer?.disconnect();
-          }
-        });
-      },
-      { threshold: 0.1 }
-    );
-    observer.observe(container.value);
-  } else {
-    visible.value = true;
-  }
-
   window.addEventListener('resize', handleResize);
   fetchClipRecords();
   initEventListeners();
 });
 
 onBeforeUnmount(() => {
-  observer?.disconnect();
   window.removeEventListener('resize', handleResize);
 });
 </script>
@@ -322,7 +247,9 @@ onBeforeUnmount(() => {
 }
 
 @keyframes spin {
-  to { transform: rotate(360deg); }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .loading-text {
@@ -355,136 +282,6 @@ onBeforeUnmount(() => {
   background: transparent;
 }
 
-.clip-card {
-  background: var(--card-bg, #ffffff);
-  border-radius: 16px;
-  box-shadow: 0 2px 10px rgba(38, 50, 56, 0.07);
-  padding: 16px;
-  margin: 0 20px 16px 20px;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  cursor: pointer;
-  will-change: transform, box-shadow;
-}
-
-.clip-card-hover:hover {
-  box-shadow: 0 8px 24px rgba(38, 50, 56, 0.15);
-  transform: translateY(-2px);
-}
-
-.clip-content {
-  flex: 1;
-  overflow: hidden;
-  padding-right: 12px;
-  min-width: 0;
-}
-
-.text-preview {
-  font-size: 15px;
-  color: var(--text-primary, #2d3748);
-  line-height: 1.6;
-  max-height: 4.8em;
-  overflow: hidden;
-  position: relative;
-  white-space: normal;
-  word-break: break-word;
-  padding-right: 6px;
-  transition: max-height 0.3s ease;
-}
-
-.text-preview::after {
-  content: "";
-  position: absolute;
-  bottom: 0;
-  left: 0;
-  width: 100%;
-  height: 2em;
-  background: linear-gradient(to bottom, rgba(255, 255, 255, 0), var(--card-bg, #fff) 90%);
-  opacity: 0;
-  transition: opacity 0.3s ease;
-  pointer-events: none;
-}
-
-.text-preview.mask-visible::after {
-  opacity: 1;
-}
-
-.image-container {
-  position: relative;
-  width: 180px;
-  height: 120px;
-  border-radius: 12px;
-  overflow: hidden;
-  background: var(--image-bg, #f0f4f8);
-}
-
-.image-placeholder {
-  width: 100%;
-  height: 100%;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  background: var(--placeholder-bg, #f0f4f8);
-}
-
-.placeholder-spinner {
-  width: 24px;
-  height: 24px;
-  border: 2px solid var(--spinner-border, #e0f2f1);
-  border-top-color: var(--spinner-color, #2c7a7b);
-  border-radius: 50%;
-  animation: spin 1s linear infinite;
-}
-
-.image-preview {
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-  border-radius: 12px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  cursor: pointer;
-  margin: 0;
-  will-change: transform;
-}
-
-.image-preview:hover {
-  transform: scale(1.05);
-}
-
-.file-preview {
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  padding: 16px 20px;
-  font-size: 15px;
-  color: var(--text-primary, #2d3748);
-  background-color: var(--file-bg, #f0f4f8);
-  border-radius: 14px;
-  box-shadow: 0 1px 6px rgba(50, 60, 70, 0.1);
-  word-break: break-word;
-  max-width: 300px;
-  cursor: default;
-  user-select: text;
-  line-height: 1.4;
-  transition: background-color 0.3s ease;
-}
-
-.file-name {
-  white-space: normal;
-  overflow-wrap: break-word;
-  word-break: break-word;
-}
-
-.file-info {
-  margin-top: 6px;
-  font-size: 13px;
-  color: #718096;
-  user-select: none;
-}
-
 .bottom-loading {
   padding: 16px;
   text-align: center;
@@ -500,30 +297,19 @@ onBeforeUnmount(() => {
   display: flex;
   gap: 12px;
   align-items: center;
-  margin-left: auto;
-  padding: 6px 12px;
-  background: rgba(255, 255, 255, 0.15);
-  border-radius: 24px;
-  transition: background-color 0.3s ease;
-}
-
-.header-icons:hover {
-  background: rgba(255, 255, 255, 0.25);
 }
 
 .icon-button {
   width: 24px;
   height: 24px;
-  object-fit: contain;
-  color: var(--icon-color, #e6fffa);
   cursor: pointer;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  will-change: transform;
+  transition: transform 0.2s ease;
+  opacity: 0.9;
 }
 
 .icon-button:hover {
-  transform: scale(1.15);
-  filter: brightness(1.2);
+  transform: scale(1.1);
+  opacity: 1;
 }
 
 /* 响应式布局 */

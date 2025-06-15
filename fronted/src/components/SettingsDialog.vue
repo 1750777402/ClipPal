@@ -26,13 +26,7 @@
             </div>
             <div class="number-input">
               <button class="number-button" @click="decreaseMaxRecords">-</button>
-              <input 
-                type="number" 
-                v-model.number="settings.maxRecords" 
-                min="50" 
-                max="1000"
-                step="50"
-              >
+              <input type="number" v-model.number="settings.maxRecords" min="50" max="1000">
               <button class="number-button" @click="increaseMaxRecords">+</button>
             </div>
           </div>
@@ -42,13 +36,9 @@
               <span>窗口快捷键</span>
               <span class="settings-description">按下快捷键显示/隐藏窗口</span>
             </div>
-            <div 
-              class="shortcut-input" 
-              :class="{ 'recording': isRecording }"
-              @click="startRecording"
-            >
+            <div class="shortcut-input" :class="{ 'recording': isRecording }" @click.stop="startRecording">
               <template v-if="isRecording">
-                <span class="recording-text" >
+                <span class="recording-text">
                   {{ pressedKeys.length > 0 ? pressedKeys.join('+') : '请按下快捷键组合...' }}
                 </span>
               </template>
@@ -108,7 +98,7 @@ const settings = ref<Settings>({
 
 const isRecording = ref(false);
 // 修复：用数组按「按下顺序」记录按键（原Set会丢失顺序）
-const pressedKeys = ref<string[]>([]); 
+const pressedKeys = ref<string[]>([]);
 
 // 监听弹窗打开时加载设置
 watch(() => props.modelValue, async (newVal) => {
@@ -149,15 +139,15 @@ const increaseMaxRecords = () => {
 };
 
 // 修复：开始录制时清空数组，确保每次独立记录
-const startRecording = () => {
+const startRecording = (e: any) => {
   isRecording.value = true;
-  pressedKeys.value = []; 
+  pressedKeys.value = [];
 };
 
 // 修复：停止录制时清空数组，避免残留
 const stopRecording = () => {
   isRecording.value = false;
-  pressedKeys.value = []; 
+  pressedKeys.value = [];
 };
 
 // 修复：精准记录所有按下的键（含修饰键+普通键+特殊键）
@@ -269,9 +259,9 @@ const handleKeyUp = (e: KeyboardEvent) => {
   // 3. 处理修饰键释放（即使释放的不是修饰键，也要检查状态）
   ['Ctrl', 'Shift', 'Alt', 'Meta'].forEach(mod => {
     const isReleased = mod === 'Ctrl' ? !e.ctrlKey :
-                       mod === 'Shift' ? !e.shiftKey :
-                       mod === 'Alt' ? !e.altKey :
-                       mod === 'Meta' ? !e.metaKey : false;
+      mod === 'Shift' ? !e.shiftKey :
+        mod === 'Alt' ? !e.altKey :
+          mod === 'Meta' ? !e.metaKey : false;
     if (isReleased) {
       const modIndex = pressedKeys.value.indexOf(mod);
       if (modIndex > -1) {
@@ -335,6 +325,7 @@ onBeforeUnmount(() => {
     opacity: 0;
     transform: scale(0.95);
   }
+
   to {
     opacity: 1;
     transform: scale(1);
@@ -446,11 +437,11 @@ onBeforeUnmount(() => {
   border-radius: 50%;
 }
 
-input:checked + .slider {
+input:checked+.slider {
   background-color: var(--primary-color, #2c7a7b);
 }
 
-input:checked + .slider:before {
+input:checked+.slider:before {
   transform: translateX(20px);
 }
 
@@ -509,9 +500,7 @@ input:checked + .slider:before {
   user-select: none;
 }
 
-.shortcut-input span {
-  pointer-events: inherit; /* 让span继承父元素的点击事件响应 */
-}
+
 
 .shortcut-input:hover {
   border-color: var(--primary-color, #2c7a7b);
@@ -529,9 +518,17 @@ input:checked + .slider:before {
 }
 
 @keyframes pulse {
-  0% { opacity: 1; }
-  50% { opacity: 0.5; }
-  100% { opacity: 1; }
+  0% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.5;
+  }
+
+  100% {
+    opacity: 1;
+  }
 }
 
 .settings-footer {
@@ -542,7 +539,8 @@ input:checked + .slider:before {
   gap: 12px;
 }
 
-.cancel-button, .confirm-button {
+.cancel-button,
+.confirm-button {
   padding: 8px 20px;
   border-radius: 8px;
   font-size: 14px;
@@ -586,4 +584,4 @@ input:checked + .slider:before {
     --hover-bg: rgba(255, 255, 255, 0.1);
   }
 }
-</style> 
+</style>
