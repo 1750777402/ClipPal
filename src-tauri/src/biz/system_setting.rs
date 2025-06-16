@@ -1,8 +1,10 @@
 use std::{fs, path::PathBuf};
 
 use serde::{Deserialize, Serialize};
+use tauri::AppHandle;
+use tauri_plugin_autostart::ManagerExt;
 
-use crate::utils::file_dir::get_config_dir;
+use crate::{CONTEXT, utils::file_dir::get_config_dir};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Settings {
@@ -59,13 +61,24 @@ pub fn load_settings() -> Settings {
 
 #[tauri::command]
 pub fn save_settings(settings: Settings) {
-    println!("保存系统设置：{:?}", settings);
     if let Some(path) = get_settings_file_path() {
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent).ok();
         }
         if let Ok(json) = serde_json::to_string_pretty(&settings) {
             fs::write(path, json).ok();
+            // 设置开机自启
+            set_auto_start(settings.auto_start == 1);
         }
+    }
+}
+
+pub fn set_auto_start(auto_start: bool) {
+    let app_handle = CONTEXT.get::<AppHandle>();
+    let autostart_manager = app_handle.autolaunch();
+    if auto_start {
+        let _ = autostart_manager.enable();
+    } else {
+        let _ = autostart_manager.disable();
     }
 }
