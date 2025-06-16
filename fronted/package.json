@@ -12,9 +12,10 @@
   "dependencies": {
     "@tauri-apps/api": "^2.5.0",
     "@tauri-apps/plugin-opener": "^2",
+    "date-fns": "^4.1.0",
     "element-plus": "^2.9.11",
     "vue": "^3.5.13",
-    "vue-inner-image-zoom": "^3.0.1"
+    "vue-easy-lightbox": "^1.19.0"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2",

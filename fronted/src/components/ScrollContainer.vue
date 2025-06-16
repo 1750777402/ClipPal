@@ -96,7 +96,6 @@ const fetchClipRecords = async () => {
         search: search.value
       }
     });
-
     if (data.length < pageSize) hasMore.value = false;
     cards.value.push(...data);
     page.value++;

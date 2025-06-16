@@ -1,5 +1,7 @@
 use rbatis::RBatis;
 use serde::{Deserialize, Serialize};
+use std::fs;
+use std::path::Path;
 
 use crate::{
     CONTEXT,
@@ -22,6 +24,22 @@ pub struct ClipRecordDTO {
     pub content: String,
     // os类型
     pub os_type: String,
+    // 创建时间
+    pub created: u64,
+    // 是否置顶
+    pub pinned_flag: bool,
+    // 文件内容属性
+    pub file_info: Vec<FileInfo>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct FileInfo {
+    // 文件路径
+    pub path: String,
+    // 文件大小
+    pub size: i32,
+    // 文件类型
+    pub r#type: String,
 }
 
 #[tauri::command]
@@ -50,11 +68,71 @@ pub async fn get_clip_records(param: QueryParam) -> Vec<ClipRecordDTO> {
 
     all_data
         .into_iter()
-        .map(|item| ClipRecordDTO {
-            id: item.id.clone(),
-            r#type: item.r#type.clone(),
-            content: ContentProcessor::process_by_clip_type(&item.r#type, item.content),
-            os_type: item.os_type.clone(),
+        .map(|item| {
+            if item.r#type == "File" {
+                let content_str = item.content.as_str().unwrap_or_default().to_string();
+                let content =
+                    ContentProcessor::process_by_clip_type(&item.r#type, item.content.clone());
+                return ClipRecordDTO {
+                    id: item.id.clone(),
+                    r#type: item.r#type.clone(),
+                    content,
+                    os_type: item.os_type.clone(),
+                    created: item.created,
+                    pinned_flag: true,
+                    file_info: get_file_info(content_str),
+                };
+            } else {
+                return ClipRecordDTO {
+                    id: item.id.clone(),
+                    r#type: item.r#type.clone(),
+                    content: ContentProcessor::process_by_clip_type(&item.r#type, item.content),
+                    os_type: item.os_type.clone(),
+                    created: item.created,
+                    pinned_flag: true,
+                    file_info: vec![],
+                };
+            }
+        })
+        .collect()
+}
+
+pub fn get_file_info(paths: String) -> Vec<FileInfo> {
+    let paths = paths.split(":::").collect::<Vec<&str>>();
+    paths
+        .iter()
+        .filter_map(|path| {
+            let path = path.trim();
+            if path.is_empty() {
+                return None;
+            }
+
+            let path_buf = Path::new(path);
+            if !path_buf.exists() {
+                return None;
+            }
+
+            // 获取文件元数据
+            let metadata = match fs::metadata(path_buf) {
+                Ok(meta) => meta,
+                Err(_) => return None,
+            };
+
+            // 获取文件扩展名
+            let file_type = path_buf
+                .extension()
+                .and_then(|ext| ext.to_str())
+                .unwrap_or("未知")
+                .to_lowercase();
+
+            // 获取文件大小
+            let size = metadata.len() as i32;
+
+            Some(FileInfo {
+                path: path.to_string(),
+                size,
+                r#type: file_type,
+            })
         })
         .collect()
 }
