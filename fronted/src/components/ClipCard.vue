@@ -2,7 +2,7 @@
     <div class="clip-card" :class="{ 'clip-card-hover': !isMobile, 'is-pinned': record.pinned_flag }" @click="handleCardClick">
         <div class="card-header">
             <div class="card-type">
-                <i :class="getTypeIcon" :title="getTypeTitle"></i>
+                <i class="iconfont" :class="getTypeIcon" :title="getTypeTitle"></i>
                 <span class="type-text">{{ getTypeTitle }}</span>
             </div>
             <div class="card-meta">
@@ -14,13 +14,13 @@
                         @click.stop="handlePin"
                         :title="record.pinned_flag ? '取消置顶' : '置顶'"
                     >
-                        <i class="icon-pin"></i>
+                        <i class="iconfont" :class="record.pinned_flag ? 'icon-dingzhu':'icon-weizhiding'"></i>
                     </button>
                     <button class="action-btn" @click.stop="handleCopy" title="复制">
-                        <i class="icon-copy"></i>
+                        <i class="iconfont icon-copy"></i>
                     </button>
                     <button class="action-btn" @click.stop="handleDelete" title="删除">
-                        <i class="icon-delete"></i>
+                        <i class="iconfont icon-delete"></i>
                     </button>
                 </div>
             </div>
@@ -88,7 +88,7 @@
                     <div class="file-list">
                         <div v-for="(file, index) in fileList" :key="index" class="file-item">
                             <div class="file-icon-wrapper">
-                                <i class="icon-file"></i>
+                                <i class="iconfont icon-file"></i>
                             </div>
                             <div class="file-info">
                                 <span class="file-name" :title="file.path">{{ getFileName(file.path) }}</span>
@@ -108,7 +108,7 @@
             <template v-else-if="record.type === 'JSON'">
                 <div class="json-content">
                     <div class="content-icon">
-                        <i class="icon-json"></i>
+                        <i class="iconfont icon-json"></i>
                     </div>
                     <pre class="json-preview">{{ formatJSON(record.content) }}</pre>
                 </div>
@@ -118,7 +118,7 @@
             <template v-else-if="record.type === 'Code'">
                 <div class="code-content">
                     <div class="content-icon">
-                        <i class="icon-code"></i>
+                        <i class="iconfont icon-code"></i>
                     </div>
                     <pre class="code-preview">{{ record.content }}</pre>
                 </div>
@@ -128,7 +128,7 @@
             <template v-else>
                 <div class="default-content">
                     <div class="content-icon">
-                        <i class="icon-default"></i>
+                        <i class="iconfont icon-default"></i>
                     </div>
                     <p class="text-preview">{{ record.content }}</p>
                 </div>
@@ -161,7 +161,7 @@ interface ClipRecord {
     user_id: number;
     os_type: string;
     fileSize?: number;
-    pinned_flag?: boolean;
+    pinned_flag?: number;
     file_info?: FileInfo[];
 }
 
@@ -903,71 +903,5 @@ onBeforeUnmount(() => {
     overflow-x: auto;
     max-height: 180px;
     transition: all 0.3s ease;
-}
-
-@keyframes spin {
-    to {
-        transform: rotate(360deg);
-    }
-}
-
-/* 图标样式 */
-[class^="icon-"] {
-    display: inline-block;
-    width: 16px;
-    height: 16px;
-    background: currentColor;
-    mask-size: contain;
-    -webkit-mask-size: contain;
-    mask-repeat: no-repeat;
-    -webkit-mask-repeat: no-repeat;
-    mask-position: center;
-    -webkit-mask-position: center;
-    transition: all 0.2s ease;
-}
-
-.icon-text {
-    mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M5 4v3h5.5v12h3V7H19V4z'/%3E%3C/svg%3E");
-    -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M5 4v3h5.5v12h3V7H19V4z'/%3E%3C/svg%3E");
-}
-
-.icon-image {
-    mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z'/%3E%3C/svg%3E");
-    -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z'/%3E%3C/svg%3E");
-}
-
-.icon-file {
-    mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z'/%3E%3C/svg%3E");
-    -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z'/%3E%3C/svg%3E");
-}
-
-.icon-json {
-    mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2m7 12a1 1 0 0 0-1 1 1 1 0 0 0 1 1 1 1 0 0 0 1-1 1 1 0 0 0-1-1m-3-3a1 1 0 0 0-1 1 1 1 0 0 0 1 1 1 1 0 0 0 1-1 1 1 0 0 0-1-1m6 0a1 1 0 0 0-1 1 1 1 0 0 0 1 1 1 1 0 0 0 1-1 1 1 0 0 0-1-1z'/%3E%3C/svg%3E");
-    -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2m7 12a1 1 0 0 0-1 1 1 1 0 0 0 1 1 1 1 0 0 0 1-1 1 1 0 0 0-1-1m-3-3a1 1 0 0 0-1 1 1 1 0 0 0 1 1 1 1 0 0 0 1-1 1 1 0 0 0-1-1m6 0a1 1 0 0 0-1 1 1 1 0 0 0 1 1 1 1 0 0 0 1-1 1 1 0 0 0-1-1z'/%3E%3C/svg%3E");
-}
-
-.icon-code {
-    mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M8.7 15.9L4.8 12l3.9-3.9c.4-.4.4-1 0-1.4-.4-.4-1-.4-1.4 0l-4.6 4.6c-.4.4-.4 1 0 1.4l4.6 4.6c.2.2.5.3.7.3.2 0 .5-.1.7-.3.4-.4.4-1 0-1.4zm6.6 0l3.9-3.9-3.9-3.9c-.4-.4-1-.4-1.4 0-.4.4-.4 1 0 1.4l3.5 3.5-3.5 3.5c-.4.4-.4 1 0 1.4.2.2.5.3.7.3.2 0 .5-.1.7-.3zm-3.3-12l-.4 14c0 .5.4.9.9.9s.9-.4.9-.9l.4-14c0-.5-.4-.9-.9-.9s-.9.4-.9.9z'/%3E%3C/svg%3E");
-    -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M8.7 15.9L4.8 12l3.9-3.9c.4-.4.4-1 0-1.4-.4-.4-1-.4-1.4 0l-4.6 4.6c-.4.4-.4 1 0 1.4l4.6 4.6c.2.2.5.3.7.3.2 0 .5-.1.7-.3.4-.4.4-1 0-1.4zm6.6 0l3.9-3.9-3.9-3.9c-.4-.4-1-.4-1.4 0-.4.4-.4 1 0 1.4l3.5 3.5-3.5 3.5c-.4.4-.4 1 0 1.4.2.2.5.3.7.3.2 0 .5-.1.7-.3zm-3.3-12l-.4 14c0 .5.4.9.9.9s.9-.4.9-.9l.4-14c0-.5-.4-.9-.9-.9s-.9.4-.9.9z'/%3E%3C/svg%3E");
-}
-
-.icon-default {
-    mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8z'/%3E%3C/svg%3E");
-    -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8z'/%3E%3C/svg%3E");
-}
-
-.icon-pin {
-    mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M16 12V4h1c.55 0 1-.45 1-1s-.45-1-1-1H7c-.55 0-1 .45-1 1s.45 1 1 1h1v8l-2 2v2h5.2v6h1.6v-6H18v-2l-2-2z'/%3E%3C/svg%3E");
-    -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M16 12V4h1c.55 0 1-.45 1-1s-.45-1-1-1H7c-.55 0-1 .45-1 1s.45 1 1 1h1v8l-2 2v2h5.2v6h1.6v-6H18v-2l-2-2z'/%3E%3C/svg%3E");
-}
-
-.icon-copy {
-    mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z'/%3E%3C/svg%3E");
-    -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z'/%3E%3C/svg%3E");
-}
-
-.icon-delete {
-    mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z'/%3E%3C/svg%3E");
-    -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z'/%3E%3C/svg%3E");
 }
 </style>

@@ -4,9 +4,12 @@
       <span class="panel-title">Clip Pal</span>
       <input v-model="search" class="search-input" placeholder="搜索剪贴记录..." />
       <div class="header-icons">
-        <img :src="sync_cloud" alt="云图标" class="icon-button" title="云同步" />
+        <span class="iconfont icon-weitongbu" title="云同步"></span>
+        <span class="iconfont icon-user" title="用户信息"></span>
+        <span class="iconfont icon-setting" title="设置"></span>
+        <!-- <img :src="sync_cloud" alt="云图标" class="icon-button" title="云同步" />
         <img :src="user_head" alt="用户信息" class="icon-button" title="用户信息" />
-        <img :src="settings" alt="设置" class="icon-button" title="设置" @click="showSettings = true" />
+        <img :src="settings" alt="设置" class="icon-button" title="设置" @click="showSettings = true" /> -->
       </div>
     </header>
 
@@ -35,9 +38,6 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { ref, onMounted, onBeforeUnmount, watch } from 'vue';
 import { debounce } from 'lodash-es';
-import settings from '../assets/icons/settings.svg';
-import user_head from '../assets/icons/head.svg';
-import sync_cloud from '../assets/icons/sync_cloud.svg';
 import SettingsDialog from './SettingsDialog.vue';
 import ClipCard from './ClipCard.vue';
 
@@ -96,6 +96,7 @@ const fetchClipRecords = async () => {
         search: search.value
       }
     });
+    console.log('获取数据成功:{}', data);
     if (data.length < pageSize) hasMore.value = false;
     cards.value.push(...data);
     page.value++;
@@ -195,6 +196,7 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 8px;
   white-space: nowrap;
+  font-size: 20px;
 }
 
 .search-input {
@@ -296,6 +298,9 @@ onBeforeUnmount(() => {
   display: flex;
   gap: 12px;
   align-items: center;
+}
+.header-icons span {
+  font-size: 18px;
 }
 
 .icon-button {

@@ -27,7 +27,7 @@ pub struct ClipRecordDTO {
     // 创建时间
     pub created: u64,
     // 是否置顶
-    pub pinned_flag: bool,
+    pub pinned_flag: i32,
     // 文件内容属性
     pub file_info: Vec<FileInfo>,
 }
@@ -79,7 +79,7 @@ pub async fn get_clip_records(param: QueryParam) -> Vec<ClipRecordDTO> {
                     content,
                     os_type: item.os_type.clone(),
                     created: item.created,
-                    pinned_flag: true,
+                    pinned_flag: 0,
                     file_info: get_file_info(content_str),
                 };
             } else {
@@ -89,7 +89,7 @@ pub async fn get_clip_records(param: QueryParam) -> Vec<ClipRecordDTO> {
                     content: ContentProcessor::process_by_clip_type(&item.r#type, item.content),
                     os_type: item.os_type.clone(),
                     created: item.created,
-                    pinned_flag: true,
+                    pinned_flag: 0,
                     file_info: vec![],
                 };
             }

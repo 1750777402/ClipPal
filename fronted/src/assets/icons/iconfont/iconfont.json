@@ -1,0 +1,100 @@
+{
+  "id": "4951094",
+  "name": "粘切板",
+  "font_family": "iconfont",
+  "css_prefix_text": "icon-",
+  "description": "",
+  "glyphs": [
+    {
+      "icon_id": "40115483",
+      "name": "未同步",
+      "font_class": "weitongbu",
+      "unicode": "e600",
+      "unicode_decimal": 58880
+    },
+    {
+      "icon_id": "21139962",
+      "name": "用户",
+      "font_class": "user",
+      "unicode": "e628",
+      "unicode_decimal": 58920
+    },
+    {
+      "icon_id": "26708207",
+      "name": "设 置-树菜单设置",
+      "font_class": "setting",
+      "unicode": "e6a5",
+      "unicode_decimal": 59045
+    },
+    {
+      "icon_id": "37229312",
+      "name": "云同步",
+      "font_class": "yuntongbu",
+      "unicode": "e622",
+      "unicode_decimal": 58914
+    },
+    {
+      "icon_id": "5365342",
+      "name": "文件",
+      "font_class": "file",
+      "unicode": "e64c",
+      "unicode_decimal": 58956
+    },
+    {
+      "icon_id": "34450666",
+      "name": "钉住",
+      "font_class": "dingzhu",
+      "unicode": "e6d7",
+      "unicode_decimal": 59095
+    },
+    {
+      "icon_id": "7274101",
+      "name": "复制",
+      "font_class": "copy",
+      "unicode": "e620",
+      "unicode_decimal": 58912
+    },
+    {
+      "icon_id": "19148152",
+      "name": "删 除",
+      "font_class": "delete",
+      "unicode": "e6cd",
+      "unicode_decimal": 59085
+    },
+    {
+      "icon_id": "765385",
+      "name": "同步",
+      "font_class": "tongbu",
+      "unicode": "e668",
+      "unicode_decimal": 58984
+    },
+    {
+      "icon_id": "1299930",
+      "name": "Image-2",
+      "font_class": "image",
+      "unicode": "e66b",
+      "unicode_decimal": 58987
+    },
+    {
+      "icon_id": "10519680",
+      "name": "钉住置顶",
+      "font_class": "weizhiding",
+      "unicode": "e610",
+      "unicode_decimal": 58896
+    },
+    {
+      "icon_id": "11134482",
+      "name": "多行文本",
+      "font_class": "text",
+      "unicode": "e61c",
+      "unicode_decimal": 58908
+    },
+    {
+      "icon_id": "18170210",
+      "name": "云端,云,云服务",
+      "font_class": "cloud",
+      "unicode": "e988",
+      "unicode_decimal": 59784
+    }
+  ]
+}
