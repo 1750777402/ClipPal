@@ -34,7 +34,9 @@
                         class="text-content" 
                         :class="{ 
                             'is-expanded': isExpanded,
-                            'has-overlay': shouldShowOverlay,
+                            'has-overlay': shouldShowOverlay !== 'none',
+                            'overlay-partial': shouldShowOverlay === 'partial',
+                            'overlay-full': shouldShowOverlay === 'full',
                             'scroll-visible': showScrollbar 
                         }" 
                         ref="textContent"
@@ -188,13 +190,13 @@ const textContent = ref<HTMLElement | null>(null);
 const textPreview = ref<HTMLElement | null>(null);
 const showStickyCollapse = ref(false);
 const showScrollbar = ref(false);
-const contentHeight = ref(0);
 const shouldShowExpand = ref(false);
-const shouldShowOverlay = ref(false);
+// 修正为字符串类型，支持三种状态
+const shouldShowOverlay = ref<'none' | 'partial' | 'full'>('none');
 
 const LINE_HEIGHT = 24; // 根据实际行高设置
 const MAX_LINES_FOR_FULL = 8; // 最多显示5行完整内容
-const MAX_LINES_FOR_PREVIEW = 5; // 超过3行显示展开按钮
+const MAX_LINES_FOR_PREVIEW = 8; // 超过3行显示展开按钮
 
 const handleCardClick = async () => {
     await invoke('copy_clip_record', { param: { record_id: props.record.id } });
@@ -344,16 +346,19 @@ const calculateTextLines = () => {
 
 // 检查是否需要显示展开功能
 const checkExpandNeeded = () => {
-    if (!textPreview.value) return;
-    
     const lines = calculateTextLines();
     
     // 计算是否需要显示展开按钮
     shouldShowExpand.value = lines > MAX_LINES_FOR_PREVIEW;
     
-    // 计算是否需要显示遮罩
-    shouldShowOverlay.value = lines > MAX_LINES_FOR_FULL ? true : 
-                             lines > MAX_LINES_FOR_PREVIEW ? true : false;
+    // 计算遮罩类型
+    if (lines > MAX_LINES_FOR_FULL) {
+        shouldShowOverlay.value = 'full';
+    } else if (lines > MAX_LINES_FOR_PREVIEW) {
+        shouldShowOverlay.value = 'partial';
+    } else {
+        shouldShowOverlay.value = 'none';
+    }
 };
 
 watch(isExpanded, (newVal) => {
@@ -534,16 +539,6 @@ onBeforeUnmount(() => {
   max-height: none;
 }
 
-/* 4-5行内容样式 */
-.text-content.has-overlay.partial:not(.is-expanded) {
-  max-height: calc(5 * 24px); /* 5行高度 */
-}
-
-/* 超过5行内容样式 */
-.text-content.has-overlay:not(.is-expanded) {
-  max-height: calc(3 * 24px); /* 3行高度 */
-}
-
 .text-content.is-expanded {
   max-height: 400px;
   overflow-y: auto;
@@ -571,7 +566,7 @@ onBeforeUnmount(() => {
 }
 
 /* 遮罩效果 */
-.text-content:not(.is-expanded).has-overlay::after {
+.text-content:not(.is-expanded).has-overlay.overlay-full::after {
   content: '';
   position: absolute;
   bottom: 0;
@@ -582,11 +577,16 @@ onBeforeUnmount(() => {
   transition: opacity 0.3s ease;
 }
 
-/* 4-5行内容使用更轻微的遮罩 */
-.text-content:not(.is-expanded).has-overlay.partial::after {
+.text-content:not(.is-expanded).has-overlay.overlay-partial::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
   height: 20px;
   background: linear-gradient(to top, var(--card-bg, #ffffff) 30%, transparent);
   opacity: 0.7;
+  transition: opacity 0.3s ease;
 }
 
 .text-preview {
@@ -598,6 +598,16 @@ onBeforeUnmount(() => {
   margin: 0;
   padding: 0;
   transition: all 0.3s ease;
+}
+
+/* 4-5行内容样式 */
+.text-content.overlay-partial:not(.is-expanded) {
+  max-height: calc(5 * 24px); /* 5行高度 */
+}
+
+/* 超过5行内容样式 */
+.text-content.overlay-full:not(.is-expanded) {
+  max-height: calc(3 * 24px); /* 3行高度 */
 }
 
 /* 展开控制区域 */
