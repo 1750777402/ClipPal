@@ -1,0 +1,71 @@
+use std::{fs, path::PathBuf};
+
+use serde::{Deserialize, Serialize};
+
+use crate::utils::file_dir::get_config_dir;
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct Settings {
+    // 最大记录条数
+    pub max_records: u32,
+    // 是否自动启动 0 关闭 1 开启
+    pub auto_start: u32,
+    // 快捷键组合
+    pub shortcut_key: String,
+    // 是否开启云同步 0 关闭 1 开启
+    pub cloud_sync: u32,
+}
+
+impl Default for Settings {
+    fn default() -> Self {
+        Self {
+            max_records: 200,
+            auto_start: 0,
+            shortcut_key: String::from("Ctrl+`"),
+            cloud_sync: 0,
+        }
+    }
+}
+
+/// 初始化系统设置
+pub fn init_settings() {
+    save_settings(load_settings());
+}
+
+pub fn get_settings_file_path() -> Option<PathBuf> {
+    let config_dir = get_config_dir();
+    if let Some(config_dir) = config_dir {
+        Some(config_dir.join("settings.json"))
+    } else {
+        None
+    }
+}
+
+#[tauri::command]
+pub fn load_settings() -> Settings {
+    if let Some(path) = get_settings_file_path() {
+        if path.exists() {
+            let data = fs::read_to_string(&path).unwrap_or_default();
+            serde_json::from_str(&data).unwrap_or_default()
+        } else {
+            let default = Settings::default();
+            save_settings(default.clone());
+            default
+        }
+    } else {
+        Settings::default()
+    }
+}
+
+#[tauri::command]
+pub fn save_settings(settings: Settings) {
+    println!("保存系统设置：{:?}", settings);
+    if let Some(path) = get_settings_file_path() {
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).ok();
+        }
+        if let Ok(json) = serde_json::to_string_pretty(&settings) {
+            fs::write(path, json).ok();
+        }
+    }
+}

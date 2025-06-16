@@ -37,3 +37,13 @@ pub fn get_resources_dir() -> Option<PathBuf> {
         path
     })
 }
+
+/// win: "C:\\Users\\<User>\\AppData\\Roaming\\ClipPal\\config"
+/// mac:  "/Users/<User>/Library/Application Support/ClipPal/config"
+pub fn get_config_dir() -> Option<PathBuf> {
+    get_clippal_root().map(|mut path| {
+        path.push("config");
+        ensure_directory(&path);
+        path
+    })
+}

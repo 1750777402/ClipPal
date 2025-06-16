@@ -5,7 +5,11 @@ use clipboard_listener::{ClipboardEvent, EventManager};
 use state::TypeMap;
 use tauri_plugin_autostart::MacosLauncher;
 
-use crate::biz::{copy_clip_record::copy_clip_record, query_clip_record::get_clip_records};
+use crate::biz::{
+    copy_clip_record::copy_clip_record,
+    query_clip_record::get_clip_records,
+    system_setting::{init_settings, load_settings, save_settings},
+};
 
 mod biz;
 mod clip_board_listener;
@@ -62,9 +66,16 @@ pub async fn run() {
             //     .open_devtools();
             // 初始化剪贴板监听器
             let _ = clip_board_listener::init_clip_board_listener(&app, m1);
+            // 初始化系统设置
+            init_settings();
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![get_clip_records, copy_clip_record])
+        .invoke_handler(tauri::generate_handler![
+            get_clip_records,
+            copy_clip_record,
+            load_settings,
+            save_settings
+        ])
         .build(tauri::generate_context!())
         .unwrap()
         .run(move |_, event| match event {

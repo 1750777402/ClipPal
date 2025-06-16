@@ -14,7 +14,7 @@
               <span class="settings-description">启动系统时自动运行应用</span>
             </div>
             <label class="switch">
-              <input type="checkbox" v-model="settings.autoStart">
+              <input type="checkbox" :checked="settings.auto_start === 1" @change="(e: Event) => settings.auto_start = (e.target as HTMLInputElement).checked ? 1 : 0">
               <span class="slider"></span>
             </label>
           </div>
@@ -26,7 +26,7 @@
             </div>
             <div class="number-input">
               <button class="number-button" @click="decreaseMaxRecords">-</button>
-              <input type="number" v-model.number="settings.maxRecords" min="50" max="1000">
+              <input type="number" v-model.number="settings.max_records" min="50" max="1000">
               <button class="number-button" @click="increaseMaxRecords">+</button>
             </div>
           </div>
@@ -43,7 +43,7 @@
                 </span>
               </template>
               <template v-else>
-                <span>{{ settings.shortcut || '点击设置' }}</span>
+                <span>{{ settings.shortcut_key || '点击设置' }}</span>
               </template>
             </div>
           </div>
@@ -54,7 +54,7 @@
               <span class="settings-description">自动同步剪贴板内容到云端</span>
             </div>
             <label class="switch">
-              <input type="checkbox" v-model="settings.cloudSync">
+              <input type="checkbox" :checked="settings.cloud_sync === 1" @change="(e: Event) => settings.cloud_sync = (e.target as HTMLInputElement).checked ? 1 : 0">
               <span class="slider"></span>
             </label>
           </div>
@@ -83,17 +83,17 @@ const emit = defineEmits<{
 }>();
 
 interface Settings {
-  autoStart: boolean;
-  maxRecords: number;
-  shortcut: string;
-  cloudSync: boolean;
+  auto_start: number;  // 0 关闭 1 开启
+  max_records: number;
+  shortcut_key: string;
+  cloud_sync: number;  // 0 关闭 1 开启
 }
 
 const settings = ref<Settings>({
-  autoStart: false,
-  maxRecords: 200,
-  shortcut: 'Ctrl+Shift+V',
-  cloudSync: false
+  auto_start: 0,
+  max_records: 200,
+  shortcut_key: 'Ctrl+`',
+  cloud_sync: 0
 });
 
 const isRecording = ref(false);
@@ -104,7 +104,8 @@ const pressedKeys = ref<string[]>([]);
 watch(() => props.modelValue, async (newVal) => {
   if (newVal) {
     try {
-      const currentSettings = await invoke('get_settings') as Settings;
+      const currentSettings = await invoke('load_settings') as Settings;
+      console.log('当前设置:', currentSettings);
       settings.value = { ...currentSettings };
     } catch (error) {
       console.error('加载设置失败:', error);
@@ -127,19 +128,19 @@ const handleConfirm = async () => {
 };
 
 const decreaseMaxRecords = () => {
-  if (settings.value.maxRecords > 50) {
-    settings.value.maxRecords -= 50;
+  if (settings.value.max_records > 50) {
+    settings.value.max_records -= 50;
   }
 };
 
 const increaseMaxRecords = () => {
-  if (settings.value.maxRecords < 1000) {
-    settings.value.maxRecords += 50;
+  if (settings.value.max_records < 1000) {
+    settings.value.max_records += 50;
   }
 };
 
 // 修复：开始录制时清空数组，确保每次独立记录
-const startRecording = (e: any) => {
+const startRecording = (_e: any) => {
   isRecording.value = true;
   pressedKeys.value = [];
 };
@@ -211,7 +212,7 @@ const handleKeyDown = (e: KeyboardEvent) => {
   const hasModifier = modifiers.length > 0;
   const hasRegularKey = !['Ctrl', 'Shift', 'Alt', 'Meta'].includes(key);
   if (hasModifier && hasRegularKey) {
-    settings.value.shortcut = pressedKeys.value.join('+'); // 按顺序拼接
+    settings.value.shortcut_key = pressedKeys.value.join('+'); // 按顺序拼接
     stopRecording(); // 录制完成
   }
 };
@@ -499,8 +500,6 @@ input:checked+.slider:before {
   transition: all 0.2s ease;
   user-select: none;
 }
-
-
 
 .shortcut-input:hover {
   border-color: var(--primary-color, #2c7a7b);
