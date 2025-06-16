@@ -29,6 +29,7 @@ pub async fn clip_record_clean() {
                             // 删除图片
                             for path in img_path_arr {
                                 let full_path = resource_path.join(path);
+                                println!("删除图片失败图片路径:{:?}", full_path.as_os_str());
                                 std::fs::remove_file(full_path).unwrap_or_else(|e| {
                                     println!("删除图片失败:{}", e);
                                 })
