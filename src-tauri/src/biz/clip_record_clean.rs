@@ -16,7 +16,7 @@ pub async fn clip_record_clean() {
             let mut del_ids: Vec<String> = vec![];
             for record in clip_records {
                 if record.r#type == ClipType::Image.to_string() {
-                    img_path_arr.push(record.content.to_string());
+                    img_path_arr.push(record.content.as_str().unwrap_or_default().to_string());
                 }
                 del_ids.push(record.id);
             }
