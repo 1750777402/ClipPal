@@ -34,9 +34,7 @@
                         class="text-content" 
                         :class="{ 
                             'is-expanded': isExpanded,
-                            'has-overlay': shouldShowOverlay !== 'none',
-                            'overlay-partial': shouldShowOverlay === 'partial',
-                            'overlay-full': shouldShowOverlay === 'full',
+                            'has-overlay': shouldShowOverlay,
                             'scroll-visible': showScrollbar 
                         }" 
                         ref="textContent"
@@ -64,8 +62,75 @@
                 </div>
             </template>
 
-            <!-- 其他内容类型保持不变 -->
-            <!-- ... -->
+            <!-- 图片类型 -->
+            <template v-else-if="record.type === 'Image'">
+                <div class="image-container">
+                    <img
+                        v-if="record.content"
+                        :src="record.content"
+                        class="image-preview"
+                        @load="handleImageLoad"
+                        @error="handleImageError"
+                        @click.stop="showImagePreview = true"
+                    />
+                    <div v-if="!isImageLoaded" class="image-placeholder">
+                        <div class="placeholder-spinner"></div>
+                        <span class="loading-text">加载中...</span>
+                    </div>
+                </div>
+            </template>
+
+            <!-- 文件类型 -->
+            <template v-else-if="record.type === 'File'">
+                <div class="file-content">
+                    <div class="file-list">
+                        <div v-for="(file, index) in fileList" :key="index" class="file-item">
+                            <div class="file-icon-wrapper">
+                                <i class="icon-file"></i>
+                            </div>
+                            <div class="file-info">
+                                <span class="file-name" :title="file.path">{{ getFileName(file.path) }}</span>
+                                <span class="file-meta">
+                                    {{ formatFileSize(file.size) }} · {{ file.type || getFileType(file.path) }}
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="file-count" v-if="fileList.length > 1">
+                        共 {{ fileList.length }} 个文件
+                    </div>
+                </div>
+            </template>
+
+            <!-- JSON内容 -->
+            <template v-else-if="record.type === 'JSON'">
+                <div class="json-content">
+                    <div class="content-icon">
+                        <i class="icon-json"></i>
+                    </div>
+                    <pre class="json-preview">{{ formatJSON(record.content) }}</pre>
+                </div>
+            </template>
+
+            <!-- 代码内容 -->
+            <template v-else-if="record.type === 'Code'">
+                <div class="code-content">
+                    <div class="content-icon">
+                        <i class="icon-code"></i>
+                    </div>
+                    <pre class="code-preview">{{ record.content }}</pre>
+                </div>
+            </template>
+
+            <!-- 默认内容 -->
+            <template v-else>
+                <div class="default-content">
+                    <div class="content-icon">
+                        <i class="icon-default"></i>
+                    </div>
+                    <p class="text-preview">{{ record.content }}</p>
+                </div>
+            </template>
         </div>
     </div>
 
@@ -123,13 +188,13 @@ const textContent = ref<HTMLElement | null>(null);
 const textPreview = ref<HTMLElement | null>(null);
 const showStickyCollapse = ref(false);
 const showScrollbar = ref(false);
+const contentHeight = ref(0);
 const shouldShowExpand = ref(false);
-// 修正为字符串类型，支持三种状态
-const shouldShowOverlay = ref<'none' | 'partial' | 'full'>('none');
+const shouldShowOverlay = ref(false);
 
 const LINE_HEIGHT = 24; // 根据实际行高设置
 const MAX_LINES_FOR_FULL = 8; // 最多显示5行完整内容
-const MAX_LINES_FOR_PREVIEW = 8; // 超过3行显示展开按钮
+const MAX_LINES_FOR_PREVIEW = 5; // 超过3行显示展开按钮
 
 const handleCardClick = async () => {
     await invoke('copy_clip_record', { param: { record_id: props.record.id } });
@@ -279,19 +344,16 @@ const calculateTextLines = () => {
 
 // 检查是否需要显示展开功能
 const checkExpandNeeded = () => {
+    if (!textPreview.value) return;
+    
     const lines = calculateTextLines();
     
     // 计算是否需要显示展开按钮
     shouldShowExpand.value = lines > MAX_LINES_FOR_PREVIEW;
     
-    // 计算遮罩类型
-    if (lines > MAX_LINES_FOR_FULL) {
-        shouldShowOverlay.value = 'full';
-    } else if (lines > MAX_LINES_FOR_PREVIEW) {
-        shouldShowOverlay.value = 'partial';
-    } else {
-        shouldShowOverlay.value = 'none';
-    }
+    // 计算是否需要显示遮罩
+    shouldShowOverlay.value = lines > MAX_LINES_FOR_FULL ? true : 
+                             lines > MAX_LINES_FOR_PREVIEW ? true : false;
 };
 
 watch(isExpanded, (newVal) => {
@@ -472,6 +534,16 @@ onBeforeUnmount(() => {
   max-height: none;
 }
 
+/* 4-5行内容样式 */
+.text-content.has-overlay.partial:not(.is-expanded) {
+  max-height: calc(5 * 24px); /* 5行高度 */
+}
+
+/* 超过5行内容样式 */
+.text-content.has-overlay:not(.is-expanded) {
+  max-height: calc(3 * 24px); /* 3行高度 */
+}
+
 .text-content.is-expanded {
   max-height: 400px;
   overflow-y: auto;
@@ -499,7 +571,7 @@ onBeforeUnmount(() => {
 }
 
 /* 遮罩效果 */
-.text-content:not(.is-expanded).has-overlay.overlay-full::after {
+.text-content:not(.is-expanded).has-overlay::after {
   content: '';
   position: absolute;
   bottom: 0;
@@ -510,16 +582,11 @@ onBeforeUnmount(() => {
   transition: opacity 0.3s ease;
 }
 
-.text-content:not(.is-expanded).has-overlay.overlay-partial::after {
-  content: '';
-  position: absolute;
-  bottom: 0;
-  left: 0;
-  right: 0;
+/* 4-5行内容使用更轻微的遮罩 */
+.text-content:not(.is-expanded).has-overlay.partial::after {
   height: 20px;
   background: linear-gradient(to top, var(--card-bg, #ffffff) 30%, transparent);
   opacity: 0.7;
-  transition: opacity 0.3s ease;
 }
 
 .text-preview {
@@ -531,16 +598,6 @@ onBeforeUnmount(() => {
   margin: 0;
   padding: 0;
   transition: all 0.3s ease;
-}
-
-/* 4-5行内容样式 */
-.text-content.overlay-partial:not(.is-expanded) {
-  max-height: calc(5 * 24px); /* 5行高度 */
-}
-
-/* 超过5行内容样式 */
-.text-content.overlay-full:not(.is-expanded) {
-  max-height: calc(3 * 24px); /* 3行高度 */
 }
 
 /* 展开控制区域 */
