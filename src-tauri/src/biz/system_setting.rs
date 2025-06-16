@@ -45,18 +45,17 @@ pub fn get_settings_file_path() -> Option<PathBuf> {
 
 #[tauri::command]
 pub fn load_settings() -> Settings {
+    let mut settings = Settings::default();
     if let Some(path) = get_settings_file_path() {
         if path.exists() {
             let data = fs::read_to_string(&path).unwrap_or_default();
-            serde_json::from_str(&data).unwrap_or_default()
+            settings = serde_json::from_str(&data).unwrap_or_default()
         } else {
-            let default = Settings::default();
-            save_settings(default.clone());
-            default
+            let settings = Settings::default();
+            save_settings(settings.clone());
         }
-    } else {
-        Settings::default()
     }
+    settings
 }
 
 #[tauri::command]
@@ -71,6 +70,8 @@ pub fn save_settings(settings: Settings) {
             set_auto_start(settings.auto_start == 1);
         }
     }
+    // 把系统配置存储到上下文中
+    CONTEXT.set(settings.clone());
 }
 
 pub fn set_auto_start(auto_start: bool) {

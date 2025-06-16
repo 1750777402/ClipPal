@@ -1,14 +1,19 @@
 use clipboard_listener::ClipType;
 use rbatis::RBatis;
 
-use crate::{CONTEXT, biz::clip_record::ClipRecord, utils::file_dir::get_resources_dir};
+use crate::{
+    CONTEXT,
+    biz::{clip_record::ClipRecord, system_setting::Settings},
+    utils::file_dir::get_resources_dir,
+};
 
 pub async fn clip_record_clean() {
     let rb: &RBatis = CONTEXT.get::<RBatis>();
     let count = ClipRecord::count(rb).await;
-    if count > 200 {
-        // 获取200条之后的数据
-        let clip_records = ClipRecord::select_order_by_limit(rb, -1, 200)
+    let system_settings = CONTEXT.get::<Settings>();
+    let max_num = system_settings.max_records;
+    if count > max_num as i64 {
+        let clip_records = ClipRecord::select_order_by_limit(rb, -1, max_num as i32)
             .await
             .unwrap_or(vec![]);
         if clip_records.len() > 0 {
