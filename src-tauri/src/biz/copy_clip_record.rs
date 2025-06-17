@@ -35,16 +35,38 @@ pub async fn copy_clip_record(param: CopyClipRecord) -> Result<String, String> {
             if let Some(path) = record.content.as_str() {
                 if let Some(base_path) = crate::utils::file_dir::get_resources_dir() {
                     let abs_path = base_path.join(path);
+                    if !abs_path.exists() {
+                        return Err("图片资源不存在，无法复制".to_string());
+                    }
                     if let Ok(img_bytes) = std::fs::read(abs_path) {
                         let _ = clipboard.write_image_binary(img_bytes);
+                    } else {
+                        return Err("图片资源读取失败，无法复制".to_string());
                     }
+                } else {
+                    return Err("资源目录获取失败".to_string());
                 }
+            } else {
+                return Err("图片路径无效".to_string());
             }
         }
         ClipType::File => {
             if let Some(paths) = record.content.as_str() {
                 let restored: Vec<String> = paths.split(":::").map(|s| s.to_string()).collect();
+                let mut not_found: Vec<String> = vec![];
+                for file_path in &restored {
+                    let file_path = file_path.trim();
+                    if file_path.is_empty() { continue; }
+                    if !std::path::Path::new(file_path).exists() {
+                        not_found.push(file_path.to_string());
+                    }
+                }
+                if !not_found.is_empty() {
+                    return Err(format!("以下文件不存在，无法复制:\n{}", not_found.join("\n")));
+                }
                 let _ = clipboard.write_files_uris(restored);
+            } else {
+                return Err("文件路径无效".to_string());
             }
         }
         _ => {}

@@ -147,7 +147,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onBeforeUnmount, nextTick, watch } from 'vue';
+import { ref, computed, onMounted, onBeforeUnmount, nextTick, watch, inject } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { formatDistanceToNow } from 'date-fns';
 import { zhCN } from 'date-fns/locale';
@@ -198,9 +198,19 @@ const LINE_HEIGHT = 24; // 根据实际行高设置
 const MAX_LINES_FOR_FULL = 8; // 最多显示5行完整内容
 const MAX_LINES_FOR_PREVIEW = 8; // 超过3行显示展开按钮
 
+const showMessageBar = inject('showMessageBar') as (msg: string, type?: 'success'|'error') => void;
+
 const handleCardClick = async () => {
-    await invoke('copy_clip_record', { param: { record_id: props.record.id } });
-    emit('click', props.record);
+    try {
+        await invoke('copy_clip_record', { param: { record_id: props.record.id } });
+        emit('click', props.record);
+    } catch (err: any) {
+        if (showMessageBar) {
+            showMessageBar(err?.toString() || '复制失败', 'error');
+        } else {
+            alert(err?.toString() || '复制失败');
+        }
+    }
 };
 
 const formatTime = (timestamp: number) => {
