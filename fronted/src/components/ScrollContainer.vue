@@ -67,10 +67,14 @@ const initEventListeners = async () => {
     await listen('clip_record_change', () => {
       resetAndFetch();
     });
+    await listen('open_settings_winodws', () => {
+      showSettings.value = true;
+    });
   } catch (error) {
     console.error('事件监听失败:', error);
   }
 };
+
 
 const resetAndFetch = () => {
   cards.value = [];

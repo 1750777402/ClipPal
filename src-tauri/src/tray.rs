@@ -1,7 +1,10 @@
 use tauri::image::Image;
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, TrayIconEvent};
+use tauri::{AppHandle, Emitter};
 use tauri::{Manager, Runtime, tray::TrayIconBuilder};
+
+use crate::CONTEXT;
 
 pub fn create_tray<R: Runtime>(app: &tauri::AppHandle<R>) -> tauri::Result<()> {
     // 为系统创建托盘图标
@@ -23,6 +26,16 @@ pub fn create_tray<R: Runtime>(app: &tauri::AppHandle<R>) -> tauri::Result<()> {
             }
             _ => {
                 println!("menu item {:?} not handled", event.id);
+                // 通知前端显示系统设置窗口
+                let app_handle = CONTEXT.get::<AppHandle>();
+                if let Some(window) = app.get_webview_window("main") {
+                    let visible = window.is_visible().unwrap_or(false);
+                    if !visible {
+                        let _ = window.show();
+                        let _ = window.set_focus();
+                    }
+                }
+                let _ = app_handle.emit("open_settings_winodws", ());
             }
         })
         // 托盘图标响应鼠标事件
@@ -32,8 +45,6 @@ pub fn create_tray<R: Runtime>(app: &tauri::AppHandle<R>) -> tauri::Result<()> {
                 button: MouseButton::Left,
                 ..
             } => {
-                println!("left click pressed and released");
-                // in this example, let's show and focus the main window when the tray is clicked
                 let app = tray.app_handle();
                 if let Some(window) = app.get_webview_window("main") {
                     let _ = window.show();

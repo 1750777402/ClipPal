@@ -33,10 +33,10 @@ impl ClipBoardEventListener<ClipboardEvent> for ClipboardEventTigger {
             _ => {}
         }
 
+        clip_record_clean().await;
         // 通知前端粘贴板变更
         let app_handle = CONTEXT.get::<AppHandle>();
         let _ = app_handle.emit("clip_record_change", ());
-        clip_record_clean().await;
     }
 }
 

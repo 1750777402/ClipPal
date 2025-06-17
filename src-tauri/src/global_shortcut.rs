@@ -22,17 +22,17 @@ pub fn init_global_shortcut(app: &App) -> tauri::Result<()> {
         app.handle().plugin(
             tauri_plugin_global_shortcut::Builder::new()
                 .with_handler(move |app, registered_shortcut, _| {
-                    let current_shortcut_str ={
+                    let current_shortcut_str = {
                         use std::sync::{Arc, Mutex};
-            
+
                         let lock = CONTEXT.get::<Arc<Mutex<Settings>>>().clone();
                         let current = lock.lock().unwrap();
                         current.clone()
-                    }.shortcut_key.clone();
+                    }
+                    .shortcut_key
+                    .clone();
                     // 解析快捷键字符串
                     let current_shortcut = parse_shortcut(&current_shortcut_str);
-                    println!("Received shortcut: {:?}", registered_shortcut);
-                    println!("Received shortcut1111: {:?}", current_shortcut);
                     if registered_shortcut == &current_shortcut {
                         use tauri::Manager;
                         if let Some(window) = app.get_webview_window("main") {
