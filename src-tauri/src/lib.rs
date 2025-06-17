@@ -6,7 +6,7 @@ use state::TypeMap;
 use tauri_plugin_autostart::MacosLauncher;
 
 use crate::biz::{
-    copy_clip_record::{copy_clip_record, set_pinned},
+    copy_clip_record::{copy_clip_record, del_record, set_pinned},
     query_clip_record::get_clip_records,
     system_setting::{init_settings, load_settings, save_settings, validate_shortcut},
 };
@@ -77,7 +77,8 @@ pub async fn run() {
             load_settings,
             save_settings,
             validate_shortcut,
-            set_pinned
+            set_pinned,
+            del_record
         ])
         .build(tauri::generate_context!())
         .unwrap()

@@ -16,7 +16,7 @@
     </div>
 
     <div class="clip-list" v-else @scroll.passive="handleScroll" ref="scrollContainer">
-      <ClipCard v-for="item in cards" :key="item.id" :record="item" :is-mobile="isMobile" @click="handleCardClick" @pin="handlePin" />
+      <ClipCard v-for="item in cards" :key="item.id" :record="item" :is-mobile="isMobile" @click="handleCardClick" @pin="handlePin" @delete="handleDel" />
 
       <div v-if="isFetchingMore" class="bottom-loading">
         <div class="loading-spinner small"></div>
@@ -141,6 +141,10 @@ const handleSettingsSave = async (newSettings: any) => {
 };
 
 const handlePin = () => {
+  resetAndFetch();
+};
+
+const handleDel = () => {
   resetAndFetch();
 };
 

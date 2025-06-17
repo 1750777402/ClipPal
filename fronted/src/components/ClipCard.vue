@@ -298,11 +298,13 @@ const fileList = computed(() => {
     return [];
 });
 
-const handleCopy = () => {
-    emit('copy', props.record);
-};
+// const handleCopy = () => {
+//     emit('copy', props.record);
+// };
 
-const handleDelete = () => {
+const handleDelete = async () => {
+    let param_obj = { record_id: props.record.id };
+    await invoke('del_record', { param:  param_obj});
     emit('delete', props.record);
 };
 

@@ -65,3 +65,10 @@ pub async fn set_pinned(param: PinnedClipRecord) -> Result<String, String> {
     let _ = ClipRecord::update_pinned(rb, &param.record_id, param.pinned_flag).await;
     Ok(String::new())
 }
+
+#[tauri::command]
+pub async fn del_record(param: CopyClipRecord) -> Result<String, String> {
+    let rb: &RBatis = CONTEXT.get::<RBatis>();
+    let _ = ClipRecord::del_by_ids(rb, vec![param.record_id]).await;
+    Ok(String::new())
+}
