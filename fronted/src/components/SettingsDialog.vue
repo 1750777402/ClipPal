@@ -53,7 +53,7 @@
           <div class="settings-item">
             <div class="settings-label">
               <span>云同步</span>
-              <span class="settings-description">自动同步剪贴板内容到云端</span>
+              <span class="settings-description">自动同步剪贴板内容到云端(该功能当前未启用)</span>
             </div>
             <label class="switch">
               <input type="checkbox" :checked="settings.cloud_sync === 1" @change="(e: Event) => settings.cloud_sync = (e.target as HTMLInputElement).checked ? 1 : 0">
