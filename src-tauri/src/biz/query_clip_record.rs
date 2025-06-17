@@ -79,7 +79,7 @@ pub async fn get_clip_records(param: QueryParam) -> Vec<ClipRecordDTO> {
                     content,
                     os_type: item.os_type.clone(),
                     created: item.created,
-                    pinned_flag: 0,
+                    pinned_flag: item.pinned_flag,
                     file_info: get_file_info(content_str),
                 };
             } else {
@@ -89,7 +89,7 @@ pub async fn get_clip_records(param: QueryParam) -> Vec<ClipRecordDTO> {
                     content: ContentProcessor::process_by_clip_type(&item.r#type, item.content),
                     os_type: item.os_type.clone(),
                     created: item.created,
-                    pinned_flag: 0,
+                    pinned_flag: item.pinned_flag,
                     file_info: vec![],
                 };
             }

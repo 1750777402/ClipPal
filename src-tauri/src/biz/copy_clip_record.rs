@@ -52,3 +52,16 @@ pub async fn copy_clip_record(param: CopyClipRecord) -> Result<String, String> {
 
     Ok(String::new())
 }
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+pub struct PinnedClipRecord {
+    pub record_id: String,
+    pub pinned_flag: i32,
+}
+
+#[tauri::command]
+pub async fn set_pinned(param: PinnedClipRecord) -> Result<String, String> {
+    let rb: &RBatis = CONTEXT.get::<RBatis>();
+    let _ = ClipRecord::update_pinned(rb, &param.record_id, param.pinned_flag).await;
+    Ok(String::new())
+}

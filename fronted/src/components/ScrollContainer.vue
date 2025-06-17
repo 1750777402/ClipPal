@@ -16,7 +16,7 @@
     </div>
 
     <div class="clip-list" v-else @scroll.passive="handleScroll" ref="scrollContainer">
-      <ClipCard v-for="item in cards" :key="item.id" :record="item" :is-mobile="isMobile" @click="handleCardClick" />
+      <ClipCard v-for="item in cards" :key="item.id" :record="item" :is-mobile="isMobile" @click="handleCardClick" @pin="handlePin" />
 
       <div v-if="isFetchingMore" class="bottom-loading">
         <div class="loading-spinner small"></div>
@@ -93,7 +93,6 @@ const fetchClipRecords = async () => {
         search: search.value
       }
     });
-    console.log('获取数据成功:{}', data);
     if (data.length < pageSize) hasMore.value = false;
     cards.value.push(...data);
     page.value++;
@@ -139,6 +138,10 @@ const handleSettingsSave = async (newSettings: any) => {
   // 处理设置保存
   console.log('设置已保存:', newSettings);
   // 这里可以添加其他处理逻辑，比如重新加载数据等
+};
+
+const handlePin = () => {
+  resetAndFetch();
 };
 
 onMounted(() => {

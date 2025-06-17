@@ -20,14 +20,17 @@ pub struct ClipRecord {
     pub os_type: String,
     // 排序字段
     pub sort: i32,
+    // 是否置顶
+    pub pinned_flag: i32,
 }
 
 crud!(ClipRecord {}, "clip_record");
 impl_select!(ClipRecord{select_by_id(id: &str) =>"`where id = #{id}`"});
+impl_select!(ClipRecord{select_by_pinned_flag(pinned_flag: i32) =>"`where pinned_flag = #{pinned_flag}`"});
 impl_select!(ClipRecord{select_order_by() =>"`order by sort desc, created desc`"});
-impl_select!(ClipRecord{select_where_order_by_limit(content: &str, limit:i32, offset:i32) =>"` where content like #{content} order by sort desc, created desc limit #{limit} offset #{offset}`"});
+impl_select!(ClipRecord{select_where_order_by_limit(content: &str, limit:i32, offset:i32) =>"` where content like #{content} order by pinned_flag desc, sort desc, created desc limit #{limit} offset #{offset}`"});
 //  根据limit和offset 查询   获取limit条数据(-1表示全部)   跳过前offset条数据
-impl_select!(ClipRecord{select_order_by_limit(limit:i32, offset:i32) =>"`order by sort desc, created desc limit #{limit} offset #{offset}`"});
+impl_select!(ClipRecord{select_order_by_limit(limit:i32, offset:i32) =>"`order by pinned_flag desc, sort desc, created desc limit #{limit} offset #{offset}`"});
 // 根据type和content 查看是否有重复的    有的话取出一个
 impl_select!(ClipRecord{check_by_type_and_content(content_type:&str, content:&str) =>"`where type = #{content_type} and content = #{content} limit 1`"});
 // 根据type和content 查看是否有重复的    有的话取出一个
@@ -47,6 +50,20 @@ impl ClipRecord {
         let sql = "UPDATE clip_record SET sort = ? WHERE id = ?";
         let tx = rb.acquire_begin().await?;
         let _ = tx.exec(sql, vec![to_value!(sort), to_value!(id)]).await;
+        tx.commit().await
+    }
+
+    pub async fn update_pinned(rb: &RBatis, id: &str, pinned_flag: i32) -> Result<(), Error> {
+        let sql = "UPDATE clip_record SET pinned_flag = ? WHERE id = ?";
+        let tx = rb.acquire_begin().await?;
+        if pinned_flag == 1 {
+            // 置顶某一条的时候  先把其他的置顶都取消
+            let sql1 = "UPDATE clip_record SET pinned_flag = 0 WHERE pinned_flag = 1";
+            let _ = tx.exec(sql1, vec![]).await;
+        }
+        let _ = tx
+            .exec(sql, vec![to_value!(pinned_flag), to_value!(id)])
+            .await;
         tx.commit().await
     }
 

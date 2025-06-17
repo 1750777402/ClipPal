@@ -16,7 +16,7 @@
                     >
                         <i class="iconfont" :class="record.pinned_flag ? 'icon-dingzhu':'icon-weizhiding'"></i>
                     </button>
-                    <button class="action-btn" @click.stop="handleCopy" title="复制">
+                    <button class="action-btn" @click.stop="handleCardClick" title="复制">
                         <i class="iconfont icon-copy"></i>
                     </button>
                     <button class="action-btn" @click.stop="handleDelete" title="删除">
@@ -306,7 +306,9 @@ const handleDelete = () => {
     emit('delete', props.record);
 };
 
-const handlePin = () => {
+const handlePin = async () => {
+    let param_obj = { record_id: props.record.id, pinned_flag: !props.record.pinned_flag ? 1 : 0 };
+    await invoke('set_pinned', { param:  param_obj});
     emit('pin', props.record);
 };
 

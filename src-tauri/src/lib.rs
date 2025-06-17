@@ -6,7 +6,7 @@ use state::TypeMap;
 use tauri_plugin_autostart::MacosLauncher;
 
 use crate::biz::{
-    copy_clip_record::copy_clip_record,
+    copy_clip_record::{copy_clip_record, set_pinned},
     query_clip_record::get_clip_records,
     system_setting::{init_settings, load_settings, save_settings, validate_shortcut},
 };
@@ -53,7 +53,7 @@ pub async fn run() {
         .setup(move |app| {
             CONTEXT.set(app.handle().clone());
             // 初始化系统设置
-            
+
             // 创建托盘区图标
             tray::create_tray(app.handle())?;
             // 初始化主窗口
@@ -76,7 +76,8 @@ pub async fn run() {
             copy_clip_record,
             load_settings,
             save_settings,
-            validate_shortcut
+            validate_shortcut,
+            set_pinned
         ])
         .build(tauri::generate_context!())
         .unwrap()
