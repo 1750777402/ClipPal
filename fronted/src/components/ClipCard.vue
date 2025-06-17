@@ -3,7 +3,14 @@
         <div class="card-header">
             <div class="card-type">
                 <i class="iconfont" :class="getTypeIcon" :title="getTypeTitle"></i>
-                <span class="type-text">{{ getTypeTitle }}</span>
+                <span class="type-text">{{ getTypeTitle }}
+                  <template v-if="record.type === 'File'">
+                    <span class="tip-icon-wrapper" @mouseenter="showTip = true" @mouseleave="showTip = false">
+                      <i class="iconfont icon-tishi"></i>
+                      <span v-if="showTip" class="tip-pop">该条目为文件类型，复制时会尝试复制所有文件路径，若有源文件丢失将提示失败。</span>
+                    </span>
+                  </template>
+                </span>
             </div>
             <div class="card-meta">
                 <span class="time-text">{{ formatTime(record.created) }}</span>
@@ -144,6 +151,19 @@
         :index="0"
         @hide="showImagePreview = false"
     />
+
+    <template v-if="showConfirm">
+        <div class="confirm-mask" @click.self="cancelDelete">
+            <div class="confirm-dialog">
+                <div class="confirm-title">删除确认</div>
+                <div class="confirm-content">确定要删除该条目吗？</div>
+                <div class="confirm-actions">
+                    <button class="confirm-btn confirm-cancel" @click="cancelDelete">取消</button>
+                    <button class="confirm-btn confirm-ok" @click="confirmDelete">确定</button>
+                </div>
+            </div>
+        </div>
+    </template>
 </template>
 
 <script setup lang="ts">
@@ -193,6 +213,8 @@ const showScrollbar = ref(false);
 const shouldShowExpand = ref(false);
 // 修正为字符串类型，支持三种状态
 const shouldShowOverlay = ref<'none' | 'partial' | 'full'>('none');
+const showTip = ref(false);
+const showConfirm = ref(false);
 
 const LINE_HEIGHT = 24; // 根据实际行高设置
 const MAX_LINES_FOR_FULL = 8; // 最多显示5行完整内容
@@ -313,9 +335,18 @@ const fileList = computed(() => {
 // };
 
 const handleDelete = async () => {
+    showConfirm.value = true;
+};
+
+const confirmDelete = async () => {
     let param_obj = { record_id: props.record.id };
     await invoke('del_record', { param:  param_obj});
     emit('delete', props.record);
+    showConfirm.value = false;
+};
+
+const cancelDelete = () => {
+    showConfirm.value = false;
 };
 
 const handlePin = async () => {
@@ -917,5 +948,114 @@ onBeforeUnmount(() => {
     overflow-x: auto;
     max-height: 180px;
     transition: all 0.3s ease;
+}
+
+.tip-icon-wrapper {
+  display: inline-block;
+  position: relative;
+  margin-left: 4px;
+  cursor: pointer;
+}
+
+.tip-icon-wrapper .iconfont {
+  font-size: 16px;
+  color: #2c7a7b;
+  vertical-align: middle;
+}
+
+.tip-pop {
+  position: absolute;
+  left: 50%;
+  top: 130%;
+  transform: translateX(-50%);
+  background: #fffbe6;
+  color: #222;
+  border: 1px solid #ffe58f;
+  border-radius: 8px;
+  padding: 8px 18px;
+  font-size: 13px;
+  line-height: 1.6;
+  max-width: 220px;
+  min-width: 120px;
+  white-space: normal;
+  box-shadow: 0 6px 24px rgba(44, 122, 123, 0.18);
+  z-index: 20;
+  margin-top: 8px;
+  text-align: left;
+  word-break: break-all;
+}
+
+.tip-pop::before {
+  content: '';
+  position: absolute;
+  top: -8px;
+  left: 50%;
+  transform: translateX(-50%);
+  border-width: 0 8px 8px 8px;
+  border-style: solid;
+  border-color: transparent transparent #fffbe6 transparent;
+  filter: drop-shadow(0 -1px 0 #ffe58f);
+}
+
+.confirm-mask {
+  position: fixed;
+  left: 0; top: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.18);
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.confirm-dialog {
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 8px 32px rgba(44, 122, 123, 0.18);
+  padding: 28px 32px 20px 32px;
+  min-width: 260px;
+  max-width: 90vw;
+  text-align: center;
+  animation: popin 0.18s cubic-bezier(.4,1.6,.6,1) both;
+}
+@keyframes popin {
+  0% { transform: scale(0.8); opacity: 0; }
+  100% { transform: scale(1); opacity: 1; }
+}
+.confirm-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: #2c7a7b;
+  margin-bottom: 12px;
+}
+.confirm-content {
+  font-size: 15px;
+  color: #333;
+  margin-bottom: 22px;
+}
+.confirm-actions {
+  display: flex;
+  justify-content: center;
+  gap: 18px;
+}
+.confirm-btn {
+  min-width: 68px;
+  padding: 7px 0;
+  border-radius: 8px;
+  border: none;
+  font-size: 15px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+.confirm-cancel {
+  background: #f5f7fa;
+  color: #2c7a7b;
+  border: 1px solid #e2e8f0;
+}
+.confirm-ok {
+  background: var(--primary-color, #2c7a7b);
+  color: #fff;
+  border: none;
+}
+.confirm-btn:active {
+  opacity: 0.85;
 }
 </style>
