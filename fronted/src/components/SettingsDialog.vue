@@ -36,7 +36,7 @@
               <span>窗口快捷键</span>
               <span class="settings-description">按下快捷键显示/隐藏窗口</span>
             </div>
-            <div class="shortcut-input" :class="{ 'recording': isRecording }" @click.stop="startRecording">
+            <div class="shortcut-input" :class="{ 'recording': isRecording, 'error': shortcutError }" @click.stop="startRecording">
               <template v-if="isRecording">
                 <span class="recording-text">
                   {{ pressedKeys.length > 0 ? pressedKeys.join('+') : '请按下快捷键组合...' }}
@@ -44,8 +44,10 @@
               </template>
               <template v-else>
                 <span>{{ settings.shortcut_key || '点击设置' }}</span>
+                <span v-if="shortcutError" class="error-icon">⚠️</span>
               </template>
             </div>
+            <div v-if="shortcutError" class="error-message">{{ shortcutError }}</div>
           </div>
 
           <div class="settings-item">
@@ -63,14 +65,16 @@
 
       <div class="settings-footer">
         <button class="cancel-button" @click="handleClose">取消</button>
-        <button class="confirm-button" @click="handleConfirm">确认</button>
+        <button class="confirm-button" @click="handleConfirm" :disabled="isSaving || hasErrors">
+          {{ isSaving ? '保存中...' : '确认' }}
+        </button>
       </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, watch, onMounted, onBeforeUnmount } from 'vue';
+import { ref, watch, onMounted, onBeforeUnmount, computed } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 
 const props = defineProps<{
@@ -97,8 +101,16 @@ const settings = ref<Settings>({
 });
 
 const isRecording = ref(false);
-// 修复：用数组按「按下顺序」记录按键（原Set会丢失顺序）
+const isSaving = ref(false);
+const shortcutError = ref('');
 const pressedKeys = ref<string[]>([]);
+
+// 计算是否有错误
+const hasErrors = computed(() => {
+  return shortcutError.value !== '' || 
+         settings.value.max_records < 50 || 
+         settings.value.max_records > 1000;
+});
 
 // 监听弹窗打开时加载设置
 watch(() => props.modelValue, async (newVal) => {
@@ -107,6 +119,8 @@ watch(() => props.modelValue, async (newVal) => {
       const currentSettings = await invoke('load_settings') as Settings;
       console.log('当前设置:', currentSettings);
       settings.value = { ...currentSettings };
+      // 清除错误状态
+      shortcutError.value = '';
     } catch (error) {
       console.error('加载设置失败:', error);
     }
@@ -118,12 +132,21 @@ const handleClose = () => {
 };
 
 const handleConfirm = async () => {
+  if (hasErrors.value) {
+    return;
+  }
+  
+  isSaving.value = true;
   try {
     await invoke('save_settings', { settings: settings.value });
     emit('save', settings.value);
     handleClose();
   } catch (error) {
     console.error('保存设置失败:', error);
+    // 显示错误信息给用户
+    alert(`保存设置失败: ${error}`);
+  } finally {
+    isSaving.value = false;
   }
 };
 
@@ -139,20 +162,37 @@ const increaseMaxRecords = () => {
   }
 };
 
-// 修复：开始录制时清空数组，确保每次独立记录
+// 开始录制时清空数组，确保每次独立记录
 const startRecording = (_e: any) => {
   isRecording.value = true;
   pressedKeys.value = [];
+  shortcutError.value = '';
 };
 
-// 修复：停止录制时清空数组，避免残留
+// 停止录制时清空数组，避免残留
 const stopRecording = () => {
   isRecording.value = false;
   pressedKeys.value = [];
 };
 
-// 修复：精准记录所有按下的键（含修饰键+普通键+特殊键）
-const handleKeyDown = (e: KeyboardEvent) => {
+// 验证快捷键
+const validateShortcut = async (shortcut: string) => {
+  try {
+    const isValid = await invoke('validate_shortcut', { shortcut }) as boolean;
+    if (!isValid) {
+      shortcutError.value = '快捷键不可用或已被占用';
+    } else {
+      shortcutError.value = '';
+    }
+    return isValid;
+  } catch (error) {
+    shortcutError.value = '快捷键验证失败';
+    return false;
+  }
+};
+
+// 精准记录所有按下的键（含修饰键+普通键+特殊键）
+const handleKeyDown = async (e: KeyboardEvent) => {
   if (!isRecording.value) return;
   e.preventDefault();
 
@@ -212,12 +252,17 @@ const handleKeyDown = (e: KeyboardEvent) => {
   const hasModifier = modifiers.length > 0;
   const hasRegularKey = !['Ctrl', 'Shift', 'Alt', 'Meta'].includes(key);
   if (hasModifier && hasRegularKey) {
-    settings.value.shortcut_key = pressedKeys.value.join('+'); // 按顺序拼接
-    stopRecording(); // 录制完成
+    const newShortcut = pressedKeys.value.join('+'); // 按顺序拼接
+    settings.value.shortcut_key = newShortcut;
+    // 实时验证快捷键
+    const isValid = await validateShortcut(newShortcut);
+    if (isValid) {
+      stopRecording(); // 录制完成
+    }
   }
 };
 
-// 修复：键释放时精准移除（含修饰键状态检查）
+// 键释放时精准移除（含修饰键状态检查）
 const handleKeyUp = (e: KeyboardEvent) => {
   if (!isRecording.value) return;
 
@@ -382,12 +427,15 @@ onBeforeUnmount(() => {
   justify-content: space-between;
   align-items: center;
   gap: 16px;
+  flex-wrap: wrap;
 }
 
 .settings-label {
   display: flex;
   flex-direction: column;
   gap: 4px;
+  flex: 1;
+  min-width: 0;
 }
 
 .settings-label span:first-child {
@@ -499,6 +547,7 @@ input:checked+.slider:before {
   cursor: pointer;
   transition: all 0.2s ease;
   user-select: none;
+  position: relative;
 }
 
 .shortcut-input:hover {
@@ -511,9 +560,26 @@ input:checked+.slider:before {
   box-shadow: 0 0 0 2px rgba(44, 122, 123, 0.1);
 }
 
+.shortcut-input.error {
+  border-color: var(--error-color, #e53e3e);
+  background: var(--error-bg, #fed7d7);
+}
+
 .recording-text {
   color: var(--primary-color, #2c7a7b);
   animation: pulse 1.5s infinite;
+}
+
+.error-icon {
+  margin-left: 8px;
+  font-size: 16px;
+}
+
+.error-message {
+  font-size: 12px;
+  color: var(--error-color, #e53e3e);
+  margin-top: 4px;
+  width: 100%;
 }
 
 @keyframes pulse {
@@ -560,11 +626,16 @@ input:checked+.slider:before {
   color: white;
 }
 
-.cancel-button:hover {
+.confirm-button:disabled {
+  background: var(--disabled-bg, #a0aec0);
+  cursor: not-allowed;
+}
+
+.cancel-button:hover:not(:disabled) {
   background: var(--hover-bg, rgba(0, 0, 0, 0.05));
 }
 
-.confirm-button:hover {
+.confirm-button:hover:not(:disabled) {
   background: var(--primary-hover, #256d6d);
 }
 
@@ -581,6 +652,9 @@ input:checked+.slider:before {
     --button-bg: #2d2d2d;
     --input-bg: #2d2d2d;
     --hover-bg: rgba(255, 255, 255, 0.1);
+    --error-color: #fc8181;
+    --error-bg: #742a2a;
+    --disabled-bg: #4a5568;
   }
 }
 </style>

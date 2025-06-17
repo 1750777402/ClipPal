@@ -1,3 +1,5 @@
+use std::sync::{Arc, Mutex};
+
 use clipboard_listener::ClipType;
 use rbatis::RBatis;
 
@@ -10,7 +12,11 @@ use crate::{
 pub async fn clip_record_clean() {
     let rb: &RBatis = CONTEXT.get::<RBatis>();
     let count = ClipRecord::count(rb).await;
-    let system_settings = CONTEXT.get::<Settings>();
+    let system_settings = {
+        let lock = CONTEXT.get::<Arc<Mutex<Settings>>>().clone();
+        let current = lock.lock().unwrap();
+        current.clone()
+    };
     let max_num = system_settings.max_records;
     if count > max_num as i64 {
         let clip_records = ClipRecord::select_order_by_limit(rb, -1, max_num as i32)

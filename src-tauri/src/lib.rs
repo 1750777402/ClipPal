@@ -8,7 +8,7 @@ use tauri_plugin_autostart::MacosLauncher;
 use crate::biz::{
     copy_clip_record::copy_clip_record,
     query_clip_record::get_clip_records,
-    system_setting::{init_settings, load_settings, save_settings},
+    system_setting::{init_settings, load_settings, save_settings, validate_shortcut},
 };
 
 mod biz;
@@ -25,6 +25,7 @@ pub static CONTEXT: TypeMap![Send + Sync] = <TypeMap![Send + Sync]>::new();
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub async fn run() {
+    init_settings();
     // 初始化粘贴板内容变化后的监听管理器
     let manager: Arc<EventManager<ClipboardEvent>> = Arc::new(EventManager::default());
     let m1 = manager.clone();
@@ -51,6 +52,8 @@ pub async fn run() {
         .plugin(tauri_plugin_http::init())
         .setup(move |app| {
             CONTEXT.set(app.handle().clone());
+            // 初始化系统设置
+            
             // 创建托盘区图标
             tray::create_tray(app.handle())?;
             // 初始化主窗口
@@ -66,15 +69,14 @@ pub async fn run() {
             //     .open_devtools();
             // 初始化剪贴板监听器
             let _ = clip_board_listener::init_clip_board_listener(&app, m1);
-            // 初始化系统设置
-            init_settings();
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             get_clip_records,
             copy_clip_record,
             load_settings,
-            save_settings
+            save_settings,
+            validate_shortcut
         ])
         .build(tauri::generate_context!())
         .unwrap()

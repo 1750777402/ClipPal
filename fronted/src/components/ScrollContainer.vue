@@ -6,7 +6,7 @@
       <div class="header-icons">
         <span class="iconfont icon-weitongbu" title="云同步"></span>
         <span class="iconfont icon-user" title="用户信息"></span>
-        <span class="iconfont icon-setting" title="设置"></span>
+        <span class="iconfont icon-setting" title="设置" @click="showSettings = true"></span>
         <!-- <img :src="sync_cloud" alt="云图标" class="icon-button" title="云同步" />
         <img :src="user_head" alt="用户信息" class="icon-button" title="用户信息" />
         <img :src="settings" alt="设置" class="icon-button" title="设置" @click="showSettings = true" /> -->

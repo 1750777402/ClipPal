@@ -1,10 +1,16 @@
-use std::{fs, path::PathBuf};
+use std::{
+    fs,
+    marker::{Send, Sync},
+    path::PathBuf,
+    sync::{Arc, Mutex},
+};
 
 use serde::{Deserialize, Serialize};
 use tauri::AppHandle;
 use tauri_plugin_autostart::ManagerExt;
+use tauri_plugin_global_shortcut::GlobalShortcutExt;
 
-use crate::{CONTEXT, utils::file_dir::get_config_dir};
+use crate::{CONTEXT, global_shortcut::parse_shortcut, utils::file_dir::get_config_dir};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Settings {
@@ -18,6 +24,8 @@ pub struct Settings {
     pub cloud_sync: u32,
 }
 
+unsafe impl Send for Settings {}
+unsafe impl Sync for Settings {}
 impl Default for Settings {
     fn default() -> Self {
         Self {
@@ -31,7 +39,9 @@ impl Default for Settings {
 
 /// 初始化系统设置
 pub fn init_settings() {
-    save_settings(load_settings());
+    let settings = load_settings();
+    // 把系统配置存储到上下文中
+    CONTEXT.set(Arc::new(Mutex::new(settings.clone())));
 }
 
 pub fn get_settings_file_path() -> Option<PathBuf> {
@@ -52,34 +62,220 @@ pub fn load_settings() -> Settings {
             settings = serde_json::from_str(&data).unwrap_or_default()
         } else {
             let settings = Settings::default();
-            save_settings(settings.clone());
+            let _ = save_settings(settings.clone());
         }
     }
     settings
 }
 
 #[tauri::command]
-pub fn save_settings(settings: Settings) {
-    if let Some(path) = get_settings_file_path() {
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent).ok();
-        }
-        if let Ok(json) = serde_json::to_string_pretty(&settings) {
-            fs::write(path, json).ok();
-            // 设置开机自启
-            set_auto_start(settings.auto_start == 1);
+pub async fn save_settings(settings: Settings) -> Result<(), String> {
+    // 1. 验证设置的有效性
+    validate_settings(&settings)?;
+
+    // 2. 获取当前设置并立即释放锁
+    let current_settings = {
+        let lock = CONTEXT.get::<Arc<Mutex<Settings>>>().clone();
+        let current = lock.lock().unwrap();
+        current.clone()
+    };
+
+    // 3. 尝试应用新设置（按顺序执行，失败时回滚）
+    let mut applied_settings = Vec::new();
+
+    // 3.1 尝试更新全局快捷键
+    if settings.shortcut_key != current_settings.shortcut_key {
+        match update_global_shortcut(&settings.shortcut_key).await {
+            Ok(_) => applied_settings.push(("shortcut", true)),
+            Err(e) => {
+                // 回滚已应用的设置
+                rollback_settings(&applied_settings).await;
+                return Err(format!("快捷键设置失败: {}", e));
+            }
         }
     }
-    // 把系统配置存储到上下文中
-    CONTEXT.set(settings.clone());
+
+    // 3.2 尝试设置开机自启
+    if settings.auto_start != current_settings.auto_start {
+        match set_auto_start(settings.auto_start == 1) {
+            Ok(_) => applied_settings.push(("autostart", true)),
+            Err(e) => {
+                rollback_settings(&applied_settings).await;
+                return Err(format!("开机自启设置失败: {}", e));
+            }
+        }
+    }
+
+    // 3.3 保存到文件
+    match save_settings_to_file(&settings) {
+        Ok(_) => applied_settings.push(("file", true)),
+        Err(e) => {
+            rollback_settings(&applied_settings).await;
+            return Err(format!("文件保存失败: {}", e));
+        }
+    }
+
+    // 4. 更新上下文中的设置
+    {
+        let lock = CONTEXT.get::<Arc<Mutex<Settings>>>().clone();
+        let mut current = lock.lock().unwrap();
+        *current = settings;
+    }
+
+    Ok(())
 }
 
-pub fn set_auto_start(auto_start: bool) {
+// 验证设置的有效性
+fn validate_settings(settings: &Settings) -> Result<(), String> {
+    if settings.max_records < 50 || settings.max_records > 1000 {
+        return Err("最大记录条数必须在50-1000之间".to_string());
+    }
+
+    if settings.shortcut_key.is_empty() {
+        return Err("快捷键不能为空".to_string());
+    }
+
+    // 验证快捷键格式
+    if !is_valid_shortcut_format(&settings.shortcut_key) {
+        return Err("快捷键格式无效".to_string());
+    }
+
+    Ok(())
+}
+
+// 验证快捷键格式
+fn is_valid_shortcut_format(shortcut: &str) -> bool {
+    let parts: Vec<&str> = shortcut.split('+').collect();
+    if parts.len() < 2 || parts.len() > 3 {
+        return false;
+    }
+
+    // 检查是否包含修饰键
+    parts
+        .iter()
+        .any(|&part| matches!(part, "Ctrl" | "Shift" | "Alt" | "Meta"))
+}
+
+// 更新全局快捷键
+async fn update_global_shortcut(shortcut: &str) -> Result<(), String> {
+    let app_handle = CONTEXT.get::<AppHandle>();
+    println!("更新全局快捷键:{}", shortcut);
+
+    // 在 await 点之前获取当前设置
+    let current_settings = {
+        let lock = CONTEXT.get::<Arc<Mutex<Settings>>>().clone();
+        let current = lock.lock().unwrap();
+        current.clone()
+    };
+
+    // 先注销当前快捷键
+    let _ = app_handle
+        .global_shortcut()
+        .unregister(parse_shortcut(&current_settings.shortcut_key));
+
+    // 注册新快捷键
+    match app_handle.global_shortcut().register(shortcut) {
+        Ok(_) => {
+            println!("更新全局快捷键成功:{}", shortcut);
+            Ok(())
+        }
+        Err(e) => {
+            println!("更新全局快捷键失败:{:?}", e);
+            // 如果注册失败，尝试恢复原快捷键
+            let register_res = app_handle
+                .global_shortcut()
+                .register(parse_shortcut(&current_settings.shortcut_key));
+            if let Err(e) = register_res {
+                return Err(format!("快捷键注册失败: {}", e));
+            }
+            Ok(())
+        }
+    }
+}
+
+// 设置开机自启
+fn set_auto_start(auto_start: bool) -> Result<(), String> {
     let app_handle = CONTEXT.get::<AppHandle>();
     let autostart_manager = app_handle.autolaunch();
-    if auto_start {
-        let _ = autostart_manager.enable();
+
+    match if auto_start {
+        autostart_manager.enable()
     } else {
-        let _ = autostart_manager.disable();
+        autostart_manager.disable()
+    } {
+        Ok(_) => Ok(()),
+        Err(e) => Err(format!("开机自启设置失败: {}", e)),
+    }
+}
+
+// 保存设置到文件
+fn save_settings_to_file(settings: &Settings) -> Result<(), String> {
+    if let Some(path) = get_settings_file_path() {
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).map_err(|e| format!("创建目录失败: {}", e))?;
+        }
+
+        let json =
+            serde_json::to_string_pretty(settings).map_err(|e| format!("序列化设置失败: {}", e))?;
+
+        fs::write(path, json).map_err(|e| format!("写入文件失败: {}", e))?;
+
+        Ok(())
+    } else {
+        Err("无法获取配置文件路径".to_string())
+    }
+}
+
+// 回滚设置
+async fn rollback_settings(applied_settings: &[(&str, bool)]) {
+    let app_handle = CONTEXT.get::<AppHandle>();
+
+    // 在 await 点之前获取当前设置
+    let current_settings = {
+        let lock = CONTEXT.get::<Arc<Mutex<Settings>>>().clone();
+        let current = lock.lock().unwrap();
+        current.clone()
+    };
+
+    for (setting_type, _) in applied_settings {
+        match *setting_type {
+            "shortcut" => {
+                // 恢复原快捷键
+                let _ = app_handle
+                    .global_shortcut()
+                    .register(parse_shortcut(&current_settings.shortcut_key));
+            }
+            "autostart" => {
+                // 恢复原开机自启设置
+                let _ = set_auto_start(current_settings.auto_start == 1);
+            }
+            _ => {}
+        }
+    }
+}
+
+// 验证快捷键是否可用
+#[tauri::command]
+pub async fn validate_shortcut(shortcut: String) -> Result<bool, String> {
+    // 1. 验证格式
+    if !is_valid_shortcut_format(&shortcut) {
+        return Ok(false);
+    }
+
+    // 2. 尝试注册快捷键来验证是否可用
+    let app_handle = CONTEXT.get::<AppHandle>();
+
+    match app_handle
+        .global_shortcut()
+        .register(parse_shortcut(&shortcut))
+    {
+        Ok(_) => {
+            // 注册成功，立即注销
+            let _ = app_handle
+                .global_shortcut()
+                .unregister(parse_shortcut(&shortcut));
+            Ok(true)
+        }
+        Err(_) => Ok(false),
     }
 }

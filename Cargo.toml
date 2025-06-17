@@ -13,8 +13,8 @@ version = "0.1.0"
 [workspace.dependencies]
 thiserror = "2"
 uuid = "1"
-clipboard-rs = "0.2.1"
-base64 = "0.22.1"
+clipboard-rs = "0.2.1"#粘贴板工具
+base64 = "0.22.1" #base64编码
 image = "0.25.1"
 serde = {version = "1", features = ["derive"] }
 serde_json = "1"
@@ -31,4 +31,4 @@ tauri-plugin-opener = "2"
 tauri-plugin-single-instance = "2"
 md5 = "0.7.0"
 anyhow = "1.0" 
-directories = "6"
+directories = "6"#目录操作

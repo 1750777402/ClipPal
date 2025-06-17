@@ -41,7 +41,7 @@ pub fn init_main_window(app: &App) -> tauri::Result<()> {
         WindowEvent::Focused(false) => {
             let window_focus_count = CONTEXT.get::<WindowFocusCount>();
             if window_focus_count.inc() >= 1 {
-                // main1.hide().unwrap();
+                main1.hide().unwrap();
             }
         }
         WindowEvent::Focused(true) => {
