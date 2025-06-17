@@ -156,7 +156,7 @@
         <div class="confirm-mask" @click.self="cancelDelete">
             <div class="confirm-dialog">
                 <div class="confirm-title">删除确认</div>
-                <div class="confirm-content">确定要删除该条目吗？删除后无法恢复</div>
+                <div class="confirm-content">确定要删除该条记录吗？删除后无法恢复</div>
                 <div class="confirm-actions">
                     <button class="confirm-btn confirm-cancel" @click="cancelDelete">取消</button>
                     <button class="confirm-btn confirm-ok" @click="confirmDelete">确定</button>
