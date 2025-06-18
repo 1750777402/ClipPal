@@ -1,0 +1,84 @@
+# Clip-Pal
+
+Clip-Pal 是一个跨平台的剪贴板管理工具，支持文本、图片、文件等多种内容的自动收集、搜索、管理和快速粘贴。适用于开发者、办公人员等需要高效管理剪贴板内容的用户。
+
+## 主要功能
+- 自动监听剪贴板内容（文本、截图、图片、文件）
+- 支持内容的模糊搜索
+- 剪贴板历史记录管理、置顶、删除
+- 支持多平台（Windows、macOS）
+- 数据本地化存储，支持 SQLite 加密
+- 快捷键快速唤起和粘贴
+- 支持内容去重、图片自动保存
+
+## 安装与运行
+
+### 依赖环境
+- Rust 1.60+
+- Node.js 16+
+- Yarn 或 npm
+- SQLite3（建议使用 SQLCipher 以支持加密）
+
+### 安装步骤
+
+1. 克隆项目：
+   ```bash
+   git clone https://gitee.com/ygz123/clip-pal.git
+   cd clip-pal
+   ```
+2. 安装前端依赖：
+   ```bash
+   cd .\fronted\
+   npm install # 或 npm install
+   ```
+3. 运行：
+   ```bash
+   cd clip-pal
+   cargo tauri dev 
+    # 或 npm run tauri dev
+   ```
+3. 打包：
+   ```bash
+   cd .\fronted\
+   npm run build
+   cd ..
+   cargo tauri build 
+   ```
+
+## 依赖
+- [Tauri](https://tauri.app/)（桌面端框架）
+- [rbatis](https://github.com/rbatis/rbatis)（Rust ORM）
+- [rbdc-sqlite](https://github.com/rbatis/rbdc-sqlite)（SQLite 驱动）
+- [serde/serde_json](https://serde.rs/)（序列化）
+- 其他详见 `Cargo.toml`
+
+## 开源协议
+
+本项目基于 [Apache License 2.0](LICENSE) 开源。你可以自由使用、修改和分发本项目，但请保留原作者版权声明。
+
+## ⚖️ 免责声明
+
+1. 本项目是作为一款开源项目提供的，开发者在法律允许的范围内不对软件的功能性、安全性或适用性提供任何形式的明示或暗示的保证
+2. 用户明确理解并同意，使用本软件的风险完全由用户自己承担，软件以"现状"和"现有"基础提供。开发者不提供任何形式的担保，无论是明示还是暗示的，包括但不限于适销性、特定用途的适用性和非侵权的担保
+3. 在任何情况下，开发者或其供应商都不对任何直接的、间接的、偶然的、特殊的、惩罚性的或后果性的损害承担责任，包括但不限于使用本软件产生的利润损失、业务中断、个人信息泄露或其他商业损害或损失
+4. 所有在本项目上进行二次开发的用户，都需承诺将本软件用于合法目的，并自行负责遵守当地的法律和法规
+5. 开发者有权在任何时间修改软件的功能或特性，以及本免责声明的任何部分，并且这些修改可能会以软件更新的形式体现
+
+**本免责声明的最终解释权归开发者所有**
+
+## 贡献方式
+
+欢迎任何形式的贡献！你可以通过以下方式参与：
+- 提交 Issue 反馈 bug 或建议
+- Fork 并提交 Pull Request
+- 优化文档或翻译
+
+## 联系方式
+
+- 作者：jingchuan
+- 邮箱：1750777402@qq.com
+- GitHub: https://github.com/yourname/clip-pal
+
+---
+
+> 本项目致力于为用户提供高效、安全的剪贴板管理体验。如果你喜欢本项目，欢迎 star、推荐和分享！ 
