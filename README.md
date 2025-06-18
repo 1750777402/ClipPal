@@ -28,7 +28,7 @@ Clip-Pal 是一个跨平台的剪贴板管理工具，支持文本、图片、�
 - Node.js 16+
 - Vue3
 - Cargo 或 npm
-- SQLite3（建议使用 SQLCipher 以支持加密）
+- SQLite3
 
 ### 安装步骤
 
