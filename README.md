@@ -82,13 +82,13 @@ Clip-Pal 是一个跨平台的剪贴板管理工具，支持文本、图片、�
 欢迎任何形式的贡献！你可以通过以下方式参与：
 - 提交 Issue 反馈 bug 或建议
 - Fork 并提交 Pull Request
-- 优化文档或翻译
 
 ## 联系方式
 
 - 作者：jingchuan
 - 邮箱：1750777402@qq.com
-- GitHub: https://github.com/yourname/clip-pal
+- GitHub: https://github.com/1750777402/ClipPal
+- Gitee: https://gitee.com/ygz123/clip-pal
 
 ---
 
