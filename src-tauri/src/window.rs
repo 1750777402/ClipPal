@@ -1,4 +1,4 @@
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 use tauri::{App, WindowEvent};
 use tauri::{Manager, PhysicalPosition, PhysicalSize};
@@ -35,12 +35,15 @@ pub fn init_main_window(app: &App) -> tauri::Result<()> {
     let _ = main_window.set_focus();
     let main1 = main_window.clone();
 
-    // 设置一个窗口计数器，用于记录窗口是否被聚焦或者失去焦点
+    // 设置一个窗口失去焦点的计数器，用于记录窗口是否被聚焦或者失去焦点
     CONTEXT.set(WindowFocusCount::default());
+    // 设置一个窗口隐藏标志，用于判断窗口是否被隐藏
+    CONTEXT.set(WindowHideFlag::default());
     main_window.on_window_event(move |event| match event {
         WindowEvent::Focused(false) => {
             let window_focus_count = CONTEXT.get::<WindowFocusCount>();
-            if window_focus_count.inc() >= 1 {
+            let window_hide_flag = CONTEXT.get::<WindowHideFlag>();
+            if window_focus_count.inc() >= 1 && window_hide_flag.is_can_hide() {
                 main1.hide().unwrap();
             }
         }
@@ -62,5 +65,54 @@ pub struct WindowFocusCount {
 impl WindowFocusCount {
     pub fn inc(&self) -> u64 {
         self.lost_count.fetch_add(1, Ordering::SeqCst)
+    }
+}
+
+#[derive(Debug)]
+pub struct WindowHideFlag {
+    /// 主窗口是否可以隐藏标识
+    pub hide_flag: AtomicBool,
+}
+
+impl Default for WindowHideFlag {
+    fn default() -> Self {
+        Self {
+            // 默认窗口可以隐藏
+            hide_flag: AtomicBool::new(true),
+        }
+    }
+}
+
+impl WindowHideFlag {
+    /// 窗口可以隐藏
+    pub fn set_can_hide(&self) {
+        self.hide_flag.store(true, Ordering::SeqCst);
+    }
+    /// 窗口不可以隐藏
+    pub fn set_no_hide(&self) {
+        self.hide_flag.store(false, Ordering::SeqCst);
+    }
+    /// 窗口是否可以隐藏
+    pub fn is_can_hide(&self) -> bool {
+        self.hide_flag.load(Ordering::SeqCst)
+    }
+}
+
+/// 窗口隐藏保护  作用域守卫
+pub struct WindowHideGuard<'a> {
+    flag: &'a WindowHideFlag,
+}
+
+impl<'a> WindowHideGuard<'a> {
+    pub fn new(flag: &'a WindowHideFlag) -> Self {
+        flag.set_no_hide();
+        Self { flag }
+    }
+}
+
+/// 实现Drop  当作用域失效时，保证自动恢复主窗口可以隐藏
+impl<'a> Drop for WindowHideGuard<'a> {
+    fn drop(&mut self) {
+        self.flag.set_can_hide();
     }
 }

@@ -6,7 +6,7 @@ use state::TypeMap;
 use tauri_plugin_autostart::MacosLauncher;
 
 use crate::biz::{
-    copy_clip_record::{copy_clip_record, del_record, set_pinned},
+    copy_clip_record::{copy_clip_record, del_record, image_save_as, set_pinned},
     query_clip_record::get_clip_records,
     system_setting::{init_settings, load_settings, save_settings, validate_shortcut},
 };
@@ -25,6 +25,7 @@ pub static CONTEXT: TypeMap![Send + Sync] = <TypeMap![Send + Sync]>::new();
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub async fn run() {
+    // 初始化系统设置
     init_settings();
     // 初始化粘贴板内容变化后的监听管理器
     let manager: Arc<EventManager<ClipboardEvent>> = Arc::new(EventManager::default());
@@ -37,6 +38,8 @@ pub async fn run() {
     sqlite_storage::init_sqlite().await;
 
     tauri::Builder::default()
+        // 本机系统对话框，用于打开和保存文件，以及消息对话框
+        .plugin(tauri_plugin_dialog::init())
         // 保存窗口位置和大小，并在应用程序重新打开时恢复它们
         .plugin(tauri_plugin_window_state::Builder::new().build())
         // 使用特定或者默认的应用程序打开文件或者 URL
@@ -52,8 +55,6 @@ pub async fn run() {
         .plugin(tauri_plugin_http::init())
         .setup(move |app| {
             CONTEXT.set(app.handle().clone());
-            // 初始化系统设置
-
             // 创建托盘区图标
             tray::create_tray(app.handle())?;
             // 初始化主窗口
@@ -78,7 +79,8 @@ pub async fn run() {
             save_settings,
             validate_shortcut,
             set_pinned,
-            del_record
+            del_record,
+            image_save_as
         ])
         .build(tauri::generate_context!())
         .unwrap()

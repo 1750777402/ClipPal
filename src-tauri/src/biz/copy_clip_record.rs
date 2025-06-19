@@ -1,12 +1,15 @@
 use clipboard_listener::ClipType;
 use rbatis::RBatis;
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 use tauri::{AppHandle, Manager};
 use tauri_plugin_clipboard_pal::desktop::ClipboardPal;
+use tauri_plugin_dialog::DialogExt;
 
 use crate::{
     CONTEXT,
     biz::{clip_record::ClipRecord, content_processor::ContentProcessor},
+    window::{WindowHideFlag, WindowHideGuard},
 };
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
@@ -56,13 +59,18 @@ pub async fn copy_clip_record(param: CopyClipRecord) -> Result<String, String> {
                 let mut not_found: Vec<String> = vec![];
                 for file_path in &restored {
                     let file_path = file_path.trim();
-                    if file_path.is_empty() { continue; }
+                    if file_path.is_empty() {
+                        continue;
+                    }
                     if !std::path::Path::new(file_path).exists() {
                         not_found.push(file_path.to_string());
                     }
                 }
                 if !not_found.is_empty() {
-                    return Err(format!("以下文件不存在，无法复制:\n{}", not_found.join("\n")));
+                    return Err(format!(
+                        "以下文件不存在，无法复制:\n{}",
+                        not_found.join("\n")
+                    ));
                 }
                 let _ = clipboard.write_files_uris(restored);
             } else {
@@ -93,4 +101,51 @@ pub async fn del_record(param: CopyClipRecord) -> Result<String, String> {
     let rb: &RBatis = CONTEXT.get::<RBatis>();
     let _ = ClipRecord::del_by_ids(rb, vec![param.record_id]).await;
     Ok(String::new())
+}
+
+#[tauri::command]
+pub async fn image_save_as(param: CopyClipRecord) -> Result<String, String> {
+    let rb: &RBatis = CONTEXT.get::<RBatis>();
+    let record_res = ClipRecord::select_by_id(rb, param.record_id.as_str()).await;
+    match record_res {
+        Ok(records) => {
+            let record = records.first().unwrap();
+            if record.r#type != ClipType::Image.to_string() {
+                return Err("仅支持图片类型另存为".to_string());
+            }
+            let rel_path = record.content.as_str().ok_or("图片路径无效")?;
+            let base_path =
+                crate::utils::file_dir::get_resources_dir().ok_or("资源目录获取失败")?;
+            let abs_path = base_path.join(rel_path);
+            if !abs_path.exists() {
+                return Err("图片资源丢失".to_string());
+            }
+
+            let window_hide_flag = CONTEXT.get::<WindowHideFlag>();
+            // 用Arc包裹WindowHideGuard，延长生命周期到回调闭包
+            let guard = Arc::new(WindowHideGuard::new(window_hide_flag));
+            let app_handle = CONTEXT.get::<AppHandle>();
+            let abs_path_clone = abs_path.clone();
+            let guard_clone = guard.clone();
+            app_handle
+                .dialog()
+                .file()
+                .add_filter("图片", &["png"])
+                .set_file_name(format!("clip_{}", record.id))
+                .save_file(move |file_path| {
+                    // guard_clone在闭包内，作用域结束时自动drop，恢复窗口可隐藏
+                    let _guard = guard_clone;
+                    if let Some(select_path) = file_path {
+                        let select_path = select_path.as_path();
+                        if let Some(select_path) = select_path {
+                            if let Err(e) = std::fs::copy(&abs_path_clone, &select_path) {
+                                eprintln!("Copy image error: {}", e);
+                            }
+                        }
+                    }
+                });
+            Ok("图片已成功保存".to_string())
+        }
+        Err(_) => Err("未找到该记录".to_string()),
+    }
 }

@@ -4,9 +4,9 @@
       <span class="panel-title">Clip Pal</span>
       <input v-model="search" class="search-input" placeholder="搜索剪贴记录..." />
       <div class="header-icons">
-        <span class="iconfont icon-weitongbu" title="云同步"></span>
-        <span class="iconfont icon-user" title="用户信息"></span>
-        <span class="iconfont icon-setting" title="设置" @click="showSettings = true"></span>
+        <button class="icon-button iconfont icon-weitongbu" title="云同步" type="button"></button>
+        <button class="icon-button iconfont icon-user" title="用户信息" type="button"></button>
+        <button class="icon-button iconfont icon-setting" title="设置" type="button" @click="showSettings = true"></button>
       </div>
     </header>
 
@@ -307,8 +307,15 @@ onBeforeUnmount(() => {
   gap: 12px;
   align-items: center;
 }
-.header-icons span {
+
+.header-icons button.icon-button {
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
   font-size: 18px;
+  color: inherit;
+  outline: none;
 }
 
 .icon-button {

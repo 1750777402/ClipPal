@@ -29,6 +29,7 @@ tauri = {version = "=2.5.1", features = ["tray-icon", "image-png"] }
 tauri-plugin-http = "=2.4.4"
 tauri-plugin-opener = "2"
 tauri-plugin-single-instance = "2"
+tauri-plugin-dialog = "2"
 md5 = "0.7.0"
 anyhow = "1.0" 
 directories = "6"#目录操作
