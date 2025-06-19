@@ -154,7 +154,6 @@ import { invoke } from '@tauri-apps/api/core';
 import { formatDistanceToNow } from 'date-fns';
 import { zhCN } from 'date-fns/locale';
 import VueEasyLightbox from 'vue-easy-lightbox';
-import { save } from '@tauri-apps/plugin-dialog';
 
 interface ClipRecord {
     id: string;
