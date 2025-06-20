@@ -3,7 +3,7 @@ use rbs::to_value;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
 pub struct ClipRecord {
     pub id: String,
     // 类型
@@ -22,6 +22,12 @@ pub struct ClipRecord {
     pub sort: i32,
     // 是否置顶
     pub pinned_flag: i32,
+    // 是否已同步云端
+    pub sync_flag: i32,
+    // 同步时间
+    pub sync_time: u64,
+    // 设备标识
+    pub device_id: String,
 }
 
 crud!(ClipRecord {}, "clip_record");

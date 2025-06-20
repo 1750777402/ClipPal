@@ -70,10 +70,10 @@ async fn handle_text(rb: &RBatis, content: &str, sort: i32) {
             content: Value::String(content.to_string()),
             md5_str: String::new(),
             created: current_timestamp(),
-            user_id: 0,
             os_type: "win".to_string(),
             sort,
             pinned_flag: 0,
+            ..Default::default()
         };
 
         if let Err(e) = ClipRecord::insert(rb, &record).await {
@@ -101,10 +101,10 @@ async fn handle_image(rb: &RBatis, file_data: Option<&Vec<u8>>, sort: i32) {
                 content: Value::Null,
                 md5_str,
                 created: current_timestamp(),
-                user_id: 0,
                 os_type: "win".to_string(),
                 sort,
                 pinned_flag: 0,
+                ..Default::default()
             };
 
             if ClipRecord::insert(rb, &record).await.is_ok() {
@@ -135,10 +135,10 @@ async fn handle_file(rb: &RBatis, file_paths: Option<&Vec<String>>, sort: i32) {
                 content: Value::String(paths.join(":::")),
                 md5_str,
                 created: current_timestamp(),
-                user_id: 0,
                 os_type: "win".to_string(),
                 sort,
                 pinned_flag: 0,
+                ..Default::default()
             };
 
             if let Err(e) = ClipRecord::insert(rb, &record).await {
