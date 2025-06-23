@@ -11,6 +11,8 @@ use serde_json::Value;
 use tauri::{AppHandle, Emitter};
 use uuid::Uuid;
 
+use crate::utils::tokenize_util::tokenize_str;
+
 use crate::{
     CONTEXT,
     biz::{clip_record::ClipRecord, clip_record_clean::clip_record_clean},
@@ -79,6 +81,8 @@ async fn handle_text(rb: &RBatis, content: &str, sort: i32) {
         if let Err(e) = ClipRecord::insert(rb, &record).await {
             println!("insert text record error: {}", e);
         }
+        let t = tokenize_str(content).await;
+        println!("分词后的所有词: {:?}", t);
     }
 }
 
