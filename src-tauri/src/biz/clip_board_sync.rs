@@ -11,10 +11,7 @@ use serde_json::Value;
 use tauri::{AppHandle, Emitter};
 use uuid::Uuid;
 
-use crate::{
-    biz::tokenize_save_bin::content_tokenize_save_bin,
-    utils::{aes_util::encrypt_content, tokenize_util::tokenize_str},
-};
+use crate::{biz::tokenize_save_bin::content_tokenize_save_bin, utils::aes_util::encrypt_content};
 
 use crate::{
     CONTEXT,

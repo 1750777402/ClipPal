@@ -1,12 +1,11 @@
 use std::sync::Arc;
 
-use crate::{
-    biz::{
-        copy_clip_record::{copy_clip_record, del_record, image_save_as, set_pinned},
-        query_clip_record::get_clip_records,
-        system_setting::{init_settings, load_settings, save_settings, validate_shortcut},
-    },
-    utils::app_config::load_config,
+use crate::biz::{
+    clip_record::ClipRecord,
+    copy_clip_record::{copy_clip_record, del_record, image_save_as, set_pinned},
+    query_clip_record::get_clip_records,
+    system_setting::{init_settings, load_settings, save_settings, validate_shortcut},
+    tokenize_save_bin::{load_index_from_disk, rebuild_index_after_crash},
 };
 use biz::clip_board_sync::ClipboardEventTigger;
 use clipboard_listener::{ClipboardEvent, EventManager};
@@ -35,7 +34,17 @@ pub async fn run() {
     // 注册粘贴板内容变化的监听器
     manager.add_event_listener(Arc::new(ClipboardEventTigger));
     // 初始化sqlite链接
-    sqlite_storage::init_sqlite().await;
+    let rb_res = sqlite_storage::init_sqlite().await.unwrap();
+    // 初始化索引文件
+    load_index_from_disk()
+        .await
+        .expect("Failed to init token index");
+    // 如果有程序崩溃，则重建索引
+    let _ = rebuild_index_after_crash(|| async {
+        // 实现获取所有剪贴板内容的函数
+        ClipRecord::select_order_by(&rb_res).await.unwrap_or(vec![])
+    })
+    .await;
 
     tauri::Builder::default()
         // 本机系统对话框，用于打开和保存文件，以及消息对话框

@@ -5,7 +5,7 @@ use rbatis::RBatis;
 
 use crate::{
     CONTEXT,
-    biz::{clip_record::ClipRecord, system_setting::Settings},
+    biz::{clip_record::ClipRecord, system_setting::Settings, tokenize_save_bin::remove_ids_from_token_bin},
     utils::file_dir::get_resources_dir,
 };
 
@@ -31,9 +31,11 @@ pub async fn clip_record_clean() {
                 }
                 del_ids.push(record.id);
             }
-            let del_res = ClipRecord::del_by_ids(rb, del_ids).await;
+            let del_res = ClipRecord::del_by_ids(rb, del_ids.clone()).await;
             match del_res {
                 Ok(_) => {
+                    // 同步删除分词映射
+                    remove_ids_from_token_bin(&del_ids);
                     if img_path_arr.len() > 0 {
                         let base_path = get_resources_dir();
                         if let Some(resource_path) = base_path {

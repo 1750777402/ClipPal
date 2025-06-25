@@ -1,5 +1,6 @@
 use crate::{CONTEXT, utils::file_dir::get_data_dir};
-use rbatis::{Error, RBatis};
+use anyhow::{Error, Ok};
+use rbatis::RBatis;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -295,7 +296,7 @@ async fn check_and_fix_database_schema(rb: &RBatis) -> Result<(), Error> {
     Ok(())
 }
 
-pub async fn init_sqlite() {
+pub async fn init_sqlite() -> Result<RBatis, Error> {
     // 创建sqlite链接
     let rb = RBatis::new();
     let db_path = get_data_dir()
@@ -309,14 +310,12 @@ pub async fn init_sqlite() {
         .unwrap();
 
     // 检查并修复数据库结构
-    if let Err(e) = check_and_fix_database_schema(&rb).await {
-        eprintln!("数据库结构检查和修复失败: {:?}", e);
-        // 如果修复失败，可以选择退出程序或使用默认结构
-        panic!("数据库初始化失败，请检查数据库文件权限");
-    }
+    check_and_fix_database_schema(&rb).await?;
 
     // 把sqlite链接放入全局变量中
-    CONTEXT.set(rb);
+    CONTEXT.set(rb.clone());
 
     println!("数据库初始化完成");
+
+    Ok(rb)
 }
