@@ -5,3 +5,4 @@ pub mod content_processor;
 pub mod copy_clip_record;
 pub mod query_clip_record;
 pub mod system_setting;
+pub mod tokenize_save_bin;

@@ -5,51 +5,53 @@ use base64::{Engine as _, engine::general_purpose};
 use rand::TryRngCore;
 use rand::rngs::OsRng;
 
+use crate::utils::app_config::load_config;
+
 const KEY_SIZE: usize = 32; // 256-bit
 const NONCE_SIZE: usize = 12;
 
-/// 粘贴板内容加密解密工具类
-pub struct ClipboardAesUtil;
+/// 内容加密
+pub fn encrypt_content(content: &str) -> Result<String, Error> {
+    // 加载配置
+    let app_config = load_config().expect("加载配置失败");
 
-impl ClipboardAesUtil {
-    /// 内容加密
-    pub fn encrypt_content(content: &str, key: &str) -> Result<String, Error> {
-        let decode_res = decode_base64_key(key)?;
-        let cipher = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(&decode_res));
-        let mut nonce_bytes = [0u8; NONCE_SIZE];
-        let _ = OsRng.try_fill_bytes(&mut nonce_bytes);
-        let nonce = Nonce::from_slice(&nonce_bytes);
+    let decode_res = decode_base64_key(&app_config.content_key)?;
+    let cipher = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(&decode_res));
+    let mut nonce_bytes = [0u8; NONCE_SIZE];
+    let _ = OsRng.try_fill_bytes(&mut nonce_bytes);
+    let nonce = Nonce::from_slice(&nonce_bytes);
 
-        let ciphertext = cipher.encrypt(nonce, content.as_bytes()).expect("加密失败");
+    let ciphertext = cipher.encrypt(nonce, content.as_bytes()).expect("加密失败");
 
-        // 拼接 nonce + ciphertext
-        let mut result = Vec::new();
-        result.extend_from_slice(&nonce_bytes);
-        result.extend_from_slice(&ciphertext);
+    // 拼接 nonce + ciphertext
+    let mut result = Vec::new();
+    result.extend_from_slice(&nonce_bytes);
+    result.extend_from_slice(&ciphertext);
 
-        Ok(general_purpose::STANDARD.encode(result))
+    Ok(general_purpose::STANDARD.encode(result))
+}
+
+/// 内容解密
+pub fn decrypt_content(encoded: &str) -> Option<String> {
+    // 加载配置
+    let app_config = load_config().expect("加载配置失败");
+    let decode_res = decode_base64_key(&app_config.content_key);
+    if decode_res.is_err() {
+        return None;
+    }
+    let data = general_purpose::STANDARD.decode(encoded).ok()?;
+    if data.len() < NONCE_SIZE {
+        return None;
     }
 
-    /// 内容解密
-    pub fn decrypt_content(encoded: &str, key: &str) -> Option<String> {
-        let decode_res = decode_base64_key(key);
-        if decode_res.is_err() {
-            return None;
-        }
-        let data = general_purpose::STANDARD.decode(encoded).ok()?;
-        if data.len() < NONCE_SIZE {
-            return None;
-        }
+    let (nonce_bytes, ciphertext) = data.split_at(NONCE_SIZE);
+    let cipher = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(&decode_res.unwrap()));
+    let nonce = Nonce::from_slice(nonce_bytes);
 
-        let (nonce_bytes, ciphertext) = data.split_at(NONCE_SIZE);
-        let cipher = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(&decode_res.unwrap()));
-        let nonce = Nonce::from_slice(nonce_bytes);
-
-        cipher
-            .decrypt(nonce, ciphertext)
-            .ok()
-            .and_then(|bytes| String::from_utf8(bytes).ok())
-    }
+    cipher
+        .decrypt(nonce, ciphertext)
+        .ok()
+        .and_then(|bytes| String::from_utf8(bytes).ok())
 }
 
 #[allow(dead_code)]
@@ -59,6 +61,7 @@ fn generate_global_aes_gcm_key() -> String {
     general_purpose::STANDARD.encode(&key)
 }
 
+// 解密base64字符串   获得秘钥
 fn decode_base64_key(base64_str: &str) -> anyhow::Result<[u8; KEY_SIZE]> {
     let bytes = general_purpose::STANDARD.decode(base64_str)?;
     let array: [u8; KEY_SIZE] = bytes

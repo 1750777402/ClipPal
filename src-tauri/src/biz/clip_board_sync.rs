@@ -11,7 +11,10 @@ use serde_json::Value;
 use tauri::{AppHandle, Emitter};
 use uuid::Uuid;
 
-use crate::utils::tokenize_util::tokenize_str;
+use crate::{
+    biz::tokenize_save_bin::content_tokenize_save_bin,
+    utils::{aes_util::encrypt_content, tokenize_util::tokenize_str},
+};
 
 use crate::{
     CONTEXT,
@@ -66,23 +69,32 @@ async fn handle_text(rb: &RBatis, content: &str, sort: i32) {
     if let Some(record) = existing.first() {
         let _ = ClipRecord::update_sort(rb, &record.id, sort).await;
     } else {
-        let record = ClipRecord {
-            id: Uuid::new_v4().to_string(),
-            r#type: "Text".to_string(),
-            content: Value::String(content.to_string()),
-            md5_str: String::new(),
-            created: current_timestamp(),
-            os_type: "win".to_string(),
-            sort,
-            pinned_flag: 0,
-            ..Default::default()
-        };
+        let encrypt_res = encrypt_content(content);
+        if let Ok(encrypted) = encrypt_res {
+            let record = ClipRecord {
+                id: Uuid::new_v4().to_string(),
+                r#type: "Text".to_string(),
+                content: Value::String(encrypted),
+                md5_str: String::new(),
+                created: current_timestamp(),
+                os_type: "win".to_string(),
+                sort,
+                pinned_flag: 0,
+                ..Default::default()
+            };
 
-        if let Err(e) = ClipRecord::insert(rb, &record).await {
-            println!("insert text record error: {}", e);
+            match ClipRecord::insert(rb, &record).await {
+                Ok(_res) => {
+                    // 对内容进行分词并存储进.bin文件
+                    let content_string = content.to_string();
+                    tokio::spawn(async move {
+                        content_tokenize_save_bin(record.id.as_str(), content_string.as_str())
+                            .await;
+                    });
+                }
+                Err(e) => println!("insert text record error: {}", e),
+            }
         }
-        let t = tokenize_str(content).await;
-        println!("分词后的所有词: {:?}", t);
     }
 }
 

@@ -31,7 +31,6 @@ tauri-plugin-http = { workspace = true }
 tauri-plugin-opener = { workspace = true }
 tauri-plugin-single-instance = { workspace = true }
 tauri-plugin-dialog = { workspace = true }
-tauri-plugin-stronghold = { workspace = true }
 tauri-plugin-clipboard-pal = { path = "../tauri-plugin-clipboard-pal" }
 clipboard-listener = { path = "../clipboard-listener" }
 state = {workspace = true}
