@@ -1,6 +1,7 @@
 {
   "dependencies": {
     "@tauri-apps/plugin-dialog": "^2.2.2",
+    "@tauri-apps/plugin-stronghold": "^2.2.0",
     "@tauri-apps/plugin-window-state": "^2.2.2"
   }
 }

@@ -13,6 +13,9 @@ version = "0.1.0"
 anyhow = "1.0" 
 async-channel = "2.3.1" 
 async-trait = "0.1" 
+aes-gcm = "0.10"        # AES-256-GCM 加解密
+aes = "0.8"
+rand = "0.9"
 base64 = "0.22.1" #base64编码
 charabia = "0.9.6" 
 clipboard-rs = "0.2.1" #粘贴板工具
@@ -30,6 +33,10 @@ tauri-plugin-dialog = "2"
 tauri-plugin-http = "=2.4.4" 
 tauri-plugin-opener = "2" 
 tauri-plugin-single-instance = "2" 
+tauri-plugin-stronghold = "2"
 thiserror = "2" 
 tokio = {version = "1.0", features = ["full"]} 
 uuid = "1"
+sha2 = "0.10"
+config = "0.15"
+rust-argon2 = "2.1"

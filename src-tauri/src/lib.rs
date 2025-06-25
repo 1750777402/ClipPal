@@ -1,15 +1,17 @@
 use std::sync::Arc;
 
+use crate::{
+    biz::{
+        copy_clip_record::{copy_clip_record, del_record, image_save_as, set_pinned},
+        query_clip_record::get_clip_records,
+        system_setting::{init_settings, load_settings, save_settings, validate_shortcut},
+    },
+    utils::app_config::load_config,
+};
 use biz::clip_board_sync::ClipboardEventTigger;
 use clipboard_listener::{ClipboardEvent, EventManager};
 use state::TypeMap;
 use tauri_plugin_autostart::MacosLauncher;
-
-use crate::biz::{
-    copy_clip_record::{copy_clip_record, del_record, image_save_as, set_pinned},
-    query_clip_record::get_clip_records,
-    system_setting::{init_settings, load_settings, save_settings, validate_shortcut},
-};
 
 mod biz;
 mod clip_board_listener;
@@ -25,6 +27,8 @@ pub static CONTEXT: TypeMap![Send + Sync] = <TypeMap![Send + Sync]>::new();
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub async fn run() {
+    // 加载配置
+    let app_config = load_config().expect("加载配置失败");
     // 初始化系统设置
     init_settings();
     // 初始化粘贴板内容变化后的监听管理器
@@ -32,12 +36,29 @@ pub async fn run() {
     let m1 = manager.clone();
     // 注册粘贴板内容变化的监听器
     manager.add_event_listener(Arc::new(ClipboardEventTigger));
-    // 开启监听器
-    manager.start_event_loop();
     // 初始化sqlite链接
     sqlite_storage::init_sqlite().await;
 
     tauri::Builder::default()
+        // 使用 IOTA Stronghold 加密数据库和安全运行时存储秘密和密钥
+        .plugin(
+            tauri_plugin_stronghold::Builder::new(move |password| {
+                use argon2::{Config, Variant, Version, hash_raw};
+                let config = Config {
+                    lanes: 4,
+                    mem_cost: 10_000,
+                    time_cost: 10,
+                    variant: Variant::Argon2id,
+                    version: Version::Version13,
+                    ..Default::default()
+                };
+                let salt = app_config.stronghold_salt.as_bytes();
+                let key =
+                    hash_raw(password.as_ref(), salt, &config).expect("failed to hash password");
+                key.to_vec()
+            })
+            .build(),
+        )
         // 本机系统对话框，用于打开和保存文件，以及消息对话框
         .plugin(tauri_plugin_dialog::init())
         // 保存窗口位置和大小，并在应用程序重新打开时恢复它们
@@ -89,6 +110,11 @@ pub async fn run() {
             tauri::RunEvent::ExitRequested { api: _, .. } => {
                 // 1.关闭监听器
                 let _ = manager.shutdown.0.send_blocking(());
+            }
+            // 程序启动完成后续事件处理
+            tauri::RunEvent::Ready { .. } => {
+                // 开启粘贴板内容监听器
+                manager.start_event_loop();
             }
             _ => {}
         });

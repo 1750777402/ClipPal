@@ -23,6 +23,7 @@
     "global-shortcut:allow-register",
     "global-shortcut:allow-unregister",
     "dialog:allow-save",
-    "dialog:default"
+    "dialog:default",
+    "stronghold:default"
   ]
 }
