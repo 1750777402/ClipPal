@@ -22,12 +22,12 @@ pub struct ClipRecord {
     pub sort: i32,
     // 是否置顶
     pub pinned_flag: i32,
-    // 是否已同步云端
-    pub sync_flag: i32,
+    // 是否已同步云端  0:未同步，1:已同步
+    pub sync_flag: Option<i32>,
     // 同步时间
-    pub sync_time: u64,
+    pub sync_time: Option<u64>,
     // 设备标识
-    pub device_id: String,
+    pub device_id: Option<String>,
 }
 
 crud!(ClipRecord {}, "clip_record");
