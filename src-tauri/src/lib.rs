@@ -1,12 +1,14 @@
 use std::sync::Arc;
 
-use crate::biz::{
-    clip_record::ClipRecord,
-    copy_clip_record::{copy_clip_record, del_record, image_save_as, set_pinned},
+use crate::{
+    biz::{
+        clip_record::ClipRecord,
+        copy_clip_record::{copy_clip_record, del_record, image_save_as, set_pinned},
+        query_clip_record::get_clip_records,
+        system_setting::{init_settings, load_settings, save_settings, validate_shortcut},
+        tokenize_bin::{load_index_from_disk, rebuild_index_after_crash},
+    },
     log_config::init_logging,
-    query_clip_record::get_clip_records,
-    system_setting::{init_settings, load_settings, save_settings, validate_shortcut},
-    tokenize_bin::{load_index_from_disk, rebuild_index_after_crash},
 };
 
 use biz::clip_board_sync::ClipboardEventTigger;
