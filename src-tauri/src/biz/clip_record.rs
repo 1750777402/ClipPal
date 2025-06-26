@@ -1,4 +1,3 @@
-use log::info;
 use rbatis::{Error, RBatis, crud, impl_select};
 use rbs::to_value;
 use serde::{Deserialize, Serialize};

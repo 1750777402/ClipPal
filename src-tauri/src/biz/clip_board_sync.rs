@@ -59,41 +59,52 @@ async fn get_next_sort(rb: &RBatis) -> i32 {
 }
 
 async fn handle_text(rb: &RBatis, content: &str, sort: i32) {
-    let existing =
-        ClipRecord::check_by_type_and_content(rb, ClipType::Text.to_string().as_str(), content)
+    let encrypt_res = encrypt_content(content);
+    match encrypt_res {
+        Ok(encrypted) => {
+            // 使用md5进行内容重复检查
+            // 加密后的密文不能用于重复检查   因为加密过程使用了随机nonce(随机数种子)   同一个字符串多次加密结果是不一样的
+            let md5_str = format!("{:x}", md5::compute(content));
+            let existing = ClipRecord::check_by_type_and_md5(
+                rb,
+                ClipType::Text.to_string().as_str(),
+                md5_str.as_str(),
+            )
             .await
             .unwrap_or_default();
 
-    if let Some(record) = existing.first() {
-        let _ = ClipRecord::update_sort(rb, &record.id, sort).await;
-    } else {
-        let encrypt_res = encrypt_content(content);
-        if let Ok(encrypted) = encrypt_res {
-            let record = ClipRecord {
-                id: Uuid::new_v4().to_string(),
-                r#type: "Text".to_string(),
-                content: Value::String(encrypted),
-                md5_str: String::new(),
-                created: current_timestamp(),
-                os_type: "win".to_string(),
-                sort,
-                pinned_flag: 0,
-                ..Default::default()
-            };
+            if let Some(record) = existing.first() {
+                let _ = ClipRecord::update_sort(rb, &record.id, sort).await;
+            } else {
+                let record = ClipRecord {
+                    id: Uuid::new_v4().to_string(),
+                    r#type: "Text".to_string(),
+                    content: Value::String(encrypted),
+                    md5_str: md5_str,
+                    created: current_timestamp(),
+                    os_type: "win".to_string(),
+                    sort,
+                    pinned_flag: 0,
+                    ..Default::default()
+                };
 
-            match ClipRecord::insert(rb, &record).await {
-                Ok(_res) => {
-                    // 对内容进行分词并存储进.bin文件
-                    let content_string = content.to_string();
-                    tokio::spawn(async move {
-                        let _ =
-                            content_tokenize_save_bin(record.id.as_str(), content_string.as_str())
-                                .await;
-                    });
+                match ClipRecord::insert(rb, &record).await {
+                    Ok(_res) => {
+                        // 对内容进行分词并存储进.bin文件
+                        let content_string = content.to_string();
+                        tokio::spawn(async move {
+                            let _ = content_tokenize_save_bin(
+                                record.id.as_str(),
+                                content_string.as_str(),
+                            )
+                            .await;
+                        });
+                    }
+                    Err(e) => error!("insert text record error: {}", e),
                 }
-                Err(e) => error!("insert text record error: {}", e),
             }
         }
+        Err(e) => error!("insert text record error: encrypt content error:{:?}", e),
     }
 }
 

@@ -90,6 +90,7 @@ impl ConcurrentTokenIndex {
         }
     }
 
+    #[allow(dead_code)]
     fn get_ids_for_token(&self, token: &str) -> HashSet<String> {
         self.token_to_ids
             .get(token)
@@ -97,6 +98,7 @@ impl ConcurrentTokenIndex {
             .unwrap_or_default()
     }
 
+    #[allow(dead_code)]
     fn get_tokens_for_id(&self, id: &str) -> HashSet<String> {
         self.id_to_tokens
             .get(id)
@@ -135,7 +137,7 @@ impl ConcurrentTokenIndex {
     }
 
     /// 根据多个 token 获取匹配的 ID 列表，按匹配的 token 数量排序
-    fn get_ids_by_tokens(&self, tokens: &[&str]) -> Vec<String> {
+    fn get_ids_by_tokens(&self, tokens: &Vec<String>) -> Vec<String> {
         if tokens.is_empty() {
             return Vec::new();
         }
@@ -143,7 +145,7 @@ impl ConcurrentTokenIndex {
         let mut id_counts: HashMap<String, u32> = HashMap::new();
 
         for token in tokens {
-            if let Some(id_set) = self.token_to_ids.get(*token) {
+            if let Some(id_set) = self.token_to_ids.get(token) {
                 for id in id_set.iter() {
                     *id_counts.entry(id.clone()).or_insert(0) += 1;
                 }
@@ -318,7 +320,7 @@ pub async fn content_tokenize_save_bin(id: &str, content: &str) -> Result<()> {
 /// 根据多个 token 获取匹配的 ID 列表，按匹配的 token 数量排序
 pub async fn get_ids_by_content(content: &str) -> Vec<String> {
     let res = tokenize_str(content).await;
-    let res_vec: Vec<&str> = res.iter().map(|s| s.as_str()).collect();
+    let res_vec: Vec<String> = res.into_iter().collect();
     TOKEN_INDEX.get_ids_by_tokens(&res_vec)
 }
 
@@ -386,25 +388,12 @@ where
 }
 
 // 查询函数
+#[allow(dead_code)]
 pub async fn get_ids_for_token(token: &str) -> HashSet<String> {
     TOKEN_INDEX.get_ids_for_token(token)
 }
 
+#[allow(dead_code)]
 pub async fn get_tokens_for_id(id: &str) -> HashSet<String> {
     TOKEN_INDEX.get_tokens_for_id(id)
-}
-
-pub async fn backup_token_index() -> Result<()> {
-    let serializable_index = TOKEN_INDEX.to_serializable();
-    let bin = bincode::encode_to_vec(&serializable_index, BINCODE_CONFIG)
-        .context("Failed to encode token index")?;
-    let mut path = token_index_path()?;
-    path.set_extension("bak");
-    let mut file = OpenOptions::new()
-        .create(true)
-        .write(true)
-        .truncate(true)
-        .open(path)?;
-    file.write_all(&bin)?;
-    Ok(())
 }
