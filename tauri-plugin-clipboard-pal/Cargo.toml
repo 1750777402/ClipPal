@@ -8,6 +8,7 @@ exclude = ["/examples", "/webview-dist", "/webview-src", "/node_modules"]
 links = "tauri-plugin-clipboard-pal"
 
 [lib]
+lib="src/lib.rs"
 
 [dependencies]
 tauri = { workspace = true}
