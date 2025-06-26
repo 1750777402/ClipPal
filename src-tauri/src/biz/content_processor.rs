@@ -4,6 +4,8 @@ use serde_json::Value;
 use std::fs;
 use std::path::Path;
 
+use crate::utils::aes_util::decrypt_content;
+
 pub struct ContentProcessor;
 
 impl ContentProcessor {
@@ -54,7 +56,9 @@ impl ContentProcessor {
     /// 根据剪贴板类型处理内容
     pub fn process_by_clip_type(clip_type: &str, content: Value) -> String {
         match clip_type {
-            t if t == ClipType::Text.to_string() => Self::process_text_content(content),
+            t if t == ClipType::Text.to_string() => {
+                decrypt_content(Self::process_text_content(content).as_str()).unwrap_or_default()
+            }
             t if t == ClipType::Image.to_string() => {
                 if let Some(path) = content.as_str() {
                     Self::process_image_content(path).unwrap_or_default()

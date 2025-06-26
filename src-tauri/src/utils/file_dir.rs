@@ -1,10 +1,11 @@
 use directories::ProjectDirs;
+use log::error;
 use std::fs;
 use std::path::{Path, PathBuf};
 
 fn ensure_directory(path: &Path) {
     if let Err(e) = fs::create_dir_all(path) {
-        eprintln!("创建目录失败: {}", e);
+        error!("创建目录失败: {}", e);
     }
 }
 

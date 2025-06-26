@@ -1,3 +1,4 @@
+use log::error;
 use std::{
     fmt,
     str::FromStr,
@@ -70,7 +71,7 @@ where
                             });
                         },
                         Err(e) => {
-                            println!("rx.recv Error: {}", e);
+                            error!("rx.recv Error: {}", e);
                             break;
                         },
                     },
@@ -85,7 +86,7 @@ where
                                 break;
                             },
                             Err(e) => {
-                                println!("shutdown_signal Error: {}", e);
+                                error!("shutdown_signal Error: {}", e);
                                 let _ = join_set.shutdown().await;
                                 break;
                             }

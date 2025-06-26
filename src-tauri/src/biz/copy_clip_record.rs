@@ -1,4 +1,5 @@
 use clipboard_listener::ClipType;
+use log::error;
 use rbatis::RBatis;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -8,7 +9,11 @@ use tauri_plugin_dialog::DialogExt;
 
 use crate::{
     CONTEXT,
-    biz::{clip_record::ClipRecord, content_processor::ContentProcessor},
+    biz::{
+        clip_record::ClipRecord, content_processor::ContentProcessor,
+        tokenize_bin::remove_ids_from_token_bin,
+    },
+    utils::aes_util::decrypt_content,
     window::{WindowHideFlag, WindowHideGuard},
 };
 
@@ -31,7 +36,9 @@ pub async fn copy_clip_record(param: CopyClipRecord) -> Result<String, String> {
 
     match clip_type {
         ClipType::Text => {
-            let content = ContentProcessor::process_text_content(record.content);
+            let content =
+                decrypt_content(ContentProcessor::process_text_content(record.content).as_str())
+                    .unwrap_or_default();
             let _ = clipboard.write_text(content);
         }
         ClipType::Image => {
@@ -99,7 +106,11 @@ pub async fn set_pinned(param: PinnedClipRecord) -> Result<String, String> {
 #[tauri::command]
 pub async fn del_record(param: CopyClipRecord) -> Result<String, String> {
     let rb: &RBatis = CONTEXT.get::<RBatis>();
-    let _ = ClipRecord::del_by_ids(rb, vec![param.record_id]).await;
+    let ids = vec![param.record_id];
+    let res = ClipRecord::del_by_ids(rb, &ids).await;
+    if let Ok(_) = res {
+        let _ = remove_ids_from_token_bin(&ids);
+    }
     Ok(String::new())
 }
 
@@ -139,7 +150,7 @@ pub async fn image_save_as(param: CopyClipRecord) -> Result<String, String> {
                         let select_path = select_path.as_path();
                         if let Some(select_path) = select_path {
                             if let Err(e) = std::fs::copy(&abs_path_clone, &select_path) {
-                                eprintln!("Copy image error: {}", e);
+                                error!("Copy image error: {}", e);
                             }
                         }
                     }

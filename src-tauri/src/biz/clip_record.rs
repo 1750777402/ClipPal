@@ -83,7 +83,7 @@ impl ClipRecord {
         }
     }
 
-    pub async fn del_by_ids(rb: &RBatis, ids: Vec<String>) -> Result<(), Error> {
+    pub async fn del_by_ids(rb: &RBatis, ids: &Vec<String>) -> Result<(), Error> {
         let sql = format!(
             "DELETE FROM clip_record WHERE id IN ({})",
             ids.iter().map(|_| "?").collect::<Vec<_>>().join(",")
@@ -93,5 +93,21 @@ impl ClipRecord {
         let params = ids.into_iter().map(|id| to_value!(id)).collect::<Vec<_>>();
         let _ = tx.exec(&sql, params).await?;
         tx.commit().await
+    }
+
+    pub async fn select_by_ids(
+        rb: &RBatis,
+        ids: Vec<String>,
+        limit: i32,
+        offset: i32,
+    ) -> Result<Vec<ClipRecord>, Error> {
+        let sql = format!(
+            "SELECT * FROM clip_record WHERE id IN ({}) limit #{limit} offset #{offset}",
+            ids.iter().map(|_| "?").collect::<Vec<_>>().join(",")
+        );
+        let res: Vec<ClipRecord> = rb
+            .query_decode(sql.as_str(), vec![to_value!(limit), to_value!(offset)])
+            .await?;
+        Ok(res)
     }
 }

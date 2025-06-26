@@ -1,3 +1,4 @@
+use log::error;
 use rbatis::RBatis;
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -5,7 +6,10 @@ use std::path::Path;
 
 use crate::{
     CONTEXT,
-    biz::{clip_record::ClipRecord, content_processor::ContentProcessor},
+    biz::{
+        clip_record::ClipRecord, content_processor::ContentProcessor,
+        tokenize_bin::get_ids_by_content,
+    },
 };
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -49,15 +53,15 @@ pub async fn get_clip_records(param: QueryParam) -> Vec<ClipRecordDTO> {
     // 执行数据库查询逻辑
     let query_result = match param.search.as_deref().filter(|s| !s.is_empty()) {
         Some(search) => {
-            let content: String = format!("%{}%", search);
-            ClipRecord::select_where_order_by_limit(rb, content.as_str(), param.size, offset).await
+            let res_ids = get_ids_by_content(search).await;
+            ClipRecord::select_by_ids(rb, res_ids, param.size, offset).await
         }
         None => ClipRecord::select_order_by_limit(rb, param.size, offset).await,
     };
     let all_data = match query_result {
         Ok(data) => data,
         Err(e) => {
-            eprintln!("查询粘贴记录失败: {:?}", e);
+            error!("查询粘贴记录失败: {:?}", e);
             return vec![];
         }
     };

@@ -1,3 +1,4 @@
+use log::error;
 use tauri::App;
 
 pub fn init_global_shortcut(app: &App) -> tauri::Result<()> {
@@ -46,7 +47,7 @@ pub fn init_global_shortcut(app: &App) -> tauri::Result<()> {
 
         app.global_shortcut()
             .register(shortcut)
-            .unwrap_or_else(|e| println!("快捷键设置失败:{}", e));
+            .unwrap_or_else(|e| error!("快捷键设置失败:{}", e));
     }
     Ok(())
 }

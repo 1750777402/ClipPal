@@ -1,3 +1,4 @@
+use log::error;
 use std::{
     fs::File,
     io::Write,
@@ -11,7 +12,7 @@ use serde_json::Value;
 use tauri::{AppHandle, Emitter};
 use uuid::Uuid;
 
-use crate::{biz::tokenize_save_bin::content_tokenize_save_bin, utils::aes_util::encrypt_content};
+use crate::{biz::tokenize_bin::content_tokenize_save_bin, utils::aes_util::encrypt_content};
 
 use crate::{
     CONTEXT,
@@ -85,11 +86,12 @@ async fn handle_text(rb: &RBatis, content: &str, sort: i32) {
                     // 对内容进行分词并存储进.bin文件
                     let content_string = content.to_string();
                     tokio::spawn(async move {
-                        content_tokenize_save_bin(record.id.as_str(), content_string.as_str())
-                            .await;
+                        let _ =
+                            content_tokenize_save_bin(record.id.as_str(), content_string.as_str())
+                                .await;
                     });
                 }
-                Err(e) => println!("insert text record error: {}", e),
+                Err(e) => error!("insert text record error: {}", e),
             }
         }
     }
@@ -155,7 +157,7 @@ async fn handle_file(rb: &RBatis, file_paths: Option<&Vec<String>>, sort: i32) {
             };
 
             if let Err(e) = ClipRecord::insert(rb, &record).await {
-                println!("insert file error: {}", e);
+                error!("insert file error: {}", e);
             }
         }
     }
@@ -178,14 +180,14 @@ async fn save_img_to_resource(data_id: &str, rb: &RBatis, image: &Vec<u8>) {
                     // 写成功后，记录相对路径到数据库
                     let _ = ClipRecord::update_content(rb, data_id, &filename).await;
                 } else {
-                    eprintln!("写入图片失败");
+                    error!("写入图片失败");
                 }
             }
             Err(e) => {
-                eprintln!("创建图片文件失败: {}", e);
+                error!("创建图片文件失败: {}", e);
             }
         }
     } else {
-        eprintln!("资源路径获取失败");
+        error!("资源路径获取失败");
     }
 }

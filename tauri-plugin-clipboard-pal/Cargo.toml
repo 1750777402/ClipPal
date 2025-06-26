@@ -2,7 +2,7 @@
 name = "tauri-plugin-clipboard-pal"
 version = {workspace=true}
 authors = {workspace=true}
-description = ""
+description = "粘贴板监听器插件"
 edition = {workspace=true}
 exclude = ["/examples", "/webview-dist", "/webview-src", "/node_modules"]
 links = "tauri-plugin-clipboard-pal"
@@ -20,7 +20,7 @@ image = { workspace = true}
 tokio = { workspace = true}
 serde_json = { workspace = true}
 
-clipboard-listener = {version = "0.1.0", path = "../clipboard-listener"}
+clipboard-listener = {path = "../clipboard-listener"}
 
 [build-dependencies]
 tauri-plugin = { version = "2.0.2", features = ["build"] }

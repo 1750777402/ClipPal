@@ -1,6 +1,6 @@
 [package]
 authors = {workspace=true}
-description = "A ClipPal App"
+description = "监听器插件"
 edition = {workspace=true}
 name = "clipboard-listener"
 version = {workspace=true}
@@ -14,3 +14,4 @@ serde_json = {workspace=true}
 tokio = {workspace=true}
 async-channel = {workspace=true}
 async-trait = {workspace=true}
+log = {workspace=true}

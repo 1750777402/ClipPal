@@ -1,3 +1,4 @@
+use log::{error, info};
 use std::{
     fs,
     marker::{Send, Sync},
@@ -159,7 +160,7 @@ fn is_valid_shortcut_format(shortcut: &str) -> bool {
 // 更新全局快捷键
 async fn update_global_shortcut(shortcut: &str) -> Result<(), String> {
     let app_handle = CONTEXT.get::<AppHandle>();
-    println!("更新全局快捷键:{}", shortcut);
+    info!("更新全局快捷键:{}", shortcut);
 
     // 在 await 点之前获取当前设置
     let current_settings = {
@@ -176,11 +177,11 @@ async fn update_global_shortcut(shortcut: &str) -> Result<(), String> {
     // 注册新快捷键
     match app_handle.global_shortcut().register(shortcut) {
         Ok(_) => {
-            println!("更新全局快捷键成功:{}", shortcut);
+            info!("更新全局快捷键成功:{}", shortcut);
             Ok(())
         }
         Err(e) => {
-            println!("更新全局快捷键失败:{:?}", e);
+            error!("更新全局快捷键失败:{:?}", e);
             // 如果注册失败，尝试恢复原快捷键
             let register_res = app_handle
                 .global_shortcut()
