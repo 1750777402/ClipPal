@@ -1,3 +1,4 @@
+use log::info;
 use rbatis::{Error, RBatis, crud, impl_select};
 use rbs::to_value;
 use serde::{Deserialize, Serialize};
@@ -97,17 +98,20 @@ impl ClipRecord {
 
     pub async fn select_by_ids(
         rb: &RBatis,
-        ids: Vec<String>,
+        ids: &Vec<String>,
         limit: i32,
         offset: i32,
     ) -> Result<Vec<ClipRecord>, Error> {
         let sql = format!(
-            "SELECT * FROM clip_record WHERE id IN ({}) limit #{limit} offset #{offset}",
+            "SELECT * FROM clip_record WHERE id IN ({})",
             ids.iter().map(|_| "?").collect::<Vec<_>>().join(",")
         );
-        let res: Vec<ClipRecord> = rb
-            .query_decode(sql.as_str(), vec![to_value!(limit), to_value!(offset)])
-            .await?;
+        // 转换ids为Vec<Value>
+        let mut params = ids.into_iter().map(|id| to_value!(id)).collect::<Vec<_>>();
+        params.push(to_value!(limit));
+        params.push(to_value!(offset));
+        let limit_sql = format!("{} LIMIT ? OFFSET ?", sql);
+        let res: Vec<ClipRecord> = rb.query_decode(limit_sql.as_str(), params).await?;
         Ok(res)
     }
 }

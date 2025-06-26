@@ -54,7 +54,7 @@ pub async fn get_clip_records(param: QueryParam) -> Vec<ClipRecordDTO> {
     let query_result = match param.search.as_deref().filter(|s| !s.is_empty()) {
         Some(search) => {
             let res_ids = get_ids_by_content(search).await;
-            ClipRecord::select_by_ids(rb, res_ids, param.size, offset).await
+            ClipRecord::select_by_ids(rb, &res_ids, param.size, offset).await
         }
         None => ClipRecord::select_order_by_limit(rb, param.size, offset).await,
     };
@@ -65,7 +65,6 @@ pub async fn get_clip_records(param: QueryParam) -> Vec<ClipRecordDTO> {
             return vec![];
         }
     };
-
     if all_data.is_empty() {
         return vec![];
     }
