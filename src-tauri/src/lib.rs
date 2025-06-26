@@ -3,6 +3,7 @@ use std::sync::Arc;
 use crate::biz::{
     clip_record::ClipRecord,
     copy_clip_record::{copy_clip_record, del_record, image_save_as, set_pinned},
+    log_config::init_logging,
     query_clip_record::get_clip_records,
     system_setting::{init_settings, load_settings, save_settings, validate_shortcut},
     tokenize_bin::{load_index_from_disk, rebuild_index_after_crash},
@@ -31,11 +32,7 @@ pub static CONTEXT: TypeMap![Send + Sync] = <TypeMap![Send + Sync]>::new();
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub async fn run() {
     // 初始化日志
-    if let Err(e) = log4rs::init_file("log4rs.yaml", Default::default()) {
-        eprintln!("初始化日志失败: {}", e);
-        // 使用简单的控制台日志作为后备
-        env_logger::init();
-    }
+    init_logging();
 
     // 初始化系统设置
     init_settings();
