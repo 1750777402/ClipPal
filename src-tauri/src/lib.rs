@@ -18,6 +18,7 @@ mod biz;
 mod clip_board_listener;
 mod errors;
 mod global_shortcut;
+mod log_config;
 mod single_instance;
 mod sqlite_storage;
 mod tray;
@@ -35,17 +36,17 @@ pub async fn run() {
         // 使用简单的控制台日志作为后备
         env_logger::init();
     }
-    
+
     // 初始化系统设置
     init_settings();
-    
+
     // 初始化粘贴板内容变化后的监听管理器
     let manager: Arc<EventManager<ClipboardEvent>> = Arc::new(EventManager::default());
     let m1 = manager.clone();
-    
+
     // 注册粘贴板内容变化的监听器
     manager.add_event_listener(Arc::new(ClipboardEventTigger));
-    
+
     // 初始化sqlite链接
     let rb_res = match sqlite_storage::init_sqlite().await {
         Ok(rb) => rb,
@@ -54,21 +55,25 @@ pub async fn run() {
             std::process::exit(1);
         }
     };
-    
+
     // 初始化索引文件
     if let Err(e) = load_index_from_disk().await {
         error!("索引文件初始化失败: {}", e);
         // 不退出程序，继续运行但记录错误
     }
-    
+
     // 如果有程序崩溃，则重建索引
     if let Err(e) = rebuild_index_after_crash(|| async {
         // 实现获取所有剪贴板内容的函数
-        ClipRecord::select_order_by(&rb_res).await.unwrap_or_else(|e| {
-            error!("获取剪贴板记录失败: {}", e);
-            vec![]
-        })
-    }).await {
+        ClipRecord::select_order_by(&rb_res)
+            .await
+            .unwrap_or_else(|e| {
+                error!("获取剪贴板记录失败: {}", e);
+                vec![]
+            })
+    })
+    .await
+    {
         error!("重建索引失败: {}", e);
     }
 

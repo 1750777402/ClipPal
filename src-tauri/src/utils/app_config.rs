@@ -7,7 +7,7 @@ pub struct AppConfig {
 }
 pub fn load_config() -> Result<AppConfig, config::ConfigError> {
     let config = Config::builder()
-        .add_source(config::File::with_name("config"))
+        .add_source(config::File::with_name("app_config"))
         .build()?;
     config.try_deserialize::<AppConfig>()
 }
