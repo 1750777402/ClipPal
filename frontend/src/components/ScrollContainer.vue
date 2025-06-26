@@ -10,13 +10,36 @@
       </div>
     </header>
 
-    <div v-if="isLoading" class="loading-container">
+    <!-- 智能Loading：只在初始加载和空状态时显示 -->
+    <div v-if="isInitialLoading && cards.length === 0" class="loading-container">
       <div class="loading-spinner"></div>
       <span class="loading-text">加载中...</span>
     </div>
 
+    <!-- 骨架屏：在有数据时显示更平滑的加载状态 -->
+    <div v-else-if="isRefreshing && cards.length > 0" class="clip-list" @scroll.passive="handleScroll" ref="scrollContainer">
+      <div class="skeleton-container">
+        <div v-for="n in 3" :key="`skeleton-${n}`" class="skeleton-card">
+          <div class="skeleton-header">
+            <div class="skeleton-icon"></div>
+            <div class="skeleton-title"></div>
+            <div class="skeleton-time"></div>
+          </div>
+          <div class="skeleton-content"></div>
+        </div>
+      </div>
+      
+      <!-- 真实数据，透明度渐变 -->
+      <div class="real-content" :class="{ 'content-updating': isRefreshing }">
+        <ClipCard v-for="item in cards" :key="item.id" :record="item" :is-mobile="isMobile" 
+                  @click="handleCardClick" @pin="handlePin" @delete="handleDel" />
+      </div>
+    </div>
+
+    <!-- 正常数据显示 -->
     <div class="clip-list" v-else @scroll.passive="handleScroll" ref="scrollContainer">
-      <ClipCard v-for="item in cards" :key="item.id" :record="item" :is-mobile="isMobile" @click="handleCardClick" @pin="handlePin" @delete="handleDel" />
+      <ClipCard v-for="item in cards" :key="item.id" :record="item" :is-mobile="isMobile" 
+                @click="handleCardClick" @pin="handlePin" @delete="handleDel" />
 
       <div v-if="isFetchingMore" class="bottom-loading">
         <div class="loading-spinner small"></div>
@@ -33,18 +56,32 @@
 <script setup lang="ts">
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-import { ref, onMounted, onBeforeUnmount, watch } from 'vue';
-import { debounce } from 'lodash-es';
+import { ref, onMounted, onBeforeUnmount, watch, nextTick } from 'vue';
 import SettingsDialog from './SettingsDialog.vue';
 import ClipCard from './ClipCard.vue';
 
+// 简单的防抖函数实现
+function debounce<T extends (...args: any[]) => any>(func: T, wait: number): (...args: Parameters<T>) => void {
+  let timeout: ReturnType<typeof setTimeout> | null = null;
+  return function (...args: Parameters<T>) {
+    if (timeout) clearTimeout(timeout);
+    timeout = setTimeout(() => func(...args), wait);
+  };
+}
+
 const search = ref('');
-const isLoading = ref(false);
+const isInitialLoading = ref(false);  // 初始加载状态
+const isRefreshing = ref(false);      // 刷新状态
 const isFetchingMore = ref(false);
 const cards = ref<ClipRecord[]>([]);
 const page = ref(1);
 const pageSize = 20;
 const hasMore = ref(true);
+
+// 缓存机制
+const lastFetchTime = ref(0);
+const CACHE_DURATION = 2000; // 2秒内避免重复请求
+const lastSearchValue = ref('');
 
 const scrollContainer = ref<HTMLElement | null>(null);
 
@@ -65,7 +102,7 @@ const handleCardClick = async (item: ClipRecord) => {
 const initEventListeners = async () => {
   try {
     await listen('clip_record_change', () => {
-      resetAndFetch();
+      smartRefresh();
     });
     await listen('open_settings_winodws', () => {
       showSettings.value = true;
@@ -75,6 +112,52 @@ const initEventListeners = async () => {
   }
 };
 
+// 智能刷新：避免频繁的loading显示
+const smartRefresh = () => {
+  const now = Date.now();
+  
+  // 如果距离上次请求时间太短，使用防抖
+  if (now - lastFetchTime.value < CACHE_DURATION) {
+    debouncedRefresh();
+    return;
+  }
+  
+  // 如果已有数据，使用渐进式更新
+  if (cards.value.length > 0) {
+    silentRefresh();
+  } else {
+    resetAndFetch();
+  }
+};
+
+// 静默刷新：不显示loading，平滑更新数据
+const silentRefresh = async () => {
+  try {
+    isRefreshing.value = true;
+    const data: ClipRecord[] = await invoke('get_clip_records', {
+      param: {
+        page: 1,
+        size: pageSize,
+        search: search.value
+      }
+    });
+    
+    // 平滑更新数据
+    await nextTick();
+    cards.value = [...data];
+    page.value = 2;
+    hasMore.value = data.length >= pageSize;
+    lastFetchTime.value = Date.now();
+    
+  } catch (error) {
+    console.error('静默刷新失败:', error);
+  } finally {
+    // 延迟移除刷新状态，让动画更平滑
+    setTimeout(() => {
+      isRefreshing.value = false;
+    }, 300);
+  }
+};
 
 const resetAndFetch = () => {
   page.value = 1;
@@ -84,10 +167,17 @@ const resetAndFetch = () => {
 
 const fetchClipRecords = async (isRefresh = false) => {
   if (!hasMore.value) return;
+  
   const currentPage = page.value;
+  const now = Date.now();
+  
   try {
-    if (currentPage === 1) isLoading.value = true;
-    else isFetchingMore.value = true;
+    // 智能loading：只在真正需要时显示
+    if (currentPage === 1 && cards.value.length === 0) {
+      isInitialLoading.value = true;
+    } else if (currentPage > 1) {
+      isFetchingMore.value = true;
+    }
 
     const data: ClipRecord[] = await invoke('get_clip_records', {
       param: {
@@ -96,17 +186,21 @@ const fetchClipRecords = async (isRefresh = false) => {
         search: search.value
       }
     });
-    if (isRefresh) {
+    
+    if (isRefresh || currentPage === 1) {
       cards.value = [...data];
     } else {
       cards.value.push(...data);
     }
+    
     if (data.length < pageSize) hasMore.value = false;
     page.value++;
+    lastFetchTime.value = now;
+    
   } catch (error) {
     console.error('获取数据失败:', error);
   } finally {
-    isLoading.value = false;
+    isInitialLoading.value = false;
     isFetchingMore.value = false;
   }
 };
@@ -120,15 +214,37 @@ const handleScroll = () => {
   }
 };
 
-watch(search, (_newValue, _oldValue) => {
-  fetchClipRecordsDebounced();
-})
-
-const fetchClipRecordsDebounced = debounce(() => {
+// 优化搜索防抖
+const searchDebounced = debounce((newValue: string) => {
+  // 如果搜索值没有实际变化，不触发请求
+  if (newValue === lastSearchValue.value) return;
+  
+  lastSearchValue.value = newValue;
   page.value = 1;
   hasMore.value = true;
-  fetchClipRecords(true);
-}, 300);
+  
+  // 搜索时的智能loading
+  if (cards.value.length > 0 && newValue.trim()) {
+    // 有数据且正在搜索时，使用渐进式更新
+    silentRefresh();
+  } else {
+    // 初始搜索或清空搜索时，正常加载
+    fetchClipRecords(true);
+  }
+}, 400); // 增加防抖时间，减少请求频率
+
+// 防抖刷新
+const debouncedRefresh = debounce(() => {
+  if (cards.value.length > 0) {
+    silentRefresh();
+  } else {
+    resetAndFetch();
+  }
+}, 500);
+
+watch(search, (newValue) => {
+  searchDebounced(newValue);
+});
 
 // 添加移动设备检测
 const isMobile = ref(window.innerWidth <= 768);
@@ -141,21 +257,20 @@ const handleResize = debounce(() => {
 const showSettings = ref(false);
 
 const handleSettingsSave = async (newSettings: any) => {
-  // 处理设置保存
   console.log('设置已保存:', newSettings);
-  // 这里可以添加其他处理逻辑，比如重新加载数据等
 };
 
 const handlePin = () => {
-  resetAndFetch();
+  smartRefresh();
 };
 
 const handleDel = () => {
-  resetAndFetch();
+  smartRefresh();
 };
 
 onMounted(() => {
   window.addEventListener('resize', handleResize);
+  lastSearchValue.value = search.value;
   fetchClipRecords();
   initEventListeners();
 });
@@ -278,6 +393,7 @@ onBeforeUnmount(() => {
   min-height: 0;
   -webkit-overflow-scrolling: touch;
   overscroll-behavior: contain;
+  position: relative;
 }
 
 .clip-list::-webkit-scrollbar {
@@ -291,6 +407,93 @@ onBeforeUnmount(() => {
 
 .clip-list::-webkit-scrollbar-track {
   background: transparent;
+}
+
+/* 骨架屏样式 */
+.skeleton-container {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 2;
+  background: var(--bg-color, #f5f7fa);
+  animation: fadeIn 0.3s ease;
+}
+
+.skeleton-card {
+  background: var(--card-bg, #ffffff);
+  border-radius: 12px;
+  margin: 0 20px 16px 20px;
+  padding: 16px;
+  border: 1px solid var(--border-color, #edf2f7);
+}
+
+.skeleton-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.skeleton-icon {
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+}
+
+.skeleton-title {
+  flex: 1;
+  height: 16px;
+  border-radius: 4px;
+  background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+}
+
+.skeleton-time {
+  width: 80px;
+  height: 12px;
+  border-radius: 4px;
+  background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+}
+
+.skeleton-content {
+  height: 60px;
+  border-radius: 8px;
+  background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.real-content {
+  transition: opacity 0.3s ease;
+}
+
+.content-updating {
+  opacity: 0.6;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 .bottom-loading {
@@ -345,18 +548,9 @@ onBeforeUnmount(() => {
     font-size: 13px;
   }
 
-  .clip-card {
+  .skeleton-card {
     margin: 0 12px 12px 12px;
     padding: 12px;
-  }
-
-  .image-container {
-    width: 140px;
-    height: 100px;
-  }
-
-  .file-preview {
-    max-width: 100%;
   }
 }
 
@@ -377,13 +571,17 @@ onBeforeUnmount(() => {
     --card-bg: #2d2d2d;
     --text-primary: #e6e6e6;
     --text-secondary: #999999;
-    --image-bg: #333333;
-    --placeholder-bg: #2d2d2d;
-    --file-bg: #333333;
     --scrollbar-thumb: #4a9a9a;
     --spinner-border: #333333;
     --spinner-color: #4a9a9a;
-    --icon-color: #e6fffa;
+  }
+  
+  .skeleton-icon,
+  .skeleton-title,
+  .skeleton-time,
+  .skeleton-content {
+    background: linear-gradient(90deg, #2d2d2d 25%, #3d3d3d 50%, #2d2d2d 75%);
+    background-size: 200% 100%;
   }
 }
 </style>

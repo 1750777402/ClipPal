@@ -5,15 +5,27 @@ use tauri::{Manager, PhysicalPosition, PhysicalSize};
 
 use crate::CONTEXT;
 use tauri::{AppHandle, Emitter};
+use log::error;
 
 pub fn init_main_window(app: &App) -> tauri::Result<()> {
     // 获取主显示器
-    let main_window = app.get_webview_window("main").unwrap();
+    let main_window = app.get_webview_window("main")
+        .ok_or_else(|| {
+            error!("无法获取主窗口");
+            tauri::Error::FailedToReceiveMessage
+        })?;
+    
     // 获取主显示器信息
     let monitor = main_window
         .primary_monitor()
-        .expect("Failed to get primary monitor")
-        .expect("No primary monitor found");
+        .map_err(|e| {
+            error!("获取主显示器失败: {}", e);
+            e
+        })?
+        .ok_or_else(|| {
+            error!("未找到主显示器");
+            tauri::Error::FailedToReceiveMessage
+        })?;
 
     // 获取显示器参数
     let screen_size = monitor.size();
@@ -30,9 +42,16 @@ pub fn init_main_window(app: &App) -> tauri::Result<()> {
     main_window.set_position(PhysicalPosition::new(x_position, 0))?;
     // 延迟显示
     std::thread::sleep(std::time::Duration::from_millis(100));
-    main_window.show().unwrap();
+    if let Err(e) = main_window.show() {
+        error!("显示主窗口失败: {}", e);
+        return Err(e);
+    }
+    
     // 设置主窗口获取焦点
-    let _ = main_window.set_focus();
+    if let Err(e) = main_window.set_focus() {
+        error!("设置窗口焦点失败: {}", e);
+        // 这个不是致命错误，继续执行
+    }
     let main1 = main_window.clone();
 
     // 设置一个窗口失去焦点的计数器，用于记录窗口是否被聚焦或者失去焦点
@@ -44,7 +63,9 @@ pub fn init_main_window(app: &App) -> tauri::Result<()> {
             let window_focus_count = CONTEXT.get::<WindowFocusCount>();
             let window_hide_flag = CONTEXT.get::<WindowHideFlag>();
             if window_focus_count.inc() >= 1 && window_hide_flag.is_can_hide() {
-                main1.hide().unwrap();
+                if let Err(e) = main1.hide() {
+                    error!("隐藏窗口失败: {}", e);
+                }
             }
         }
         WindowEvent::Focused(true) => {

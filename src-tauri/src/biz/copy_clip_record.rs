@@ -13,6 +13,7 @@ use crate::{
         clip_record::ClipRecord, content_processor::ContentProcessor,
         tokenize_bin::remove_ids_from_token_bin,
     },
+
     utils::aes_util::decrypt_content,
     window::{WindowHideFlag, WindowHideGuard},
 };
@@ -36,9 +37,13 @@ pub async fn copy_clip_record(param: CopyClipRecord) -> Result<String, String> {
 
     match clip_type {
         ClipType::Text => {
-            let content =
-                decrypt_content(ContentProcessor::process_text_content(record.content).as_str())
-                    .unwrap_or_default();
+            let content = match decrypt_content(ContentProcessor::process_text_content(record.content).as_str()) {
+                Ok(text) => text,
+                Err(e) => {
+                    error!("解密文本内容失败: {}", e);
+                    return Err("文本解密失败".to_string());
+                }
+            };
             let _ = clipboard.write_text(content);
         }
         ClipType::Image => {
@@ -120,7 +125,8 @@ pub async fn image_save_as(param: CopyClipRecord) -> Result<String, String> {
     let record_res = ClipRecord::select_by_id(rb, param.record_id.as_str()).await;
     match record_res {
         Ok(records) => {
-            let record = records.first().unwrap();
+            let record = records.first()
+                .ok_or("未找到指定的剪贴板记录")?;
             if record.r#type != ClipType::Image.to_string() {
                 return Err("仅支持图片类型另存为".to_string());
             }

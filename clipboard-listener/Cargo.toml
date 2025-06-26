@@ -6,7 +6,6 @@ name = "clipboard-listener"
 version = {workspace=true}
 
 [lib]
-lib="src/lib.rs"
 
 [dependencies]
 serde = {workspace=true}

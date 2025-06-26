@@ -57,7 +57,13 @@ impl ContentProcessor {
     pub fn process_by_clip_type(clip_type: &str, content: Value) -> String {
         match clip_type {
             t if t == ClipType::Text.to_string() => {
-                decrypt_content(Self::process_text_content(content).as_str()).unwrap_or_default()
+                match decrypt_content(Self::process_text_content(content).as_str()) {
+                    Ok(text) => text,
+                    Err(e) => {
+                        log::error!("解密文本内容失败: {}", e);
+                        String::new()
+                    }
+                }
             }
             t if t == ClipType::Image.to_string() => {
                 if let Some(path) = content.as_str() {

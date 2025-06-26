@@ -1,5 +1,6 @@
 use log::error;
 use tauri::App;
+use crate::errors::lock_utils::safe_lock;
 
 pub fn init_global_shortcut(app: &App) -> tauri::Result<()> {
     #[cfg(desktop)]
@@ -12,8 +13,13 @@ pub fn init_global_shortcut(app: &App) -> tauri::Result<()> {
             use std::sync::{Arc, Mutex};
 
             let lock = CONTEXT.get::<Arc<Mutex<Settings>>>().clone();
-            let current = lock.lock().unwrap();
-            current.clone()
+            match safe_lock(&lock) {
+                Ok(current) => current.clone(),
+                Err(e) => {
+                    error!("获取设置锁失败: {}", e);
+                    return Err(tauri::Error::FailedToReceiveMessage);
+                }
+            }
         };
         let shortcut_str = settings.shortcut_key.clone();
 
@@ -27,8 +33,13 @@ pub fn init_global_shortcut(app: &App) -> tauri::Result<()> {
                         use std::sync::{Arc, Mutex};
 
                         let lock = CONTEXT.get::<Arc<Mutex<Settings>>>().clone();
-                        let current = lock.lock().unwrap();
-                        current.clone()
+                        match safe_lock(&lock) {
+                            Ok(current) => current.clone(),
+                            Err(e) => {
+                                error!("获取设置锁失败: {}", e);
+                                return;
+                            }
+                        }
                     }
                     .shortcut_key
                     .clone();

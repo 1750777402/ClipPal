@@ -7,14 +7,16 @@ use crate::biz::{
     system_setting::{init_settings, load_settings, save_settings, validate_shortcut},
     tokenize_bin::{load_index_from_disk, rebuild_index_after_crash},
 };
+
 use biz::clip_board_sync::ClipboardEventTigger;
 use clipboard_listener::{ClipboardEvent, EventManager};
-use log4rs;
+use log::error;
 use state::TypeMap;
 use tauri_plugin_autostart::MacosLauncher;
 
 mod biz;
 mod clip_board_listener;
+mod errors;
 mod global_shortcut;
 mod single_instance;
 mod sqlite_storage;
@@ -28,26 +30,47 @@ pub static CONTEXT: TypeMap![Send + Sync] = <TypeMap![Send + Sync]>::new();
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub async fn run() {
     // 初始化日志
-    log4rs::init_file("log4rs.yaml", Default::default()).expect("初始化 log4rs 失败");
+    if let Err(e) = log4rs::init_file("log4rs.yaml", Default::default()) {
+        eprintln!("初始化日志失败: {}", e);
+        // 使用简单的控制台日志作为后备
+        env_logger::init();
+    }
+    
     // 初始化系统设置
     init_settings();
+    
     // 初始化粘贴板内容变化后的监听管理器
     let manager: Arc<EventManager<ClipboardEvent>> = Arc::new(EventManager::default());
     let m1 = manager.clone();
+    
     // 注册粘贴板内容变化的监听器
     manager.add_event_listener(Arc::new(ClipboardEventTigger));
+    
     // 初始化sqlite链接
-    let rb_res = sqlite_storage::init_sqlite().await.unwrap();
+    let rb_res = match sqlite_storage::init_sqlite().await {
+        Ok(rb) => rb,
+        Err(e) => {
+            error!("数据库初始化失败: {}", e);
+            std::process::exit(1);
+        }
+    };
+    
     // 初始化索引文件
-    load_index_from_disk()
-        .await
-        .expect("Failed to init token index");
+    if let Err(e) = load_index_from_disk().await {
+        error!("索引文件初始化失败: {}", e);
+        // 不退出程序，继续运行但记录错误
+    }
+    
     // 如果有程序崩溃，则重建索引
-    let _ = rebuild_index_after_crash(|| async {
+    if let Err(e) = rebuild_index_after_crash(|| async {
         // 实现获取所有剪贴板内容的函数
-        ClipRecord::select_order_by(&rb_res).await.unwrap_or(vec![])
-    })
-    .await;
+        ClipRecord::select_order_by(&rb_res).await.unwrap_or_else(|e| {
+            error!("获取剪贴板记录失败: {}", e);
+            vec![]
+        })
+    }).await {
+        error!("重建索引失败: {}", e);
+    }
 
     tauri::Builder::default()
         // 本机系统对话框，用于打开和保存文件，以及消息对话框
@@ -95,6 +118,10 @@ pub async fn run() {
             image_save_as
         ])
         .build(tauri::generate_context!())
+        .map_err(|e| {
+            error!("Tauri应用构建失败: {}", e);
+            std::process::exit(1);
+        })
         .unwrap()
         .run(move |_, event| match event {
             // 程序关闭事件处理

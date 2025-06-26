@@ -39,8 +39,14 @@ where
         }
     }
     pub fn add_event_listener(&self, event_listener: Arc<dyn ClipBoardEventListener<T>>) {
-        let mut write = self.listeners.write().unwrap();
-        write.push(event_listener);
+        match self.listeners.write() {
+            Ok(mut write) => {
+                write.push(event_listener);
+            }
+            Err(e) => {
+                log::error!("添加事件监听器失败: {}", e);
+            }
+        }
     }
     // 注册监听器
     pub fn subscribe(&self) -> Receiver<T> {
@@ -62,13 +68,20 @@ where
                     event = rx.recv() => match event {
                         Ok(event) => {
                             // 并发处理所有handler
-                            let handlers_clone = listeners.read().unwrap().clone();
-                            join_set.spawn(async move {
-                                // 并发处理所有handler
-                                for handler in &handlers_clone {
-                                    let _ = handler.handle_event(&event).await;
+                            match listeners.read() {
+                                Ok(readers) => {
+                                    let handlers_clone = readers.clone();
+                                    join_set.spawn(async move {
+                                        // 并发处理所有handler
+                                        for handler in &handlers_clone {
+                                            handler.handle_event(&event).await;
+                                        }
+                                    });
                                 }
-                            });
+                                Err(e) => {
+                                    log::error!("获取事件监听器读锁失败: {}", e);
+                                }
+                            }
                         },
                         Err(e) => {
                             error!("rx.recv Error: {}", e);

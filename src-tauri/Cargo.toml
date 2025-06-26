@@ -52,6 +52,8 @@ lazy_static = { workspace = true }
 once_cell = { workspace = true }
 log = { workspace = true }
 log4rs = { workspace = true }
+thiserror = { workspace = true }
+env_logger = { workspace = true }
 
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
