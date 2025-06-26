@@ -1,11 +1,14 @@
 use std::sync::Arc;
 
-use crate::biz::{
-    clip_record::ClipRecord,
-    copy_clip_record::{copy_clip_record, del_record, image_save_as, set_pinned},
-    query_clip_record::get_clip_records,
-    system_setting::{init_settings, load_settings, save_settings, validate_shortcut},
-    tokenize_bin::{load_index_from_disk, rebuild_index_after_crash},
+use crate::{
+    biz::{
+        clip_record::ClipRecord,
+        copy_clip_record::{copy_clip_record, del_record, image_save_as, set_pinned},
+        query_clip_record::get_clip_records,
+        system_setting::{init_settings, load_settings, save_settings, validate_shortcut},
+        tokenize_bin::{load_index_from_disk, rebuild_index_after_crash},
+    },
+    log_config::init_logging,
 };
 use crate::utils::file_dir::get_logs_dir;
 
@@ -31,7 +34,7 @@ pub static CONTEXT: TypeMap![Send + Sync] = <TypeMap![Send + Sync]>::new();
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub async fn run() {
-    // 初始化日志系统
+    // 初始化日志
     init_logging();
 
     // 初始化系统设置
