@@ -77,13 +77,12 @@ const initEventListeners = async () => {
 
 
 const resetAndFetch = () => {
-  cards.value = [];
   page.value = 1;
   hasMore.value = true;
-  fetchClipRecords();
+  fetchClipRecords(true);
 };
 
-const fetchClipRecords = async () => {
+const fetchClipRecords = async (isRefresh = false) => {
   if (!hasMore.value) return;
   const currentPage = page.value;
   try {
@@ -97,8 +96,12 @@ const fetchClipRecords = async () => {
         search: search.value
       }
     });
+    if (isRefresh) {
+      cards.value = [...data];
+    } else {
+      cards.value.push(...data);
+    }
     if (data.length < pageSize) hasMore.value = false;
-    cards.value.push(...data);
     page.value++;
   } catch (error) {
     console.error('获取数据失败:', error);
@@ -122,10 +125,9 @@ watch(search, (_newValue, _oldValue) => {
 })
 
 const fetchClipRecordsDebounced = debounce(() => {
-  cards.value = [];
   page.value = 1;
   hasMore.value = true;
-  fetchClipRecords();
+  fetchClipRecords(true);
 }, 300);
 
 // 添加移动设备检测

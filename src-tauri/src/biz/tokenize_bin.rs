@@ -5,7 +5,7 @@ use crate::{
 use anyhow::{Context, Result};
 use bincode::{Decode, Encode, config};
 use dashmap::{DashMap, DashSet};
-use log::{error, info, warn};
+use log::{debug, error, info, warn};
 use once_cell::sync::Lazy;
 use std::{
     collections::{HashMap, HashSet},
@@ -260,7 +260,7 @@ async fn persist_index() -> Result<()> {
     // 更新最后持久化的版本号
     LAST_PERSISTED_VERSION.store(index_version, Ordering::Release);
 
-    info!("Persisted token index version {}", index_version);
+    debug!("Persisted token index version {}", index_version);
     Ok(())
 }
 
