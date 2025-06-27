@@ -301,14 +301,14 @@ pub async fn init_sqlite() -> Result<RBatis, Error> {
     // 创建sqlite链接
     let rb = RBatis::new();
     let db_path = get_data_dir()
-        .unwrap()
+        .ok_or_else(|| anyhow::anyhow!("无法获取数据目录"))?
         .join("clip_record.db")
         .to_str()
-        .unwrap()
+        .ok_or_else(|| anyhow::anyhow!("数据库路径包含无效字符"))?
         .to_string();
 
     rb.init(rbdc_sqlite::Driver {}, &format!("sqlite://{}", db_path))
-        .unwrap();
+        .map_err(|e| anyhow::anyhow!("数据库连接初始化失败: {}", e))?;
 
     // 检查并修复数据库结构
     check_and_fix_database_schema(&rb).await?;

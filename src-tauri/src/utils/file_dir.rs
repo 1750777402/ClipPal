@@ -11,11 +11,13 @@ fn ensure_directory(path: &Path) {
 
 /// 获取根目录 ClipPal，不包含 data/config/cache 自动子路径
 fn get_clippal_root() -> Option<PathBuf> {
-    ProjectDirs::from("", "", "ClipPal").map(|dirs| {
+    ProjectDirs::from("", "", "ClipPal").and_then(|dirs| {
         let config_path = dirs.config_dir().to_path_buf(); // 如：C:\Users\<User>\AppData\Roaming\ClipPal\config
-        let clippal_root = config_path.parent().unwrap().to_path_buf(); // ✅ 去掉 config 层
-        ensure_directory(&clippal_root);
-        clippal_root
+        config_path.parent().map(|parent| {
+            let clippal_root = parent.to_path_buf(); // 去掉 config 层
+            ensure_directory(&clippal_root);
+            clippal_root
+        })
     })
 }
 

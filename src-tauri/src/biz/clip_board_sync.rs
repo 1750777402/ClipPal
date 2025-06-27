@@ -45,8 +45,11 @@ impl ClipBoardEventListener<ClipboardEvent> for ClipboardEventTigger {
 fn current_timestamp() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_millis() as u64
+        .map(|duration| duration.as_millis() as u64)
+        .unwrap_or_else(|e| {
+            log::warn!("获取系统时间失败，使用默认值: {}", e);
+            0
+        })
 }
 
 async fn get_next_sort(rb: &RBatis) -> i32 {

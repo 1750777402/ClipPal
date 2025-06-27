@@ -10,7 +10,6 @@ use crate::{
     },
     log_config::init_logging,
 };
-use crate::utils::file_dir::get_logs_dir;
 
 use biz::clip_board_sync::ClipboardEventTigger;
 use clipboard_listener::{ClipboardEvent, EventManager};
@@ -33,7 +32,7 @@ mod window;
 pub static CONTEXT: TypeMap![Send + Sync] = <TypeMap![Send + Sync]>::new();
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
-pub async fn run() {
+pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
     // 初始化日志
     init_logging();
 
@@ -126,8 +125,7 @@ pub async fn run() {
         .map_err(|e| {
             error!("Tauri应用构建失败: {}", e);
             std::process::exit(1);
-        })
-        .unwrap()
+        })?
         .run(move |_, event| match event {
             // 程序关闭事件处理
             tauri::RunEvent::ExitRequested { api: _, .. } => {
@@ -141,4 +139,6 @@ pub async fn run() {
             }
             _ => {}
         });
+    
+    Ok(())
 }

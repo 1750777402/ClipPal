@@ -10,8 +10,14 @@ use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex};
 
 pub fn init() -> crate::Result<ClipboardPal> {
+    let clipboard_context = ClipboardRsContext::new()
+        .map_err(|e| crate::Error::Io(std::io::Error::new(
+            std::io::ErrorKind::Other,
+            format!("Failed to create clipboard context: {}", e)
+        )))?;
+    
     Ok(ClipboardPal {
-        clipboard: Arc::new(Mutex::new(ClipboardRsContext::new().unwrap())),
+        clipboard: Arc::new(Mutex::new(clipboard_context)),
         watcher_shutdown: Arc::default(),
     })
 }
@@ -118,16 +124,17 @@ impl ClipboardPal {
             .lock()
             .map_err(|err| err.to_string())?
             .set_image(img)
-            .unwrap();
+            .map_err(|err| err.to_string())?;
         Ok(())
     }
 
     pub fn start_monitor(&self, manager: Arc<EventManager<ClipboardEvent>>) -> Result<(), String> {
         let clipboard = ClipboardMonitor::new(self.clipboard.clone(), manager);
-        let mut watcher: ClipboardWatcherContext<ClipboardMonitor> =
-            ClipboardWatcherContext::new().unwrap();
+        let mut watcher = ClipboardWatcherContext::new()
+            .map_err(|e| format!("Failed to create clipboard watcher: {}", e))?;
         let watcher_shutdown = watcher.add_handler(clipboard).get_shutdown_channel();
-        let mut watcher_shutdown_state = self.watcher_shutdown.lock().unwrap();
+        let mut watcher_shutdown_state = self.watcher_shutdown.lock()
+            .map_err(|e| format!("Failed to acquire lock: {}", e))?;
         if (*watcher_shutdown_state).is_some() {
             return Ok(());
         }
@@ -139,7 +146,8 @@ impl ClipboardPal {
     }
 
     pub fn stop_monitor(&self) -> Result<(), String> {
-        let mut watcher_shutdown_state = self.watcher_shutdown.lock().unwrap();
+        let mut watcher_shutdown_state = self.watcher_shutdown.lock()
+            .map_err(|e| format!("Failed to acquire lock: {}", e))?;
         if let Some(watcher_shutdown) = (*watcher_shutdown_state).take() {
             watcher_shutdown.stop();
         }
@@ -148,7 +156,9 @@ impl ClipboardPal {
     }
 
     pub fn is_monitor_running(&self) -> bool {
-        (*self.watcher_shutdown.lock().unwrap()).is_some()
+        self.watcher_shutdown.lock()
+            .map(|guard| guard.is_some())
+            .unwrap_or(false)
     }
 }
 
@@ -168,11 +178,14 @@ impl ClipboardMonitor {
 
 impl ClipboardHandler for ClipboardMonitor {
     fn on_clipboard_change(&mut self) {
-        let clipboard_context = self
-            .clipboard
-            .lock()
-            .map_err(|err| err.to_string())
-            .unwrap();
+        let clipboard_context = match self.clipboard.lock() {
+            Ok(context) => context,
+            Err(e) => {
+                log::error!("Failed to acquire clipboard lock: {}", e);
+                return;
+            }
+        };
+        
         // 先判断是不是图片   这里的图片特指PNG，其实主要是针对截图软件的截图功能，截图软件截取的图片是没有形成真实文件的，只有图片二进制数据
         if clipboard_context.has(ContentFormat::Image) {
             let img_context = clipboard_context.get_image().map_err(|err| err.to_string());

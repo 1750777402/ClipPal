@@ -5,9 +5,6 @@ edition = {workspace=true}
 name = "clipboard-listener"
 version = {workspace=true}
 
-[lib]
-lib="src/lib.rs"
-
 [dependencies]
 serde = {workspace=true}
 serde_json = {workspace=true}

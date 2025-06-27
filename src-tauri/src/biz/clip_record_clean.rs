@@ -9,6 +9,7 @@ use crate::{
     biz::{
         clip_record::ClipRecord, system_setting::Settings, tokenize_bin::remove_ids_from_token_bin,
     },
+    errors::lock_utils::safe_lock,
     utils::file_dir::get_resources_dir,
 };
 
@@ -17,8 +18,13 @@ pub async fn clip_record_clean() {
     let count = ClipRecord::count(rb).await;
     let system_settings = {
         let lock = CONTEXT.get::<Arc<Mutex<Settings>>>().clone();
-        let current = lock.lock().unwrap();
-        current.clone()
+        match safe_lock(&lock) {
+            Ok(current) => current.clone(),
+            Err(e) => {
+                error!("获取系统设置锁失败: {}", e);
+                return;
+            }
+        }
     };
     let max_num = system_settings.max_records;
     if count > max_num as i64 {
