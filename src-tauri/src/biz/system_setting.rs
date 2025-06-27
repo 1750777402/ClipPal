@@ -1,4 +1,4 @@
-use log::{error, info};
+use log;
 use std::{
     fs,
     marker::{Send, Sync},
@@ -96,7 +96,7 @@ pub async fn save_settings(settings: Settings) -> Result<(), String> {
             Err(e) => {
                 // 回滚已应用的设置
                 if let Err(rollback_err) = rollback_settings(&applied_settings).await {
-                    error!("回滚设置失败: {}", rollback_err);
+                    log::error!("回滚设置失败: {}", rollback_err);
                 }
                 return Err(format!("快捷键设置失败: {}", e));
             }
@@ -109,7 +109,7 @@ pub async fn save_settings(settings: Settings) -> Result<(), String> {
             Ok(_) => applied_settings.push(("autostart", true)),
             Err(e) => {
                 if let Err(rollback_err) = rollback_settings(&applied_settings).await {
-                    error!("回滚设置失败: {}", rollback_err);
+                    log::error!("回滚设置失败: {}", rollback_err);
                 }
                 return Err(format!("开机自启设置失败: {}", e));
             }
@@ -121,7 +121,7 @@ pub async fn save_settings(settings: Settings) -> Result<(), String> {
         Ok(_) => applied_settings.push(("file", true)),
         Err(e) => {
             if let Err(rollback_err) = rollback_settings(&applied_settings).await {
-                error!("回滚设置失败: {}", rollback_err);
+                log::error!("回滚设置失败: {}", rollback_err);
             }
             return Err(format!("文件保存失败: {}", e));
         }
@@ -171,7 +171,7 @@ fn is_valid_shortcut_format(shortcut: &str) -> bool {
 // 更新全局快捷键
 async fn update_global_shortcut(shortcut: &str) -> AppResult<()> {
     let app_handle = CONTEXT.get::<AppHandle>();
-    info!("更新全局快捷键:{}", shortcut);
+    log::info!("更新全局快捷键:{}", shortcut);
 
     // 在 await 点之前获取当前设置
     let current_settings = {
@@ -188,17 +188,17 @@ async fn update_global_shortcut(shortcut: &str) -> AppResult<()> {
     // 注册新快捷键
     match app_handle.global_shortcut().register(shortcut) {
         Ok(_) => {
-            info!("更新全局快捷键成功:{}", shortcut);
+            log::info!("更新全局快捷键成功:{}", shortcut);
             Ok(())
         }
         Err(e) => {
-            error!("更新全局快捷键失败:{:?}", e);
+            log::error!("更新全局快捷键失败:{:?}", e);
             // 如果注册失败，尝试恢复原快捷键
             let register_res = app_handle
                 .global_shortcut()
                 .register(parse_shortcut(&current_settings.shortcut_key));
             if let Err(restore_err) = register_res {
-                error!("恢复原快捷键失败: {}", restore_err);
+                log::error!("恢复原快捷键失败: {}", restore_err);
             }
             Err(AppError::GlobalShortcut(format!("快捷键注册失败: {}", e)))
         }
@@ -253,13 +253,13 @@ async fn rollback_settings(applied_settings: &[(&str, bool)]) -> AppResult<()> {
                 if let Err(e) = app_handle
                     .global_shortcut()
                     .register(parse_shortcut(&current_settings.shortcut_key)) {
-                    error!("恢复快捷键失败: {}", e);
+                    log::error!("恢复快捷键失败: {}", e);
                 }
             }
             "autostart" => {
                 // 恢复原开机自启设置
                 if let Err(e) = set_auto_start(current_settings.auto_start == 1) {
-                    error!("恢复开机自启设置失败: {}", e);
+                    log::error!("恢复开机自启设置失败: {}", e);
                 }
             }
             _ => {}

@@ -1,4 +1,3 @@
-use log::error;
 use tauri::App;
 use crate::errors::lock_utils::safe_lock;
 
@@ -16,7 +15,7 @@ pub fn init_global_shortcut(app: &App) -> tauri::Result<()> {
             match safe_lock(&lock) {
                 Ok(current) => current.clone(),
                 Err(e) => {
-                    error!("获取设置锁失败: {}", e);
+                    log::error!("获取设置锁失败: {}", e);
                     return Err(tauri::Error::FailedToReceiveMessage);
                 }
             }
@@ -36,7 +35,7 @@ pub fn init_global_shortcut(app: &App) -> tauri::Result<()> {
                         match safe_lock(&lock) {
                             Ok(current) => current.clone(),
                             Err(e) => {
-                                error!("获取设置锁失败: {}", e);
+                                log::error!("获取设置锁失败: {}", e);
                                 return;
                             }
                         }
@@ -58,7 +57,7 @@ pub fn init_global_shortcut(app: &App) -> tauri::Result<()> {
 
         app.global_shortcut()
             .register(shortcut)
-            .unwrap_or_else(|e| error!("快捷键设置失败:{}", e));
+            .unwrap_or_else(|e| log::error!("快捷键设置失败:{}", e));
     }
     Ok(())
 }

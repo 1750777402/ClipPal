@@ -13,7 +13,6 @@ use crate::{
 
 use biz::clip_board_sync::ClipboardEventTigger;
 use clipboard_listener::{ClipboardEvent, EventManager};
-use log::error;
 use state::TypeMap;
 use tauri_plugin_autostart::MacosLauncher;
 
@@ -50,14 +49,14 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let rb_res = match sqlite_storage::init_sqlite().await {
         Ok(rb) => rb,
         Err(e) => {
-            error!("数据库初始化失败: {}", e);
+            log::error!("数据库初始化失败: {}", e);
             std::process::exit(1);
         }
     };
 
     // 初始化索引文件
     if let Err(e) = load_index_from_disk().await {
-        error!("索引文件初始化失败: {}", e);
+        log::error!("索引文件初始化失败: {}", e);
         // 不退出程序，继续运行但记录错误
     }
 
@@ -67,13 +66,13 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
         ClipRecord::select_order_by(&rb_res)
             .await
             .unwrap_or_else(|e| {
-                error!("获取剪贴板记录失败: {}", e);
+                log::error!("获取剪贴板记录失败: {}", e);
                 vec![]
             })
     })
     .await
     {
-        error!("重建索引失败: {}", e);
+        log::error!("重建索引失败: {}", e);
     }
 
     tauri::Builder::default()
@@ -123,7 +122,7 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
         ])
         .build(tauri::generate_context!())
         .map_err(|e| {
-            error!("Tauri应用构建失败: {}", e);
+            log::error!("Tauri应用构建失败: {}", e);
             std::process::exit(1);
         })?
         .run(move |_, event| match event {

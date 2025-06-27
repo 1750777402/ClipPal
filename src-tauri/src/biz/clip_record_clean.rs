@@ -1,4 +1,4 @@
-use log::error;
+
 use std::sync::{Arc, Mutex};
 
 use clipboard_listener::ClipType;
@@ -21,7 +21,7 @@ pub async fn clip_record_clean() {
         match safe_lock(&lock) {
             Ok(current) => current.clone(),
             Err(e) => {
-                error!("获取系统设置锁失败: {}", e);
+                log::error!("获取系统设置锁失败: {}", e);
                 return;
             }
         }
@@ -52,14 +52,14 @@ pub async fn clip_record_clean() {
                             for path in img_path_arr {
                                 let full_path = resource_path.join(path);
                                 std::fs::remove_file(full_path.clone()).unwrap_or_else(|e| {
-                                    error!("删除图片失败:{}，{:?}", e, full_path.clone());
+                                    log::error!("删除图片失败:{}，{:?}", e, full_path.clone());
                                 })
                             }
                         }
                     }
                 }
                 Err(e) => {
-                    error!("删除过期数据异常:{}", e)
+                    log::error!("删除过期数据异常:{}", e)
                 }
             }
         }

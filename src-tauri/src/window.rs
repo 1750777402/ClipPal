@@ -5,13 +5,12 @@ use tauri::{Manager, PhysicalPosition, PhysicalSize};
 
 use crate::CONTEXT;
 use tauri::{AppHandle, Emitter};
-use log::error;
 
 pub fn init_main_window(app: &App) -> tauri::Result<()> {
     // 获取主显示器
     let main_window = app.get_webview_window("main")
         .ok_or_else(|| {
-            error!("无法获取主窗口");
+            log::error!("无法获取主窗口");
             tauri::Error::FailedToReceiveMessage
         })?;
     
@@ -19,11 +18,11 @@ pub fn init_main_window(app: &App) -> tauri::Result<()> {
     let monitor = main_window
         .primary_monitor()
         .map_err(|e| {
-            error!("获取主显示器失败: {}", e);
+            log::error!("获取主显示器失败: {}", e);
             e
         })?
         .ok_or_else(|| {
-            error!("未找到主显示器");
+            log::error!("未找到主显示器");
             tauri::Error::FailedToReceiveMessage
         })?;
 
@@ -43,13 +42,13 @@ pub fn init_main_window(app: &App) -> tauri::Result<()> {
     // 延迟显示
     std::thread::sleep(std::time::Duration::from_millis(100));
     if let Err(e) = main_window.show() {
-        error!("显示主窗口失败: {}", e);
+        log::error!("显示主窗口失败: {}", e);
         return Err(e);
     }
     
     // 设置主窗口获取焦点
     if let Err(e) = main_window.set_focus() {
-        error!("设置窗口焦点失败: {}", e);
+        log::error!("设置窗口焦点失败: {}", e);
         // 这个不是致命错误，继续执行
     }
     let main1 = main_window.clone();
@@ -64,7 +63,7 @@ pub fn init_main_window(app: &App) -> tauri::Result<()> {
             let window_hide_flag = CONTEXT.get::<WindowHideFlag>();
             if window_focus_count.inc() >= 1 && window_hide_flag.is_can_hide() {
                 if let Err(e) = main1.hide() {
-                    error!("隐藏窗口失败: {}", e);
+                    log::error!("隐藏窗口失败: {}", e);
                 }
             }
         }

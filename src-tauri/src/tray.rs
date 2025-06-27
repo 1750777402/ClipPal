@@ -1,4 +1,4 @@
-use log::warn;
+
 use tauri::image::Image;
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, TrayIconEvent};
@@ -26,7 +26,7 @@ pub fn create_tray<R: Runtime>(app: &tauri::AppHandle<R>) -> tauri::Result<()> {
                 app.exit(0);
             }
             _ => {
-                warn!("menu item {:?} not handled", event.id);
+                log::warn!("menu item {:?} not handled", event.id);
                 // 通知前端显示系统设置窗口
                 let app_handle = CONTEXT.get::<AppHandle>();
                 if let Some(window) = app.get_webview_window("main") {

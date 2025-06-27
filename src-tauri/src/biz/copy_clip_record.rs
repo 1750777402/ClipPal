@@ -1,5 +1,5 @@
 use clipboard_listener::ClipType;
-use log::error;
+
 use rbatis::RBatis;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -40,7 +40,7 @@ pub async fn copy_clip_record(param: CopyClipRecord) -> Result<String, String> {
             let content = match decrypt_content(ContentProcessor::process_text_content(record.content).as_str()) {
                 Ok(text) => text,
                 Err(e) => {
-                    error!("解密文本内容失败: {}", e);
+                    log::error!("解密文本内容失败: {}", e);
                     return Err("文本解密失败".to_string());
                 }
             };
@@ -156,7 +156,7 @@ pub async fn image_save_as(param: CopyClipRecord) -> Result<String, String> {
                         let select_path = select_path.as_path();
                         if let Some(select_path) = select_path {
                             if let Err(e) = std::fs::copy(&abs_path_clone, &select_path) {
-                                error!("Copy image error: {}", e);
+                                log::error!("Copy image error: {}", e);
                             }
                         }
                     }

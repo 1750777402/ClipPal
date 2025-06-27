@@ -5,7 +5,6 @@ use crate::{
 use anyhow::{Context, Result};
 use bincode::{Decode, Encode, config};
 use dashmap::{DashMap, DashSet};
-use log::{debug, error, info, warn};
 use once_cell::sync::Lazy;
 use std::{
     collections::{HashMap, HashSet},
@@ -179,7 +178,7 @@ fn token_index_path() -> Result<PathBuf> {
 pub async fn load_index_from_disk() -> Result<()> {
     let path = token_index_path()?;
     if !path.exists() {
-        info!("Token index file not found, will create on first update");
+        log::info!("Token index file not found, will create on first update");
         return Ok(());
     }
 
@@ -188,14 +187,14 @@ pub async fn load_index_from_disk() -> Result<()> {
     file.read_to_end(&mut buf).context("Failed to read index")?;
 
     if buf.is_empty() {
-        warn!("Token index file is empty");
+        log::warn!("Token index file is empty");
         return Ok(());
     }
 
     let index: TokenIndex = bincode::decode_from_slice(&buf, BINCODE_CONFIG)
         .context("Failed to decode token index")?
         .0; // decode_from_slice 返回 (T, usize)
-    info!("Loaded token index version {} from disk", index.version);
+    log::info!("Loaded token index version {} from disk", index.version);
 
     // 将磁盘索引加载到并发索引中
     for (id, tokens) in &index.id_to_tokens {
@@ -231,9 +230,10 @@ async fn persist_index() -> Result<()> {
     // 检查索引版本是否过时
     let index_version = TOKEN_INDEX.version.load(Ordering::Acquire);
     if index_version < current_version {
-        warn!(
+        log::warn!(
             "Skipping persist for outdated index version: {} < {}",
-            index_version, current_version
+            index_version,
+            current_version
         );
         return Ok(());
     }
@@ -260,7 +260,7 @@ async fn persist_index() -> Result<()> {
     // 更新最后持久化的版本号
     LAST_PERSISTED_VERSION.store(index_version, Ordering::Release);
 
-    debug!("Persisted token index version {}", index_version);
+    log::debug!("Persisted token index version {}", index_version);
     Ok(())
 }
 
@@ -288,7 +288,7 @@ async fn schedule_persist_task() {
 
         // 执行持久化
         if let Err(e) = persist_index().await {
-            error!("Persist failed: {}", e);
+            log::error!("Persist failed: {}", e);
         }
 
         // 清除任务句柄
@@ -355,13 +355,14 @@ where
 
     // 如果版本一致，说明没有丢失更新
     if last_persisted == current_version {
-        info!("Index is up-to-date, no rebuild needed");
+        log::info!("Index is up-to-date, no rebuild needed");
         return Ok(());
     }
 
-    warn!(
+    log::warn!(
         "Rebuilding index due to version mismatch: persisted={}, current={}",
-        last_persisted, current_version
+        last_persisted,
+        current_version
     );
 
     // 获取所有剪贴板内容

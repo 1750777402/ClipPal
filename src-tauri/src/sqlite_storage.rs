@@ -1,6 +1,5 @@
 use crate::{CONTEXT, utils::file_dir::get_data_dir};
 use anyhow::{Error, Ok};
-use log::info;
 use rbatis::RBatis;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -245,7 +244,7 @@ fn compare_schemas(
 /// 执行数据库迁移
 async fn execute_migrations(rb: &RBatis, migrations: Vec<String>) -> Result<(), Error> {
     for migration in migrations {
-        info!("执行数据库迁移: {}", migration);
+        log::info!("执行数据库迁移: {}", migration);
         rb.acquire().await?.exec(&migration, vec![]).await?;
     }
     Ok(())
@@ -269,7 +268,7 @@ async fn create_indexes(rb: &RBatis) -> Result<(), Error> {
 
 /// 检查并修复数据库结构
 async fn check_and_fix_database_schema(rb: &RBatis) -> Result<(), Error> {
-    info!("检查数据库结构...");
+    log::info!("检查数据库结构...");
 
     // 获取期望的结构
     let expected_schema = get_expected_schema();
@@ -281,14 +280,14 @@ async fn check_and_fix_database_schema(rb: &RBatis) -> Result<(), Error> {
     let migrations = compare_schemas(&expected_schema, &actual_schema);
 
     if migrations.is_empty() {
-        info!("数据库结构检查完成，无需迁移");
+        log::info!("数据库结构检查完成，无需迁移");
     } else {
-        info!("发现 {} 个需要执行的迁移操作", migrations.len());
+        log::info!("发现 {} 个需要执行的迁移操作", migrations.len());
 
         // 执行迁移
         execute_migrations(rb, migrations).await?;
 
-        info!("数据库迁移完成");
+        log::info!("数据库迁移完成");
     }
 
     // 创建索引
@@ -316,7 +315,7 @@ pub async fn init_sqlite() -> Result<RBatis, Error> {
     // 把sqlite链接放入全局变量中
     CONTEXT.set(rb.clone());
 
-    info!("数据库初始化完成");
+    log::info!("数据库初始化完成");
 
     Ok(rb)
 }

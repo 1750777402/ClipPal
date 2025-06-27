@@ -1,4 +1,4 @@
-use log::error;
+
 use rbatis::RBatis;
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -61,7 +61,7 @@ pub async fn get_clip_records(param: QueryParam) -> Vec<ClipRecordDTO> {
     let all_data = match query_result {
         Ok(data) => data,
         Err(e) => {
-            error!("查询粘贴记录失败: {:?}", e);
+            log::error!("查询粘贴记录失败: {:?}", e);
             return vec![];
         }
     };
