@@ -61,7 +61,7 @@
             </label>
           </div>
 
-          <div class="settings-item">
+          <div class="settings-item auto-paste-setting">
             <div class="settings-label">
               <span>自动粘贴</span>
               <span class="settings-description">双击卡片后自动粘贴到之前获得焦点的窗口</span>

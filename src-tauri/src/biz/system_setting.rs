@@ -30,6 +30,8 @@ pub struct Settings {
     pub cloud_sync: u32,
     // 是否开启自动粘贴 0 关闭 1 开启
     pub auto_paste: u32,
+    // 是否已完成新手引导 0 未完成 1 已完成
+    pub tutorial_completed: u32,
 }
 
 unsafe impl Send for Settings {}
@@ -42,6 +44,7 @@ impl Default for Settings {
             shortcut_key: String::from("Ctrl+`"),
             cloud_sync: 0,
             auto_paste: 1, // 默认开启自动粘贴
+            tutorial_completed: 0, // 默认未完成引导
         }
     }
 }

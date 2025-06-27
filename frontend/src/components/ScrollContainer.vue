@@ -6,7 +6,7 @@
       <div class="header-icons">
         <button class="icon-button iconfont icon-weitongbu" title="云同步" type="button"></button>
         <button class="icon-button iconfont icon-user" title="用户信息" type="button"></button>
-        <button class="icon-button iconfont icon-setting" title="设置" type="button" @click="showSettings = true"></button>
+        <button class="icon-button iconfont icon-setting settings-button" title="设置" type="button" @click="showSettings = true"></button>
       </div>
     </header>
 

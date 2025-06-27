@@ -2,12 +2,14 @@
   <ScrollContainer />
   <MessageBar v-if="messageBar.visible" :message="messageBar.message" :type="messageBar.type"
     @mouseenter="onMessageBarEnter" @mouseleave="onMessageBarLeave" />
+  <TutorialGuide ref="tutorialGuideRef" />
 </template>
 
 <script setup lang="ts">
 import { ref, provide } from 'vue';
 import MessageBar from './components/MessageBar.vue';
 import ScrollContainer from './components/ScrollContainer.vue';
+import TutorialGuide from './components/TutorialGuide.vue';
 
 const messageBar = ref({ visible: false, message: '', type: 'success' as 'success' | 'error' });
 let closeTimer: ReturnType<typeof setTimeout> | null = null;
