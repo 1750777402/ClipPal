@@ -18,13 +18,14 @@ pub async fn clip_record_clean() {
     let count = ClipRecord::count(rb).await;
     let system_settings = {
         let lock = CONTEXT.get::<Arc<Mutex<Settings>>>().clone();
-        match safe_lock(&lock) {
+        let result = match safe_lock(&lock) {
             Ok(current) => current.clone(),
             Err(e) => {
                 log::error!("获取系统设置锁失败: {}", e);
                 return;
             }
-        }
+        };
+        result
     };
     let max_num = system_settings.max_records;
     if count > max_num as i64 {

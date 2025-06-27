@@ -5,9 +5,22 @@ resolver = "3"
 [workspace.package]
 authors = ["jingchuan"]
 description = "A ClipPal App"
-edition = "2024"
-
+edition = "2021"
 version = "1.0.2"
+license = "MIT"
+repository = "https://github.com/1750777402/ClipPal"
+homepage = "https://github.com/1750777402/ClipPal"
+keywords = ["clipboard", "tauri", "desktop", "productivity"]
+categories = ["gui", "os", "development-tools"]
+
+[workspace.lints.rust]
+unused_imports = "warn"
+unused_variables = "warn"
+
+[workspace.lints.clippy]
+# 基本的 clippy 配置，不要过于严格
+too_many_arguments = "allow"
+module_name_repetitions = "allow"
 
 [workspace.dependencies]
 anyhow = "1.0" 
@@ -47,3 +60,18 @@ once_cell = "1.19.0"
 log = "0.4"
 log4rs = "1.3"
 env_logger = "0.11.8"
+
+# Platform-specific dependencies (versions only, features defined in individual crates)
+windows = "0.58"
+cocoa = "0.26.0"
+objc = "0.2.7"
+core-graphics = "0.24.0"
+tauri-plugin-autostart = "2"
+tauri-plugin-global-shortcut = "2"
+tauri-plugin-window-state = "2"
+
+# Build dependencies
+tauri-build = "2"
+tauri-plugin = "2.0.2"
+
+# Platform-specific dependencies should be defined in individual crates, not at workspace level

@@ -1,9 +1,13 @@
 [package]
-authors = {workspace=true}
-description = "监听器插件"
-edition = {workspace=true}
 name = "clipboard-listener"
-version = {workspace=true}
+version = { workspace = true }
+authors = { workspace = true }
+description = "Clipboard listener plugin for ClipPal"
+edition = { workspace = true }
+license = { workspace = true }
+repository = { workspace = true }
+keywords = { workspace = true }
+categories = { workspace = true }
 
 [dependencies]
 serde = {workspace=true}

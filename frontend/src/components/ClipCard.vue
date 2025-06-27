@@ -1,6 +1,6 @@
 <template>
     <div class="clip-card" :class="{ 'clip-card-hover': !isMobile, 'is-pinned': record.pinned_flag }"
-        @click="handleCardClick">
+        @dblclick="handleCardDoubleClick">
         <div class="card-header">
             <div class="card-type">
                 <i class="iconfont" :class="getTypeIcon" :title="getTypeTitle"></i>
@@ -15,12 +15,12 @@
             </div>
             <div class="card-meta">
                 <span class="time-text">{{ formatTime(record.created) }}</span>
-                <div class="card-actions">
+                <div class="card-actions" @click.stop @dblclick.stop>
                     <button class="action-btn pin-btn" :class="{ 'is-pinned': record.pinned_flag }"
                         @click.stop="handlePin" :title="record.pinned_flag ? '取消置顶' : '置顶'">
                         <i class="iconfont" :class="record.pinned_flag ? 'icon-dingzhu' : 'icon-weizhiding'"></i>
                     </button>
-                    <button class="action-btn" @click.stop="handleCardClick" title="复制">
+                    <button class="action-btn" @click.stop="handleCopyOnly" title="仅复制">
                         <i class="iconfont icon-copy"></i>
                     </button>
                     <button class="action-btn" @click.stop="handleDelete" title="删除">
@@ -212,10 +212,30 @@ const MAX_LINES_FOR_PREVIEW = 8; // 超过3行显示展开按钮
 
 const showMessageBar = inject('showMessageBar') as (msg: string, type?: 'success' | 'error') => void;
 
-const handleCardClick = async () => {
+// 双击卡片触发复制和自动粘贴
+const handleCardDoubleClick = async () => {
     try {
         await invoke('copy_clip_record', { param: { record_id: props.record.id } });
         emit('click', props.record);
+        if (showMessageBar) {
+            showMessageBar('已复制并自动粘贴', 'success');
+        }
+    } catch (err: any) {
+        if (showMessageBar) {
+            showMessageBar(err?.toString() || '复制失败', 'error');
+        } else {
+            alert(err?.toString() || '复制失败');
+        }
+    }
+};
+
+// 复制按钮只复制，不触发自动粘贴
+const handleCopyOnly = async () => {
+    try {
+        await invoke('copy_clip_record_no_paste', { param: { record_id: props.record.id } });
+        if (showMessageBar) {
+            showMessageBar('已复制到剪贴板', 'success');
+        }
     } catch (err: any) {
         if (showMessageBar) {
             showMessageBar(err?.toString() || '复制失败', 'error');
@@ -463,10 +483,30 @@ onBeforeUnmount(() => {
     overflow: hidden;
 }
 
+.clip-card::after {
+    content: "双击复制并粘贴";
+    position: absolute;
+    bottom: 8px;
+    right: 12px;
+    background: rgba(44, 122, 123, 0.9);
+    color: white;
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+    pointer-events: none;
+    z-index: 10;
+}
+
 .clip-card-hover:hover {
     box-shadow: 0 6px 16px rgba(0, 0, 0, 0.1);
     border-color: var(--border-hover-color, #e2e8f0);
     transform: translateY(-3px);
+}
+
+.clip-card-hover:hover::after {
+    opacity: 1;
 }
 
 .clip-card.is-pinned {

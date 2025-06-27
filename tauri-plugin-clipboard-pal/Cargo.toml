@@ -1,9 +1,13 @@
 [package]
 name = "tauri-plugin-clipboard-pal"
-version = {workspace=true}
-authors = {workspace=true}
-description = "粘贴板监听器插件"
-edition = {workspace=true}
+version = { workspace = true }
+authors = { workspace = true }
+description = "Tauri clipboard plugin for ClipPal"
+edition = { workspace = true }
+license = { workspace = true }
+repository = { workspace = true }
+keywords = { workspace = true }
+categories = { workspace = true }
 exclude = ["/examples", "/webview-dist", "/webview-src", "/node_modules"]
 links = "tauri-plugin-clipboard-pal"
 
@@ -21,4 +25,4 @@ log = { workspace = true}
 clipboard-listener = {path = "../clipboard-listener"}
 
 [build-dependencies]
-tauri-plugin = { version = "2.0.2", features = ["build"] }
+tauri-plugin = { workspace = true, features = ["build"] }

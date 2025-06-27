@@ -1,4 +1,5 @@
 use crate::errors::lock_utils::safe_lock;
+use crate::auto_paste;
 use tauri::App;
 
 pub fn init_global_shortcut(app: &App) -> tauri::Result<()> {
@@ -16,13 +17,14 @@ pub fn init_global_shortcut(app: &App) -> tauri::Result<()> {
             use std::sync::{Arc, Mutex};
 
             let lock = CONTEXT.get::<Arc<Mutex<Settings>>>().clone();
-            match safe_lock(&lock) {
+            let result = match safe_lock(&lock) {
                 Ok(current) => current.clone(),
                 Err(e) => {
                     log::error!("获取设置锁失败: {}", e);
                     return Err(tauri::Error::FailedToReceiveMessage);
                 }
-            }
+            };
+            result
         };
         let shortcut_str = settings.shortcut_key.clone();
 
@@ -35,6 +37,9 @@ pub fn init_global_shortcut(app: &App) -> tauri::Result<()> {
                 move |_app, shortcut, event| {
                     log::info!("快捷键触发: {:?}, 状态: {:?}", shortcut, event.state());
                     if event.state() == tauri_plugin_global_shortcut::ShortcutState::Pressed {
+                        // 在显示粘贴板窗口之前，先保存当前获得焦点的窗口
+                        auto_paste::save_foreground_window();
+                        
                         use tauri::Manager;
                         if let Some(window) = app_handle.get_webview_window("main") {
                             let _ = window.show();

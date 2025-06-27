@@ -3,7 +3,7 @@ use std::sync::Arc;
 use crate::{
     biz::{
         clip_record::ClipRecord,
-        copy_clip_record::{copy_clip_record, del_record, image_save_as, set_pinned},
+        copy_clip_record::{copy_clip_record, copy_clip_record_no_paste, del_record, image_save_as, set_pinned},
         query_clip_record::get_clip_records,
         system_setting::{init_settings, load_settings, save_settings, validate_shortcut},
         tokenize_bin::{load_index_from_disk, rebuild_index_after_crash},
@@ -16,6 +16,7 @@ use clipboard_listener::{ClipboardEvent, EventManager};
 use state::TypeMap;
 use tauri_plugin_autostart::MacosLauncher;
 
+mod auto_paste;
 mod biz;
 mod clip_board_listener;
 mod errors;
@@ -113,6 +114,7 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
         .invoke_handler(tauri::generate_handler![
             get_clip_records,
             copy_clip_record,
+            copy_clip_record_no_paste,
             load_settings,
             save_settings,
             validate_shortcut,
@@ -124,7 +126,8 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
         .map_err(|e| {
             log::error!("Tauri应用构建失败: {}", e);
             std::process::exit(1);
-        })?
+        })
+        .unwrap()
         .run(move |_, event| match event {
             // 程序关闭事件处理
             tauri::RunEvent::ExitRequested { api: _, .. } => {

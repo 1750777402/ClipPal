@@ -28,6 +28,8 @@ pub struct Settings {
     pub shortcut_key: String,
     // 是否开启云同步 0 关闭 1 开启
     pub cloud_sync: u32,
+    // 是否开启自动粘贴 0 关闭 1 开启
+    pub auto_paste: u32,
 }
 
 unsafe impl Send for Settings {}
@@ -39,6 +41,7 @@ impl Default for Settings {
             auto_start: 0,
             shortcut_key: String::from("Ctrl+`"),
             cloud_sync: 0,
+            auto_paste: 1, // 默认开启自动粘贴
         }
     }
 }
@@ -290,10 +293,11 @@ pub async fn validate_shortcut(shortcut: String) -> Result<bool, String> {
     // 2. 获取当前设置的快捷键
     let current_shortcut = {
         let lock = CONTEXT.get::<Arc<Mutex<Settings>>>().clone();
-        match safe_lock(&lock) {
+        let result = match safe_lock(&lock) {
             Ok(current) => current.shortcut_key.clone(),
             Err(_) => String::new(),
-        }
+        };
+        result
     };
 
     // 3. 如果和当前设置一样，直接返回true（允许保存相同快捷键）

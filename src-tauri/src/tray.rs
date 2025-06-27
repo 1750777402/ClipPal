@@ -5,7 +5,7 @@ use tauri::tray::{MouseButton, TrayIconEvent};
 use tauri::{AppHandle, Emitter};
 use tauri::{Manager, Runtime, tray::TrayIconBuilder};
 
-use crate::CONTEXT;
+use crate::{CONTEXT, auto_paste};
 
 pub fn create_tray<R: Runtime>(app: &tauri::AppHandle<R>) -> tauri::Result<()> {
     // 为系统创建托盘图标
@@ -27,6 +27,9 @@ pub fn create_tray<R: Runtime>(app: &tauri::AppHandle<R>) -> tauri::Result<()> {
             }
             _ => {
                 log::warn!("menu item {:?} not handled", event.id);
+                // 保存当前焦点窗口
+                auto_paste::save_foreground_window();
+                
                 // 通知前端显示系统设置窗口
                 let app_handle = CONTEXT.get::<AppHandle>();
                 if let Some(window) = app.get_webview_window("main") {
@@ -47,9 +50,25 @@ pub fn create_tray<R: Runtime>(app: &tauri::AppHandle<R>) -> tauri::Result<()> {
                 ..
             } => {
                 let app = tray.app_handle();
+                
+                // 先尝试保存当前焦点窗口（在显示我们的窗口之前）
+                auto_paste::save_foreground_window();
+                
+                // 如果窗口已经可见，先隐藏它，让用户的应用重新获得焦点
                 if let Some(window) = app.get_webview_window("main") {
-                    let _ = window.show();
-                    let _ = window.set_focus();
+                    let is_visible = window.is_visible().unwrap_or(false);
+                    if is_visible {
+                        let _ = window.hide();
+                        // 等待一小段时间让用户应用获得焦点，然后重新保存
+                        std::thread::sleep(std::time::Duration::from_millis(50));
+                        auto_paste::save_foreground_window();
+                        // 重新显示窗口
+                        let _ = window.show();
+                        let _ = window.set_focus();
+                    } else {
+                        let _ = window.show();
+                        let _ = window.set_focus();
+                    }
                 }
             }
             _ => {}

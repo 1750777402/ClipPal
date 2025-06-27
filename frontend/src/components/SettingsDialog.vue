@@ -60,6 +60,17 @@
               <span class="slider"></span>
             </label>
           </div>
+
+          <div class="settings-item">
+            <div class="settings-label">
+              <span>自动粘贴</span>
+              <span class="settings-description">双击卡片后自动粘贴到之前获得焦点的窗口</span>
+            </div>
+            <label class="switch">
+              <input type="checkbox" :checked="settings.auto_paste === 1" @change="(e: Event) => settings.auto_paste = (e.target as HTMLInputElement).checked ? 1 : 0">
+              <span class="slider"></span>
+            </label>
+          </div>
         </div>
       </div>
 
@@ -91,13 +102,15 @@ interface Settings {
   max_records: number;
   shortcut_key: string;
   cloud_sync: number;  // 0 关闭 1 开启
+  auto_paste: number;  // 0 关闭 1 开启
 }
 
 const settings = ref<Settings>({
   auto_start: 0,
   max_records: 200,
   shortcut_key: 'Ctrl+`',
-  cloud_sync: 0
+  cloud_sync: 0,
+  auto_paste: 1
 });
 
 const isRecording = ref(false);

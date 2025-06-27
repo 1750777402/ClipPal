@@ -2,18 +2,20 @@ use clipboard_listener::ClipType;
 
 use rbatis::RBatis;
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Manager};
 use tauri_plugin_clipboard_pal::desktop::ClipboardPal;
 use tauri_plugin_dialog::DialogExt;
 
 use crate::{
     CONTEXT,
+    auto_paste,
     biz::{
         clip_record::ClipRecord, content_processor::ContentProcessor,
         tokenize_bin::remove_ids_from_token_bin,
+        system_setting::Settings,
     },
-
+    errors::lock_utils::safe_lock,
     utils::aes_util::decrypt_content,
     window::{WindowHideFlag, WindowHideGuard},
 };
@@ -92,6 +94,108 @@ pub async fn copy_clip_record(param: CopyClipRecord) -> Result<String, String> {
         _ => {}
     }
 
+    // 检查是否启用自动粘贴功能
+    let auto_paste_enabled = {
+        let settings_lock = CONTEXT.get::<Arc<Mutex<Settings>>>();
+        match safe_lock(&settings_lock) {
+            Ok(settings) => settings.auto_paste == 1,
+            Err(e) => {
+                log::warn!("无法获取设置: {}", e);
+                false // 如果无法获取设置，默认不启用自动粘贴
+            }
+        }
+    };
+
+    // 只有在启用自动粘贴时才执行
+    if auto_paste_enabled {
+        // 使用异步任务避免阻塞主线程
+        tokio::spawn(async {
+            // 等待一小段时间确保剪贴板内容已经更新
+            tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+            
+            // 尝试自动粘贴到之前获得焦点的窗口
+            if let Err(e) = auto_paste::auto_paste_to_previous_window() {
+                log::warn!("自动粘贴失败: {}", e);
+                // 自动粘贴失败不影响复制功能，只记录警告日志
+            }
+        });
+    }
+
+    Ok(String::new())
+}
+
+/// 只复制到剪贴板，不触发自动粘贴功能
+#[tauri::command]
+pub async fn copy_clip_record_no_paste(param: CopyClipRecord) -> Result<String, String> {
+    let rb: &RBatis = CONTEXT.get::<RBatis>();
+    let record = match ClipRecord::select_by_id(rb, param.record_id.as_str()).await {
+        Ok(data) => data[0].clone(),
+        Err(_) => return Err("粘贴记录查询失败".to_string()),
+    };
+
+    let app_handle = CONTEXT.get::<AppHandle>();
+    let clipboard = app_handle.state::<ClipboardPal>();
+    let clip_type: ClipType = record.r#type.parse().unwrap_or(ClipType::Text);
+
+    match clip_type {
+        ClipType::Text => {
+            let content = match decrypt_content(ContentProcessor::process_text_content(record.content).as_str()) {
+                Ok(text) => text,
+                Err(e) => {
+                    log::error!("解密文本内容失败: {}", e);
+                    return Err("文本解密失败".to_string());
+                }
+            };
+            let _ = clipboard.write_text(content);
+        }
+        ClipType::Image => {
+            if let Some(path) = record.content.as_str() {
+                if let Some(base_path) = crate::utils::file_dir::get_resources_dir() {
+                    let abs_path = base_path.join(path);
+                    if !abs_path.exists() {
+                        return Err("图片资源不存在，无法复制".to_string());
+                    }
+                    if let Ok(img_bytes) = std::fs::read(abs_path) {
+                        let _ = clipboard.write_image_binary(img_bytes);
+                    } else {
+                        return Err("图片资源读取失败，无法复制".to_string());
+                    }
+                } else {
+                    return Err("资源目录获取失败".to_string());
+                }
+            } else {
+                return Err("图片路径无效".to_string());
+            }
+        }
+        ClipType::File => {
+            if let Some(paths) = record.content.as_str() {
+                let restored: Vec<String> = paths.split(":::").map(|s| s.to_string()).collect();
+                let mut not_found: Vec<String> = vec![];
+                for file_path in &restored {
+                    let file_path = file_path.trim();
+                    if file_path.is_empty() {
+                        continue;
+                    }
+                    if !std::path::Path::new(file_path).exists() {
+                        not_found.push(file_path.to_string());
+                    }
+                }
+                if !not_found.is_empty() {
+                    return Err(format!(
+                        "以下文件不存在，无法复制:\n{}",
+                        not_found.join("\n")
+                    ));
+                }
+                let _ = clipboard.write_files_uris(restored);
+            } else {
+                return Err("文件路径无效".to_string());
+            }
+        }
+        _ => {}
+    }
+
+    // 注意：这个函数不执行自动粘贴功能
+    log::info!("仅复制到剪贴板，不触发自动粘贴");
     Ok(String::new())
 }
 

@@ -96,7 +96,9 @@ interface ClipRecord {
 }
 
 const handleCardClick = async (item: ClipRecord) => {
-  await invoke('copy_clip_record', { param: { record_id: item.id } });
+  // ClipCard组件已经处理了复制逻辑，这里不需要重复调用
+  // 可以在这里添加其他需要的逻辑，比如统计、日志等
+  console.log('卡片被点击:', item.id);
 };
 
 const initEventListeners = async () => {
