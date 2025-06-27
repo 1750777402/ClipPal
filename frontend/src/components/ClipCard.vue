@@ -8,7 +8,7 @@
                     <template v-if="record.type === 'File'">
                         <span class="tip-icon-wrapper" @mouseenter="showTip = true" @mouseleave="showTip = false">
                             <i class="iconfont icon-tishi"></i>
-                            <span v-if="showTip" class="tip-pop">该条目为文件类型，复制时会尝试复制所有文件路径，若有源文件丢失将提示失败。</span>
+                            <span v-if="showTip" class="tip-pop">该条目为文件类型，复制时会尝试复制所有文件路径，若有源文件丢失将提示失败</span>
                         </span>
                     </template>
                 </span>
