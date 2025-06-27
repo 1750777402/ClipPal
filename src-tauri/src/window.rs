@@ -4,7 +4,6 @@ use tauri::{App, WindowEvent};
 use tauri::{Manager, PhysicalPosition, PhysicalSize};
 
 use crate::CONTEXT;
-use tauri::{AppHandle, Emitter};
 
 pub fn init_main_window(app: &App) -> tauri::Result<()> {
     // 获取主显示器
@@ -66,11 +65,6 @@ pub fn init_main_window(app: &App) -> tauri::Result<()> {
                     log::error!("隐藏窗口失败: {}", e);
                 }
             }
-        }
-        WindowEvent::Focused(true) => {
-            // 触发粘贴板变化事件通知前端
-            let app_handle = CONTEXT.get::<AppHandle>();
-            let _ = app_handle.emit("clip_record_change", ());
         }
         _ => {}
     });
