@@ -6,6 +6,9 @@ use tauri::{Manager, PhysicalPosition, PhysicalSize};
 use crate::CONTEXT;
 
 pub fn init_main_window(app: &App) -> tauri::Result<()> {
+    // 检查是否为开机自启
+    let is_autostart = std::env::args().any(|arg| arg == "--autostart");
+    
     // 获取主显示器
     let main_window = app.get_webview_window("main")
         .ok_or_else(|| {
@@ -38,17 +41,25 @@ pub fn init_main_window(app: &App) -> tauri::Result<()> {
     // 设置窗口大小和位置
     main_window.set_size(PhysicalSize::new(window_width, screen_height))?;
     main_window.set_position(PhysicalPosition::new(x_position, 0))?;
-    // 延迟显示
-    std::thread::sleep(std::time::Duration::from_millis(100));
-    if let Err(e) = main_window.show() {
-        log::error!("显示主窗口失败: {}", e);
-        return Err(e);
-    }
     
-    // 设置主窗口获取焦点
-    if let Err(e) = main_window.set_focus() {
-        log::error!("设置窗口焦点失败: {}", e);
-        // 这个不是致命错误，继续执行
+    // 只有在非开机启动时才显示窗口
+    if !is_autostart {
+        // 延迟显示
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        if let Err(e) = main_window.show() {
+            log::error!("显示主窗口失败: {}", e);
+            return Err(e);
+        }
+        
+        // 设置主窗口获取焦点
+        if let Err(e) = main_window.set_focus() {
+            log::error!("设置窗口焦点失败: {}", e);
+            // 这个不是致命错误，继续执行
+        }
+        
+        log::info!("主窗口初始化完成并显示");
+    } else {
+        log::info!("开机自启模式：主窗口初始化完成但不显示");
     }
     let main1 = main_window.clone();
 

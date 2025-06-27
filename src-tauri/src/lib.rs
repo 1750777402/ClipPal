@@ -88,7 +88,7 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
         // 开机自启插件
         .plugin(tauri_plugin_autostart::init(
             MacosLauncher::LaunchAgent,
-            Some(vec!["--flag1", "--flag2"]),
+            Some(vec!["--autostart"]),
         ))
         // http请求插件
         .plugin(tauri_plugin_http::init())
