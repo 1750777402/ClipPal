@@ -45,7 +45,7 @@ aes-gcm = { workspace = true}
 aes = { workspace = true}
 rand = { workspace = true}
 sha2 = { workspace = true}
-config = { workspace = true}
+env_logger = { workspace = true }
 rust-argon2 = { workspace = true }
 bincode = { workspace = true }
 lazy_static = { workspace = true }

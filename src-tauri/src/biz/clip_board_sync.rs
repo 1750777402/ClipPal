@@ -1,4 +1,3 @@
-use log::error;
 use std::{
     fs::File,
     io::Write,
@@ -74,7 +73,9 @@ async fn handle_text(rb: &RBatis, content: &str, sort: i32) {
             .unwrap_or_default();
 
             if let Some(record) = existing.first() {
-                let _ = ClipRecord::update_sort(rb, &record.id, sort).await;
+                if let Err(e) = ClipRecord::update_sort(rb, &record.id, sort).await {
+                    log::error!("更新排序失败: {}", e);
+                }
             } else {
                 let record = ClipRecord {
                     id: Uuid::new_v4().to_string(),
@@ -92,19 +93,29 @@ async fn handle_text(rb: &RBatis, content: &str, sort: i32) {
                     Ok(_res) => {
                         // 对内容进行分词并存储进.bin文件
                         let content_string = content.to_string();
+                        let record_id = record.id.clone();
                         tokio::spawn(async move {
-                            let _ = content_tokenize_save_bin(
-                                record.id.as_str(),
+                            if let Err(e) = content_tokenize_save_bin(
+                                record_id.as_str(),
                                 content_string.as_str(),
                             )
-                            .await;
+                            .await
+                            {
+                                log::error!("分词处理失败: {}", e);
+                            }
                         });
                     }
-                    Err(e) => error!("insert text record error: {}", e),
+                    Err(e) => log::error!("插入文本记录失败: {}", e),
                 }
             }
         }
-        Err(e) => error!("insert text record error: encrypt content error:{:?}", e),
+        Err(e) => {
+            log::error!("文本内容加密失败，无法保存记录: {:?}", e);
+            log::error!(
+                "失败的文本内容前50个字符: {:?}",
+                &content[..content.len().min(50)]
+            );
+        }
     }
 }
 
@@ -168,7 +179,7 @@ async fn handle_file(rb: &RBatis, file_paths: Option<&Vec<String>>, sort: i32) {
             };
 
             if let Err(e) = ClipRecord::insert(rb, &record).await {
-                error!("insert file error: {}", e);
+                log::error!("insert file error: {}", e);
             }
         }
     }
@@ -191,14 +202,14 @@ async fn save_img_to_resource(data_id: &str, rb: &RBatis, image: &Vec<u8>) {
                     // 写成功后，记录相对路径到数据库
                     let _ = ClipRecord::update_content(rb, data_id, &filename).await;
                 } else {
-                    error!("写入图片失败");
+                    log::error!("写入图片失败");
                 }
             }
             Err(e) => {
-                error!("创建图片文件失败: {}", e);
+                log::error!("创建图片文件失败: {}", e);
             }
         }
     } else {
-        error!("资源路径获取失败");
+        log::error!("资源路径获取失败");
     }
 }

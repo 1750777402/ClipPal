@@ -39,6 +39,8 @@ pub fn init_logging() {
         Ok(appender) => appender,
         Err(e) => {
             eprintln!("创建日志文件失败: {}, 路径: {:?}", e, log_file_path);
+            // 使用env_logger作为后备
+            env_logger::init();
             return;
         }
     };
@@ -56,6 +58,7 @@ pub fn init_logging() {
         Ok(config) => config,
         Err(e) => {
             eprintln!("构建日志配置失败: {}", e);
+            env_logger::init();
             return;
         }
     };
@@ -63,6 +66,7 @@ pub fn init_logging() {
     // 初始化log4rs
     if let Err(e) = log4rs::init_config(config) {
         eprintln!("初始化log4rs失败: {}", e);
+        env_logger::init();
     } else {
         println!("日志系统初始化成功，日志文件: {:?}", log_file_path);
     }

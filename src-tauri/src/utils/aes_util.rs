@@ -3,11 +3,10 @@ use aes_gcm::{Aes256Gcm, Key, Nonce};
 use base64::{Engine as _, engine::general_purpose};
 use rand::TryRngCore;
 use rand::rngs::OsRng;
-use log::error;
 
 use crate::{
     errors::{AppError, AppResult},
-    utils::app_config::load_config,
+    utils::app_secret_key::load_config,
 };
 
 const KEY_SIZE: usize = 32; // 256-bit
@@ -16,24 +15,22 @@ const NONCE_SIZE: usize = 12;
 /// 内容加密
 pub fn encrypt_content(content: &str) -> AppResult<String> {
     // 加载配置
-    let app_config = load_config()
-        .map_err(|e| {
-            error!("加载配置失败: {}", e);
-            AppError::Config("加载配置失败".to_string())
-        })?;
+    let app_config = load_config()?;
 
     let decode_res = decode_base64_key(&app_config.content_key)
         .map_err(|e| AppError::Crypto(format!("密钥解码失败: {}", e)))?;
-    
+
     let cipher = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(&decode_res));
-    
+
     let mut nonce_bytes = [0u8; NONCE_SIZE];
-    OsRng.try_fill_bytes(&mut nonce_bytes)
+    OsRng
+        .try_fill_bytes(&mut nonce_bytes)
         .map_err(|e| AppError::Crypto(format!("生成随机数失败: {}", e)))?;
-    
+
     let nonce = Nonce::from_slice(&nonce_bytes);
 
-    let ciphertext = cipher.encrypt(nonce, content.as_bytes())
+    let ciphertext = cipher
+        .encrypt(nonce, content.as_bytes())
         .map_err(|e| AppError::Crypto(format!("加密失败: {}", e)))?;
 
     // 拼接 nonce + ciphertext
@@ -47,18 +44,15 @@ pub fn encrypt_content(content: &str) -> AppResult<String> {
 /// 内容解密
 pub fn decrypt_content(encoded: &str) -> AppResult<String> {
     // 加载配置
-    let app_config = load_config()
-        .map_err(|e| {
-            error!("加载配置失败: {}", e);
-            AppError::Config("加载配置失败".to_string())
-        })?;
-    
+    let app_config = load_config()?;
+
     let decode_res = decode_base64_key(&app_config.content_key)
         .map_err(|e| AppError::Crypto(format!("密钥解码失败: {}", e)))?;
-    
-    let data = general_purpose::STANDARD.decode(encoded)
+
+    let data = general_purpose::STANDARD
+        .decode(encoded)
         .map_err(|e| AppError::Crypto(format!("Base64解码失败: {}", e)))?;
-    
+
     if data.len() < NONCE_SIZE {
         return Err(AppError::Crypto("数据长度不足".to_string()));
     }
@@ -70,7 +64,7 @@ pub fn decrypt_content(encoded: &str) -> AppResult<String> {
     let decrypted_bytes = cipher
         .decrypt(nonce, ciphertext)
         .map_err(|e| AppError::Crypto(format!("解密失败: {}", e)))?;
-    
+
     String::from_utf8(decrypted_bytes)
         .map_err(|e| AppError::Crypto(format!("UTF-8转换失败: {}", e)))
 }
