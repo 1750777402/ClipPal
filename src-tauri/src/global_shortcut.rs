@@ -1,11 +1,15 @@
-use tauri::App;
 use crate::errors::lock_utils::safe_lock;
+use tauri::App;
 
 pub fn init_global_shortcut(app: &App) -> tauri::Result<()> {
     #[cfg(desktop)]
     {
         use crate::{CONTEXT, biz::system_setting::Settings};
         use tauri_plugin_global_shortcut::GlobalShortcutExt;
+
+        // 首先注册插件
+        app.handle()
+            .plugin(tauri_plugin_global_shortcut::Builder::new().build())?;
 
         // 从设置中获取快捷键
         let settings = {
@@ -22,47 +26,34 @@ pub fn init_global_shortcut(app: &App) -> tauri::Result<()> {
         };
         let shortcut_str = settings.shortcut_key.clone();
 
-        // 解析快捷键字符串
-        let shortcut = parse_shortcut(&shortcut_str);
-
-        app.handle().plugin(
-            tauri_plugin_global_shortcut::Builder::new()
-                .with_handler(move |app, registered_shortcut, _| {
-                    let current_shortcut_str = {
-                        use std::sync::{Arc, Mutex};
-
-                        let lock = CONTEXT.get::<Arc<Mutex<Settings>>>().clone();
-                        match safe_lock(&lock) {
-                            Ok(current) => current.clone(),
-                            Err(e) => {
-                                log::error!("获取设置锁失败: {}", e);
-                                return;
-                            }
-                        }
-                    }
-                    .shortcut_key
-                    .clone();
-                    // 解析快捷键字符串
-                    let current_shortcut = parse_shortcut(&current_shortcut_str);
-                    if registered_shortcut == &current_shortcut {
+        // 注册快捷键并设置处理器
+        let shortcut_obj = parse_shortcut(&shortcut_str);
+        app.handle()
+            .global_shortcut()
+            .on_shortcut(shortcut_obj, {
+                let app_handle = app.handle().clone();
+                move |_app, shortcut, event| {
+                    log::info!("快捷键触发: {:?}, 状态: {:?}", shortcut, event.state());
+                    if event.state() == tauri_plugin_global_shortcut::ShortcutState::Pressed {
                         use tauri::Manager;
-                        if let Some(window) = app.get_webview_window("main") {
+                        if let Some(window) = app_handle.get_webview_window("main") {
                             let _ = window.show();
                             let _ = window.set_focus();
                         }
                     }
-                })
-                .build(),
-        )?;
+                }
+            })
+            .map_err(|e| {
+                log::error!("快捷键注册失败: {}", e);
+                tauri::Error::FailedToReceiveMessage
+            })?;
 
-        app.global_shortcut()
-            .register(shortcut)
-            .unwrap_or_else(|e| log::error!("快捷键设置失败:{}", e));
+        log::info!("全局快捷键初始化成功: {}", shortcut_str);
     }
     Ok(())
 }
 
-// 解析快捷键字符串
+// 解析快捷键字符串（保持向后兼容）
 pub fn parse_shortcut(shortcut_str: &str) -> tauri_plugin_global_shortcut::Shortcut {
     use tauri_plugin_global_shortcut::{Code, Modifiers};
 

@@ -67,11 +67,15 @@
             <!-- 图片类型 -->
             <template v-else-if="record.type === 'Image'">
                 <div class="image-container">
-                    <img v-if="record.content" :src="record.content" class="image-preview" @load="handleImageLoad"
+                    <img v-if="record.content && !imageError" :src="record.content" class="image-preview" @load="handleImageLoad"
                         @error="handleImageError" @click.stop="showImagePreview = true" />
-                    <div v-if="!isImageLoaded" class="image-placeholder">
+                    <div v-if="!isImageLoaded && !imageError" class="image-placeholder">
                         <div class="placeholder-spinner"></div>
                         <span class="loading-text">加载中...</span>
+                    </div>
+                    <div v-if="imageError" class="image-error">
+                        <i class="iconfont icon-tishi"></i>
+                        <span class="error-text">图片加载失败</span>
                     </div>
                 </div>
             </template>
@@ -187,6 +191,7 @@ const emit = defineEmits<{
 
 const isExpanded = ref(false);
 const isImageLoaded = ref(false);
+const imageError = ref(false);
 const showImagePreview = ref(false);
 const textContent = ref<HTMLElement | null>(null);
 const textPreview = ref<HTMLElement | null>(null);
@@ -197,6 +202,9 @@ const shouldShowExpand = ref(false);
 const shouldShowOverlay = ref<'none' | 'partial' | 'full'>('none');
 const showTip = ref(false);
 const showConfirm = ref(false);
+
+// ResizeObserver实例引用
+let resizeObserver: ResizeObserver | null = null;
 
 const LINE_HEIGHT = 24; // 根据实际行高设置
 const MAX_LINES_FOR_FULL = 8; // 最多显示5行完整内容
@@ -345,10 +353,12 @@ const toggleExpand = (event: Event) => {
 
 const handleImageLoad = () => {
     isImageLoaded.value = true;
+    imageError.value = false;
 };
 
 const handleImageError = () => {
     isImageLoaded.value = false;
+    imageError.value = true;
 };
 
 const getFileName = (filePath: string) => {
@@ -418,26 +428,24 @@ onMounted(() => {
         checkExpandNeeded();
 
         // 添加resize监听器
-        const resizeObserver = new ResizeObserver(() => {
-            checkExpandNeeded();
-        });
-
         if (textPreview.value) {
+            resizeObserver = new ResizeObserver(() => {
+                checkExpandNeeded();
+            });
             resizeObserver.observe(textPreview.value);
         }
-
-        // 组件卸载时断开监听
-        onBeforeUnmount(() => {
-            if (textPreview.value) {
-                resizeObserver.unobserve(textPreview.value);
-            }
-        });
     });
 });
 
 onBeforeUnmount(() => {
     if (textContent.value) {
         textContent.value.removeEventListener('scroll', handleTextScroll);
+    }
+    
+    // 正确清理ResizeObserver
+    if (resizeObserver) {
+        resizeObserver.disconnect();
+        resizeObserver = null;
     }
 });
 </script>
@@ -574,7 +582,12 @@ onBeforeUnmount(() => {
     padding: 12px;
 }
 
-/* 平滑滚动条显示 */
+/* 平滑滚动条显示 - 支持Firefox */
+.text-content.scroll-visible {
+    scrollbar-width: thin;
+    scrollbar-color: var(--scrollbar-thumb, #cbd5e1) var(--scrollbar-track, #f1f5f9);
+}
+
 .text-content.scroll-visible::-webkit-scrollbar {
     width: 6px;
 }
@@ -795,6 +808,29 @@ onBeforeUnmount(() => {
     color: var(--text-secondary, #64748b);
 }
 
+.image-error {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    gap: 12px;
+    background: var(--error-bg, #fed7d7);
+    color: var(--error-color, #e53e3e);
+    border-radius: 8px;
+}
+
+.image-error .iconfont {
+    font-size: 32px;
+    opacity: 0.6;
+}
+
+.error-text {
+    font-size: 12px;
+    color: var(--error-color, #e53e3e);
+}
+
 /* 文件内容样式 */
 .file-content {
     background: var(--card-bg, #fff);
@@ -809,6 +845,8 @@ onBeforeUnmount(() => {
     overflow-y: auto;
     padding: 4px;
     padding-right: 8px;
+    scrollbar-width: thin;
+    scrollbar-color: var(--scrollbar-thumb, #cbd5e1) var(--scrollbar-track, #f1f5f9);
 }
 
 .file-list::-webkit-scrollbar {

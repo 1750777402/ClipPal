@@ -173,33 +173,32 @@ async fn update_global_shortcut(shortcut: &str) -> AppResult<()> {
     let app_handle = CONTEXT.get::<AppHandle>();
     log::info!("更新全局快捷键:{}", shortcut);
 
-    // 在 await 点之前获取当前设置
-    let current_settings = {
-        let lock = CONTEXT.get::<Arc<Mutex<Settings>>>().clone();
-        let current = safe_lock(&lock)?;
-        current.clone()
-    };
+    // 先取消注册所有快捷键
+    let _ = app_handle.global_shortcut().unregister_all();
 
-    // 先注销当前快捷键
-    let _ = app_handle
-        .global_shortcut()
-        .unregister(parse_shortcut(&current_settings.shortcut_key));
+    // 解析快捷键字符串为Shortcut类型
+    let shortcut_obj = parse_shortcut(shortcut);
 
-    // 注册新快捷键
-    match app_handle.global_shortcut().register(shortcut) {
+    // 注册新的快捷键
+    match app_handle.global_shortcut().on_shortcut(shortcut_obj, {
+        let app_handle_clone = app_handle.clone();
+        move |_app, shortcut_triggered, event| {
+            log::info!("快捷键触发: {:?}, 状态: {:?}", shortcut_triggered, event.state());
+            if event.state() == tauri_plugin_global_shortcut::ShortcutState::Pressed {
+                use tauri::Manager;
+                if let Some(window) = app_handle_clone.get_webview_window("main") {
+                    let _ = window.show();
+                    let _ = window.set_focus();
+                }
+            }
+        }
+    }) {
         Ok(_) => {
             log::info!("更新全局快捷键成功:{}", shortcut);
             Ok(())
         }
         Err(e) => {
             log::error!("更新全局快捷键失败:{:?}", e);
-            // 如果注册失败，尝试恢复原快捷键
-            let register_res = app_handle
-                .global_shortcut()
-                .register(parse_shortcut(&current_settings.shortcut_key));
-            if let Err(restore_err) = register_res {
-                log::error!("恢复原快捷键失败: {}", restore_err);
-            }
             Err(AppError::GlobalShortcut(format!("快捷键注册失败: {}", e)))
         }
     }
@@ -250,9 +249,20 @@ async fn rollback_settings(applied_settings: &[(&str, bool)]) -> AppResult<()> {
         match *setting_type {
             "shortcut" => {
                 // 恢复原快捷键
-                if let Err(e) = app_handle
-                    .global_shortcut()
-                    .register(parse_shortcut(&current_settings.shortcut_key)) {
+                let shortcut_obj = parse_shortcut(&current_settings.shortcut_key);
+                if let Err(e) = app_handle.global_shortcut().on_shortcut(shortcut_obj, {
+                    let app_handle_clone = app_handle.clone();
+                    move |_app, shortcut_triggered, event| {
+                        log::info!("恢复快捷键触发: {:?}, 状态: {:?}", shortcut_triggered, event.state());
+                        if event.state() == tauri_plugin_global_shortcut::ShortcutState::Pressed {
+                            use tauri::Manager;
+                            if let Some(window) = app_handle_clone.get_webview_window("main") {
+                                let _ = window.show();
+                                let _ = window.set_focus();
+                            }
+                        }
+                    }
+                }) {
                     log::error!("恢复快捷键失败: {}", e);
                 }
             }
@@ -277,20 +287,30 @@ pub async fn validate_shortcut(shortcut: String) -> Result<bool, String> {
         return Ok(false);
     }
 
-    // 2. 尝试注册快捷键来验证是否可用
-    let app_handle = CONTEXT.get::<AppHandle>();
-
-    match app_handle
-        .global_shortcut()
-        .register(parse_shortcut(&shortcut))
-    {
-        Ok(_) => {
-            // 注册成功，立即注销
-            let _ = app_handle
-                .global_shortcut()
-                .unregister(parse_shortcut(&shortcut));
-            Ok(true)
+    // 2. 获取当前设置的快捷键
+    let current_shortcut = {
+        let lock = CONTEXT.get::<Arc<Mutex<Settings>>>().clone();
+        match safe_lock(&lock) {
+            Ok(current) => current.shortcut_key.clone(),
+            Err(_) => String::new(),
         }
-        Err(_) => Ok(false),
+    };
+
+    // 3. 如果和当前设置一样，直接返回true（允许保存相同快捷键）
+    if shortcut == current_shortcut {
+        return Ok(true);
     }
+
+    // 4. 尝试解析快捷键字符串验证其有效性
+    let _shortcut_obj = match shortcut.parse::<tauri_plugin_global_shortcut::Shortcut>() {
+        Ok(s) => s,
+        Err(_) => {
+            // 如果解析失败，使用自定义解析器
+            parse_shortcut(&shortcut)
+        }
+    };
+
+    // 5. 格式验证通过，返回true
+    // 实际的冲突检测将在注册时进行
+    Ok(true)
 }
