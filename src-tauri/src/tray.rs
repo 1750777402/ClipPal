@@ -1,4 +1,3 @@
-
 use tauri::image::Image;
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, TrayIconEvent};
@@ -25,21 +24,19 @@ pub fn create_tray<R: Runtime>(app: &tauri::AppHandle<R>) -> tauri::Result<()> {
             "quit" => {
                 app.exit(0);
             }
-            _ => {
-                log::warn!("menu item {:?} not handled", event.id);
-                // 保存当前焦点窗口
-                auto_paste::save_foreground_window();
-                
+            "setSys" => {
                 // 通知前端显示系统设置窗口
                 let app_handle = CONTEXT.get::<AppHandle>();
                 if let Some(window) = app.get_webview_window("main") {
                     let visible = window.is_visible().unwrap_or(false);
                     if !visible {
                         let _ = window.show();
-                        let _ = window.set_focus();
                     }
                 }
                 let _ = app_handle.emit("open_settings_winodws", ());
+            }
+            _ => {
+                log::warn!("menu item {:?} not handled", event.id);
             }
         })
         // 托盘图标响应鼠标事件
@@ -50,10 +47,10 @@ pub fn create_tray<R: Runtime>(app: &tauri::AppHandle<R>) -> tauri::Result<()> {
                 ..
             } => {
                 let app = tray.app_handle();
-                
+
                 // 先尝试保存当前焦点窗口（在显示我们的窗口之前）
                 auto_paste::save_foreground_window();
-                
+
                 // 如果窗口已经可见，先隐藏它，让用户的应用重新获得焦点
                 if let Some(window) = app.get_webview_window("main") {
                     let is_visible = window.is_visible().unwrap_or(false);

@@ -1,5 +1,5 @@
-use crate::errors::lock_utils::safe_lock;
 use crate::auto_paste;
+use crate::errors::lock_utils::safe_lock;
 use tauri::App;
 
 pub fn init_global_shortcut(app: &App) -> tauri::Result<()> {
@@ -39,7 +39,7 @@ pub fn init_global_shortcut(app: &App) -> tauri::Result<()> {
                     if event.state() == tauri_plugin_global_shortcut::ShortcutState::Pressed {
                         // 在显示粘贴板窗口之前，先保存当前获得焦点的窗口
                         auto_paste::save_foreground_window();
-                        
+
                         use tauri::Manager;
                         if let Some(window) = app_handle.get_webview_window("main") {
                             let _ = window.show();
