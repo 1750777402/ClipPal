@@ -178,7 +178,7 @@ fn token_index_path() -> Result<PathBuf> {
 pub async fn load_index_from_disk() -> Result<()> {
     let path = token_index_path()?;
     if !path.exists() {
-        log::info!("Token index file not found, will create on first update");
+        log::debug!("Token index file not found, will create on first update");
         return Ok(());
     }
 
@@ -194,7 +194,7 @@ pub async fn load_index_from_disk() -> Result<()> {
     let index: TokenIndex = bincode::decode_from_slice(&buf, BINCODE_CONFIG)
         .context("Failed to decode token index")?
         .0; // decode_from_slice 返回 (T, usize)
-    log::info!("Loaded token index version {} from disk", index.version);
+    log::debug!("Loaded token index version {} from disk", index.version);
 
     // 将磁盘索引加载到并发索引中
     for (id, tokens) in &index.id_to_tokens {
@@ -355,7 +355,7 @@ where
 
     // 如果版本一致，说明没有丢失更新
     if last_persisted == current_version {
-        log::info!("Index is up-to-date, no rebuild needed");
+        log::debug!("Index is up-to-date, no rebuild needed");
         return Ok(());
     }
 

@@ -88,7 +88,7 @@ pub fn save_foreground_window() {
 
     if let Ok(mut previous) = PREVIOUS_WINDOW.lock() {
         *previous = Some(window_info.clone());
-        log::info!(
+        log::debug!(
             "保存焦点窗口: {} (PID: {})",
             window_info.title,
             window_info.process_id
@@ -186,7 +186,7 @@ pub fn save_foreground_window() {
 
                     if let Ok(mut previous) = PREVIOUS_WINDOW.lock() {
                         *previous = Some(window_info.clone());
-                        log::info!(
+                        log::debug!(
                             "保存焦点窗口: {} (PID: {})",
                             window_info.title,
                             window_info.process_id
@@ -232,7 +232,7 @@ pub fn auto_paste_to_previous_window() -> Result<(), String> {
         return Err("目标窗口不可见".to_string());
     }
 
-    log::info!("尝试自动粘贴到窗口: {}", window_info.title);
+    log::debug!("尝试自动粘贴到窗口: {}", window_info.title);
 
     // 将目标窗口设置为前台窗口
     let result = unsafe { SetForegroundWindow(hwnd) };
@@ -247,7 +247,7 @@ pub fn auto_paste_to_previous_window() -> Result<(), String> {
     // 发送 Ctrl+V 按键组合
     send_ctrl_v_windows()?;
 
-    log::info!("自动粘贴完成");
+    log::debug!("自动粘贴完成");
     Ok(())
 }
 
@@ -268,7 +268,7 @@ pub fn auto_paste_to_previous_window() -> Result<(), String> {
         }
     };
 
-    log::info!(
+    log::debug!(
         "尝试自动粘贴到窗口: {} (PID: {})",
         window_info.title,
         window_info.process_id
@@ -313,7 +313,7 @@ pub fn auto_paste_to_previous_window() -> Result<(), String> {
     // 发送 Cmd+V 按键组合
     send_cmd_v_macos()?;
 
-    log::info!("自动粘贴完成");
+    log::debug!("自动粘贴完成");
     Ok(())
 }
 

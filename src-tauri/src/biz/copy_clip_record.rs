@@ -195,7 +195,7 @@ pub async fn copy_clip_record_no_paste(param: CopyClipRecord) -> Result<String, 
     }
 
     // 注意：这个函数不执行自动粘贴功能
-    log::info!("仅复制到剪贴板，不触发自动粘贴");
+    log::debug!("仅复制到剪贴板，不触发自动粘贴");
     Ok(String::new())
 }
 

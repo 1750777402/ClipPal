@@ -4,7 +4,7 @@
 #[tokio::main]
 async fn main() {
     if let Err(e) = clip_pal::run().await {
-        eprintln!("应用程序启动失败: {}", e);
+        log::error!("应用程序启动失败: {}", e);
         std::process::exit(1);
     }
 }

@@ -189,7 +189,7 @@ async fn update_global_shortcut(shortcut: &str) -> AppResult<()> {
     match app_handle.global_shortcut().on_shortcut(shortcut_obj, {
         let app_handle_clone = app_handle.clone();
         move |_app, shortcut_triggered, event| {
-            log::info!("快捷键触发: {:?}, 状态: {:?}", shortcut_triggered, event.state());
+            log::debug!("快捷键触发: {:?}, 状态: {:?}", shortcut_triggered, event.state());
             if event.state() == tauri_plugin_global_shortcut::ShortcutState::Pressed {
                 use tauri::Manager;
                 if let Some(window) = app_handle_clone.get_webview_window("main") {
@@ -259,7 +259,7 @@ async fn rollback_settings(applied_settings: &[(&str, bool)]) -> AppResult<()> {
                 if let Err(e) = app_handle.global_shortcut().on_shortcut(shortcut_obj, {
                     let app_handle_clone = app_handle.clone();
                     move |_app, shortcut_triggered, event| {
-                        log::info!("恢复快捷键触发: {:?}, 状态: {:?}", shortcut_triggered, event.state());
+                        log::debug!("恢复快捷键触发: {:?}, 状态: {:?}", shortcut_triggered, event.state());
                         if event.state() == tauri_plugin_global_shortcut::ShortcutState::Pressed {
                             use tauri::Manager;
                             if let Some(window) = app_handle_clone.get_webview_window("main") {
