@@ -74,7 +74,7 @@
                                     {{ formatFileSize(file.size) }} · {{ file.type || getFileType(file.path) }}
                                 </span>
                             </div>
-                            <button class="single-copy-btn" @click.stop="handleCopySingleFile(file.path)" 
+                            <button v-if="fileList.length > 1" class="single-copy-btn" @click.stop="handleCopySingleFile(file.path)" 
                                     title="仅复制此文件">
                                 仅复制此文件
                             </button>
