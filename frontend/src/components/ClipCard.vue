@@ -212,8 +212,42 @@ const MAX_LINES_FOR_PREVIEW = 8; // 超过3行显示展开按钮
 
 const showMessageBar = inject('showMessageBar') as (msg: string, type?: 'success' | 'error') => void;
 
+// 检查是否需要显示自动粘贴提示
+const checkFirstAutoPasteUsage = () => {
+    const hasShownWarning = localStorage.getItem('auto_paste_warning_shown');
+    if (!hasShownWarning) {
+        const confirmed = confirm(
+            '⚠️ 自动粘贴提醒\n\n' +
+            '您即将使用自动粘贴功能。请注意：\n\n' +
+            '• 某些应用可能自定义了Ctrl+V快捷键\n' +
+            '• 在这些应用中使用自动粘贴可能触发意外操作\n' +
+            '• 可根据实际使用情况选择是否开启自动粘贴。\n\n' +
+            '是否继续使用自动粘贴？'
+        );
+        
+        localStorage.setItem('auto_paste_warning_shown', 'true');
+        return confirmed;
+    }
+    return true;
+};
+
 // 双击卡片触发复制和自动粘贴
 const handleCardDoubleClick = async () => {
+    // 检查自动粘贴设置
+    try {
+        const settings = await invoke('load_settings') as any;
+        if (settings.auto_paste === 1) {
+            // 如果开启了自动粘贴，检查是否需要显示首次使用提示
+            if (!checkFirstAutoPasteUsage()) {
+                // 用户取消了自动粘贴，只复制不粘贴
+                await handleCopyOnly();
+                return;
+            }
+        }
+    } catch (error) {
+        console.error('获取设置失败:', error);
+    }
+
     try {
         await invoke('copy_clip_record', { param: { record_id: props.record.id } });
         emit('click', props.record);

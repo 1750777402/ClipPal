@@ -53,6 +53,18 @@
             <div class="result">自动复制并粘贴</div>
           </div>
         </div>
+
+        <div v-if="currentStep.id === 'auto_paste'" class="demo-section">
+          <div class="auto-paste-warning">
+            <div class="warning-icon">⚠️</div>
+            <div class="warning-content">
+              <div class="warning-title">使用提醒</div>
+              <div class="warning-text">
+                某些应用可能自定义了Ctrl+V快捷键，可根据实际使用情况选择是否开启自动粘贴。
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
       
       <div class="tutorial-footer">
@@ -163,7 +175,7 @@ const tutorialSteps = ref<TutorialStep[]>([
   {
     id: "auto_paste",
     title: "自动粘贴功能 🚀",
-    description: "开启自动粘贴后，选择剪贴板记录会自动粘贴到之前的活动窗口，大大提升工作效率！",
+    description: "开启自动粘贴后，选择剪贴板记录会自动粘贴到之前的活动窗口，大大提升工作效率！注意：如果目标应用自定义了Ctrl+V快捷键（如开发工具、终端、游戏等），可能会触发意外操作，建议在这些应用中关闭自动粘贴。",
     target: ".settings-button",
     position: "bottom"
   },
@@ -833,5 +845,49 @@ defineExpose({
 .btn-link:hover {
   color: #333;
   background: rgba(0, 0, 0, 0.05);
+}
+
+/* 自动粘贴警告样式 */
+.auto-paste-warning {
+  display: flex;
+  gap: 12px;
+  padding: 16px;
+  background: linear-gradient(135deg, #fff3cd 0%, #ffeeba 100%);
+  border: 2px solid #ffc107;
+  border-radius: 12px;
+  animation: warningPulse 2s infinite;
+}
+
+@keyframes warningPulse {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(255, 193, 7, 0.4);
+  }
+  50% {
+    box-shadow: 0 0 0 8px rgba(255, 193, 7, 0.1);
+  }
+}
+
+.auto-paste-warning .warning-icon {
+  font-size: 20px;
+  line-height: 1;
+  margin-top: 2px;
+}
+
+.auto-paste-warning .warning-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.auto-paste-warning .warning-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: #856404;
+  margin-bottom: 6px;
+}
+
+.auto-paste-warning .warning-text {
+  font-size: 13px;
+  line-height: 1.4;
+  color: #6c5429;
 }
 </style> 

@@ -61,15 +61,27 @@
             </label>
           </div>
 
-          <div class="settings-item auto-paste-setting">
-            <div class="settings-label">
-              <span>自动粘贴</span>
-              <span class="settings-description">双击卡片后自动粘贴到之前获得焦点的窗口</span>
+          <div class="settings-item-wrapper auto-paste-setting">
+            <div class="settings-item">
+              <div class="settings-label">
+                <span>自动粘贴</span>
+                <span class="settings-description">双击卡片后自动粘贴到之前获得焦点的窗口</span>
+              </div>
+              <label class="switch">
+                <input type="checkbox" :checked="settings.auto_paste === 1" @change="(e: Event) => settings.auto_paste = (e.target as HTMLInputElement).checked ? 1 : 0">
+                <span class="slider"></span>
+              </label>
             </div>
-            <label class="switch">
-              <input type="checkbox" :checked="settings.auto_paste === 1" @change="(e: Event) => settings.auto_paste = (e.target as HTMLInputElement).checked ? 1 : 0">
-              <span class="slider"></span>
-            </label>
+            
+            <div v-if="settings.auto_paste === 1" class="settings-warning">
+              <div class="warning-icon">⚠️</div>
+              <div class="warning-content">
+                <div class="warning-title">使用注意</div>
+                <div class="warning-text">
+                  某些应用可能自定义了Ctrl+V快捷键，可根据实际使用情况选择是否开启自动粘贴。
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -160,11 +172,15 @@ watch(() => props.modelValue, async (newVal) => {
       settings.value = { ...currentSettings };
       // 清除错误状态
       shortcutError.value = '';
+      
+
     } catch (error) {
       console.error('加载设置失败:', error);
     }
   }
 });
+
+
 
 const handleClose = () => {
   emit('update:modelValue', false);
@@ -409,17 +425,24 @@ onBeforeUnmount(() => {
   align-items: center;
   z-index: 1000;
   backdrop-filter: blur(4px);
+  padding: 20px;
+  box-sizing: border-box;
+  overflow: hidden;
 }
 
 .settings-dialog {
   background: var(--bg-color, #f5f7fa);
   border-radius: 16px;
-  width: 90%;
-  max-width: 400px;
+  width: 85%;
+  max-width: 480px;
+  min-width: 360px;
+  max-height: 90vh;
   box-shadow: 0 4px 24px rgba(0, 0, 0, 0.15);
   display: flex;
   flex-direction: column;
   animation: dialog-in 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  overflow: hidden;
+  margin: 0 auto;
 }
 
 @keyframes dialog-in {
@@ -467,23 +490,30 @@ onBeforeUnmount(() => {
 }
 
 .settings-content {
-  padding: 20px;
+  padding: 20px 24px;
   overflow-y: auto;
-  max-height: calc(100vh - 200px);
+  overflow-x: hidden;
+  flex: 1;
+  min-height: 0;
+  max-height: calc(90vh - 120px);
 }
 
 .settings-group {
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 18px;
+}
+
+.settings-item-wrapper {
+  display: flex;
+  flex-direction: column;
 }
 
 .settings-item {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 16px;
-  flex-wrap: wrap;
+  gap: 20px;
 }
 
 .settings-label {
@@ -492,6 +522,7 @@ onBeforeUnmount(() => {
   gap: 4px;
   flex: 1;
   min-width: 0;
+  overflow: hidden;
 }
 
 .settings-label span:first-child {
@@ -695,6 +726,118 @@ input:checked+.slider:before {
   background: var(--primary-hover, #256d6d);
 }
 
+/* 警告框样式 */
+.settings-warning {
+  display: flex;
+  gap: 10px;
+  margin-top: 8px;
+  padding: 10px 12px;
+  background: var(--warning-bg, #fffaf0);
+  border: 1px solid var(--warning-border, #f6e05e);
+  border-radius: 8px;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  overflow: hidden;
+  animation: warning-in 0.3s ease;
+}
+
+@keyframes warning-in {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.warning-icon {
+  font-size: 14px;
+  line-height: 1;
+  margin-top: 1px;
+  flex-shrink: 0;
+}
+
+.warning-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.warning-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--warning-title, #b7791f);
+  margin-bottom: 3px;
+}
+
+.warning-text {
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--warning-text, #975a16);
+  word-wrap: break-word;
+  word-break: break-word;
+  hyphens: auto;
+}
+
+/* 响应式设计 - 小屏幕宽度适配 */
+@media (max-width: 540px) {
+  .settings-dialog {
+    width: 90%;
+    max-width: 400px;
+    min-width: 320px;
+  }
+}
+
+@media (max-width: 420px) {
+  .settings-dialog {
+    width: 92%;
+    max-width: 360px;
+    min-width: 300px;
+    margin: 0 15px;
+  }
+  
+  .settings-header {
+    padding: 14px 18px;
+  }
+  
+  .settings-content {
+    padding: 16px 18px;
+  }
+  
+  .settings-footer {
+    padding: 14px 18px;
+  }
+}
+
+@media (max-width: 360px) {
+  .settings-dialog {
+    width: 95%;
+    max-width: 320px;
+    min-width: 280px;
+    margin: 0 10px;
+  }
+  
+  .settings-content {
+    padding: 14px 16px;
+  }
+  
+  .settings-item {
+    gap: 12px;
+  }
+  
+  .settings-warning {
+    padding: 8px;
+    gap: 6px;
+  }
+  
+  .warning-text {
+    font-size: 10px;
+    line-height: 1.2;
+  }
+}
+
 /* 暗色模式支持 */
 @media (prefers-color-scheme: dark) {
   .settings-dialog {
@@ -711,6 +854,10 @@ input:checked+.slider:before {
     --error-color: #fc8181;
     --error-bg: #742a2a;
     --disabled-bg: #4a5568;
+    --warning-bg: #2d2416;
+    --warning-border: #d69e2e;
+    --warning-title: #d69e2e;
+    --warning-text: #f6e05e;
   }
 }
 </style>
