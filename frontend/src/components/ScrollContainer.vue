@@ -293,7 +293,6 @@ onBeforeUnmount(() => {
   background: var(--bg-color, #f5f7fa);
   display: flex;
   flex-direction: column;
-  border-left: 1px solid var(--border-color, #d1d9e6);
   box-shadow: -2px 0 8px rgba(0, 0, 0, 0.05);
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Roboto', 'Helvetica Neue', Arial, sans-serif;
   transition: background-color 0.3s ease;
