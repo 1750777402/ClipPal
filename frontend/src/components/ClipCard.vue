@@ -8,7 +8,7 @@
                     <template v-if="record.type === 'File'">
                         <span class="tip-icon-wrapper" @mouseenter="showTip = true" @mouseleave="showTip = false">
                             <i class="iconfont icon-tishi"></i>
-                            <span v-if="showTip" class="tip-pop">该条目为文件类型，复制时会尝试复制所有文件路径，若有源文件丢失将提示失败</span>
+                            <span v-if="showTip" class="tip-pop">该条目为文件类型，双击复制全部文件，或点击单个文件的"仅复制此文件"按钮。若有源文件丢失将提示失败</span>
                         </span>
                     </template>
                 </span>
@@ -34,34 +34,14 @@
         </div>
 
         <div class="card-content">
-            <!-- 文本类型 -->
+            <!-- 文本类型 - 使用智能内容显示 -->
             <template v-if="record.type === 'Text'">
-                <div class="text-content-container">
-                    <div class="text-content" :class="{
-                        'is-expanded': isExpanded,
-                        'has-overlay': shouldShowOverlay !== 'none',
-                        'overlay-partial': shouldShowOverlay === 'partial',
-                        'overlay-full': shouldShowOverlay === 'full',
-                        'scroll-visible': showScrollbar
-                    }" ref="textContent">
-                        <p class="text-preview" :title="!isExpanded && shouldShowExpand ? record.content : ''"
-                            ref="textPreview">
-                            {{ record.content }}
-                        </p>
-                    </div>
-                    <div v-if="shouldShowExpand" class="expand-controls">
-                        <button class="expand-btn" @click.stop="toggleExpand">
-                            {{ isExpanded ? '收起内容' : '展开内容' }}
-                            <i class="expand-icon" :class="{ 'expanded': isExpanded }"></i>
-                        </button>
-                    </div>
-                    <div v-if="isExpanded" class="sticky-collapse" :class="{ 'visible': showStickyCollapse }">
-                        <button class="sticky-collapse-btn" @click.stop="toggleExpand">
-                            收起内容
-                            <i class="sticky-collapse-icon"></i>
-                        </button>
-                    </div>
-                </div>
+                <SmartContentDisplay 
+                    :content="record.content" 
+                    :show-type-indicator="false"
+                    :max-height="300"
+                    @copy="handleSmartCopy"
+                />
             </template>
 
             <!-- 图片类型 -->
@@ -94,6 +74,10 @@
                                     {{ formatFileSize(file.size) }} · {{ file.type || getFileType(file.path) }}
                                 </span>
                             </div>
+                            <button class="single-copy-btn" @click.stop="handleCopySingleFile(file.path)" 
+                                    title="仅复制此文件">
+                                仅复制此文件
+                            </button>
                         </div>
                     </div>
                     <div class="file-count" v-if="fileList.length > 1">
@@ -178,11 +162,12 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onBeforeUnmount, nextTick, watch, inject } from 'vue';
+import { ref, computed, onMounted, inject } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { formatDistanceToNow } from 'date-fns';
 import { zhCN } from 'date-fns/locale';
 import VueEasyLightbox from 'vue-easy-lightbox';
+import SmartContentDisplay from './SmartContentDisplay.vue';
 
 interface ClipRecord {
     id: string;
@@ -214,27 +199,12 @@ const emit = defineEmits<{
     (e: 'pin', record: ClipRecord): void;
 }>();
 
-const isExpanded = ref(false);
 const isImageLoaded = ref(false);
 const imageError = ref(false);
 const showImagePreview = ref(false);
-const textContent = ref<HTMLElement | null>(null);
-const textPreview = ref<HTMLElement | null>(null);
-const showStickyCollapse = ref(false);
-const showScrollbar = ref(false);
-const shouldShowExpand = ref(false);
-// 修正为字符串类型，支持三种状态
-const shouldShowOverlay = ref<'none' | 'partial' | 'full'>('none');
 const showTip = ref(false);
 const showConfirm = ref(false);
 const showAutoPasteWarning = ref(false);
-
-// ResizeObserver实例引用
-let resizeObserver: ResizeObserver | null = null;
-
-const LINE_HEIGHT = 24; // 根据实际行高设置
-const MAX_LINES_FOR_FULL = 8; // 最多显示5行完整内容
-const MAX_LINES_FOR_PREVIEW = 8; // 超过3行显示展开按钮
 
 const showMessageBar = inject('showMessageBar') as (msg: string, type?: 'success' | 'error') => void;
 
@@ -257,9 +227,7 @@ const confirmAutoPaste = async () => {
     try {
         await invoke('copy_clip_record', { param: { record_id: props.record.id } });
         emit('click', props.record);
-        if (showMessageBar) {
-            showMessageBar('已复制并自动粘贴', 'success');
-        }
+        // 移除成功提示，只保留错误提示
     } catch (err: any) {
         if (showMessageBar) {
             showMessageBar(err?.toString() || '复制失败', 'error');
@@ -293,9 +261,7 @@ const handleCardDoubleClick = async () => {
     try {
         await invoke('copy_clip_record', { param: { record_id: props.record.id } });
         emit('click', props.record);
-        if (showMessageBar) {
-            showMessageBar('已复制并自动粘贴', 'success');
-        }
+        // 移除成功提示，只保留错误提示
     } catch (err: any) {
         if (showMessageBar) {
             showMessageBar(err?.toString() || '复制失败', 'error');
@@ -309,14 +275,34 @@ const handleCardDoubleClick = async () => {
 const handleCopyOnly = async () => {
     try {
         await invoke('copy_clip_record_no_paste', { param: { record_id: props.record.id } });
-        if (showMessageBar) {
-            showMessageBar('已复制到剪贴板', 'success');
-        }
+        // 移除成功提示，只保留错误提示
     } catch (err: any) {
         if (showMessageBar) {
             showMessageBar(err?.toString() || '复制失败', 'error');
         } else {
             alert(err?.toString() || '复制失败');
+        }
+    }
+};
+
+// 智能内容复制处理
+const handleSmartCopy = (_content: string) => {
+    // 移除成功提示，让操作更简洁
+};
+
+// 复制单个文件
+const handleCopySingleFile = async (filePath: string) => {
+    try {
+        await invoke('copy_single_file', { 
+            param: { 
+                record_id: props.record.id, 
+                file_path: filePath 
+            } 
+        });
+        // 移除成功提示，只保留错误提示
+    } catch (err: any) {
+        if (showMessageBar) {
+            showMessageBar(err?.toString() || '复制失败', 'error');
         }
     }
 };
@@ -442,10 +428,7 @@ const handlePin = async () => {
     emit('pin', props.record);
 };
 
-const toggleExpand = (event: Event) => {
-    event.stopPropagation();
-    isExpanded.value = !isExpanded.value;
-};
+
 
 const handleImageLoad = () => {
     isImageLoaded.value = true;
@@ -461,55 +444,7 @@ const getFileName = (filePath: string) => {
     return filePath.split(/[\\/]/).pop() || filePath;
 };
 
-const handleTextScroll = () => {
-    if (!textContent.value) return;
-    showStickyCollapse.value = textContent.value.scrollTop > 100;
-};
 
-// 计算文本行数
-const calculateTextLines = () => {
-    if (!textPreview.value) return 0;
-
-    // 获取实际高度
-    const height = textPreview.value.clientHeight;
-    // 计算行数
-    const lines = Math.round(height / LINE_HEIGHT);
-
-    return lines;
-};
-
-// 检查是否需要显示展开功能
-const checkExpandNeeded = () => {
-    const lines = calculateTextLines();
-
-    // 计算是否需要显示展开按钮
-    shouldShowExpand.value = lines > MAX_LINES_FOR_PREVIEW;
-
-    // 计算遮罩类型
-    if (lines > MAX_LINES_FOR_FULL) {
-        shouldShowOverlay.value = 'full';
-    } else if (lines > MAX_LINES_FOR_PREVIEW) {
-        shouldShowOverlay.value = 'partial';
-    } else {
-        shouldShowOverlay.value = 'none';
-    }
-};
-
-watch(isExpanded, (newVal) => {
-    if (newVal) {
-        nextTick(() => {
-            if (textContent.value) {
-                textContent.value.addEventListener('scroll', handleTextScroll);
-                showScrollbar.value = textContent.value.scrollHeight > textContent.value.clientHeight;
-            }
-        });
-    } else {
-        if (textContent.value) {
-            textContent.value.removeEventListener('scroll', handleTextScroll);
-            showStickyCollapse.value = false;
-        }
-    }
-});
 
 onMounted(() => {
     if (props.record.type === 'Image' && props.record.content) {
@@ -517,31 +452,6 @@ onMounted(() => {
         img.src = props.record.content;
         img.onload = handleImageLoad;
         img.onerror = handleImageError;
-    }
-
-    // 初始检查文本行数
-    nextTick(() => {
-        checkExpandNeeded();
-
-        // 添加resize监听器
-        if (textPreview.value) {
-            resizeObserver = new ResizeObserver(() => {
-                checkExpandNeeded();
-            });
-            resizeObserver.observe(textPreview.value);
-        }
-    });
-});
-
-onBeforeUnmount(() => {
-    if (textContent.value) {
-        textContent.value.removeEventListener('scroll', handleTextScroll);
-    }
-    
-    // 正确清理ResizeObserver
-    if (resizeObserver) {
-        resizeObserver.disconnect();
-        resizeObserver = null;
     }
 });
 </script>
@@ -755,6 +665,11 @@ onBeforeUnmount(() => {
     margin: 0;
     padding: 0;
     transition: all 0.3s ease;
+    /* 允许文本选择 */
+    -webkit-user-select: text;
+    -moz-user-select: text;
+    -ms-user-select: text;
+    user-select: text;
 }
 
 /* 4-5行内容样式 */
@@ -1047,6 +962,30 @@ onBeforeUnmount(() => {
     padding-right: 6px;
 }
 
+/* 单文件复制按钮样式 */
+.single-copy-btn {
+    padding: 4px 8px;
+    background: var(--primary-color, #2c7a7b);
+    color: white;
+    border: none;
+    border-radius: 4px;
+    font-size: 11px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    flex-shrink: 0;
+    opacity: 0.8;
+}
+
+.single-copy-btn:hover {
+    background: var(--primary-hover, #285e61);
+    opacity: 1;
+    transform: translateY(-1px);
+}
+
+.single-copy-btn:active {
+    transform: translateY(0);
+}
+
 /* JSON和代码内容样式 */
 .json-content,
 .code-content,
@@ -1087,6 +1026,11 @@ onBeforeUnmount(() => {
     overflow-x: auto;
     max-height: 180px;
     transition: all 0.3s ease;
+    /* 允许文本选择 */
+    -webkit-user-select: text;
+    -moz-user-select: text;
+    -ms-user-select: text;
+    user-select: text;
 }
 
 .tip-icon-wrapper {

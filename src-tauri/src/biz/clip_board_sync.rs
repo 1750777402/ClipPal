@@ -82,7 +82,7 @@ async fn handle_text(rb: &RBatis, content: &str, sort: i32) {
             } else {
                 let record = ClipRecord {
                     id: Uuid::new_v4().to_string(),
-                    r#type: "Text".to_string(),
+                    r#type: ClipType::Text.to_string(),
                     content: Value::String(encrypted),
                     md5_str: md5_str,
                     created: current_timestamp(),
@@ -137,7 +137,7 @@ async fn handle_image(rb: &RBatis, file_data: Option<&Vec<u8>>, sort: i32) {
 
             let record = ClipRecord {
                 id: id.clone(),
-                r#type: "Image".to_string(),
+                r#type: ClipType::Image.to_string(),
                 content: Value::Null,
                 md5_str,
                 created: current_timestamp(),
@@ -171,7 +171,7 @@ async fn handle_file(rb: &RBatis, file_paths: Option<&Vec<String>>, sort: i32) {
         } else {
             let record = ClipRecord {
                 id: Uuid::new_v4().to_string(),
-                r#type: "File".to_string(),
+                r#type: ClipType::File.to_string(),
                 content: Value::String(paths.join(":::")),
                 md5_str,
                 created: current_timestamp(),
