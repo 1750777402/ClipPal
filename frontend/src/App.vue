@@ -47,5 +47,5 @@ export default defineComponent({});
 </script>
 
 <style scoped>
-/* message-bar 样式已迁移到 MessageBar.vue */
+
 </style>

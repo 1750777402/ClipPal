@@ -10,7 +10,7 @@
       </div>
     </header>
 
-    <!-- 智能Loading：只在初始加载和空状态时显示 -->
+    <!-- 只在初始加载和空状态时显示 -->
     <div v-if="isInitialLoading && cards.length === 0" class="loading-container">
       <div class="loading-spinner"></div>
       <span class="loading-text">加载中...</span>
