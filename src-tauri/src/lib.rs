@@ -3,7 +3,10 @@ use std::sync::Arc;
 use crate::{
     biz::{
         clip_record::ClipRecord,
-        copy_clip_record::{copy_clip_record, copy_clip_record_no_paste, copy_single_file, copy_single_file_with_paste, del_record, image_save_as, set_pinned},
+        copy_clip_record::{
+            copy_clip_record, copy_clip_record_no_paste, copy_single_file, del_record,
+            image_save_as, set_pinned,
+        },
         query_clip_record::get_clip_records,
         system_setting::{init_settings, load_settings, save_settings, validate_shortcut},
         tokenize_bin::{load_index_from_disk, rebuild_index_after_crash},
@@ -116,7 +119,6 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
             copy_clip_record,
             copy_clip_record_no_paste,
             copy_single_file,
-            copy_single_file_with_paste,
             load_settings,
             save_settings,
             validate_shortcut,
@@ -143,6 +145,6 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
             }
             _ => {}
         });
-    
+
     Ok(())
 }
