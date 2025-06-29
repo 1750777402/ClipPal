@@ -150,6 +150,31 @@
             </div>
         </div>
     </template>
+
+    <!-- 自动粘贴警告对话框 -->
+    <template v-if="showAutoPasteWarning">
+        <div class="confirm-mask" @click.self="cancelAutoPaste">
+            <div class="confirm-dialog auto-paste-warning-dialog">
+                <div class="warning-header">
+                    <div class="warning-icon">⚠️</div>
+                    <div class="warning-title">自动粘贴提醒</div>
+                </div>
+                <div class="warning-content">
+                    <p class="warning-description">您即将使用自动粘贴功能，请注意：</p>
+                    <ul class="warning-list">
+                        <li>某些应用可能自定义了Ctrl+V快捷键</li>
+                        <li>在这些应用中使用自动粘贴可能触发意外操作</li>
+                        <li>可根据实际使用情况选择是否开启自动粘贴</li>
+                    </ul>
+                    <p class="warning-question">是否继续使用自动粘贴？</p>
+                </div>
+                <div class="confirm-actions">
+                    <button class="confirm-btn confirm-cancel" @click="cancelAutoPaste">仅复制</button>
+                    <button class="confirm-btn confirm-ok" @click="confirmAutoPaste">继续粘贴</button>
+                </div>
+            </div>
+        </div>
+    </template>
 </template>
 
 <script setup lang="ts">
@@ -202,6 +227,7 @@ const shouldShowExpand = ref(false);
 const shouldShowOverlay = ref<'none' | 'partial' | 'full'>('none');
 const showTip = ref(false);
 const showConfirm = ref(false);
+const showAutoPasteWarning = ref(false);
 
 // ResizeObserver实例引用
 let resizeObserver: ResizeObserver | null = null;
@@ -216,19 +242,36 @@ const showMessageBar = inject('showMessageBar') as (msg: string, type?: 'success
 const checkFirstAutoPasteUsage = () => {
     const hasShownWarning = localStorage.getItem('auto_paste_warning_shown');
     if (!hasShownWarning) {
-        const confirmed = confirm(
-            '⚠️ 自动粘贴提醒\n\n' +
-            '您即将使用自动粘贴功能。请注意：\n\n' +
-            '• 某些应用可能自定义了Ctrl+V快捷键\n' +
-            '• 在这些应用中使用自动粘贴可能触发意外操作\n' +
-            '• 可根据实际使用情况选择是否开启自动粘贴。\n\n' +
-            '是否继续使用自动粘贴？'
-        );
-        
-        localStorage.setItem('auto_paste_warning_shown', 'true');
-        return confirmed;
+        showAutoPasteWarning.value = true;
+        return false; // 需要等待用户确认
     }
     return true;
+};
+
+// 确认使用自动粘贴
+const confirmAutoPaste = async () => {
+    localStorage.setItem('auto_paste_warning_shown', 'true');
+    showAutoPasteWarning.value = false;
+    
+    // 继续执行自动粘贴
+    try {
+        await invoke('copy_clip_record', { param: { record_id: props.record.id } });
+        emit('click', props.record);
+        if (showMessageBar) {
+            showMessageBar('已复制并自动粘贴', 'success');
+        }
+    } catch (err: any) {
+        if (showMessageBar) {
+            showMessageBar(err?.toString() || '复制失败', 'error');
+        }
+    }
+};
+
+// 取消自动粘贴，只复制
+const cancelAutoPaste = async () => {
+    localStorage.setItem('auto_paste_warning_shown', 'true');
+    showAutoPasteWarning.value = false;
+    await handleCopyOnly();
 };
 
 // 双击卡片触发复制和自动粘贴
@@ -239,8 +282,7 @@ const handleCardDoubleClick = async () => {
         if (settings.auto_paste === 1) {
             // 如果开启了自动粘贴，检查是否需要显示首次使用提示
             if (!checkFirstAutoPasteUsage()) {
-                // 用户取消了自动粘贴，只复制不粘贴
-                await handleCopyOnly();
+                // 需要显示提示框，等待用户确认
                 return;
             }
         }
@@ -1173,5 +1215,109 @@ onBeforeUnmount(() => {
 
 .confirm-btn:active {
     opacity: 0.85;
+}
+
+/* 自动粘贴警告对话框样式 */
+.auto-paste-warning-dialog {
+    min-width: 360px;
+    max-width: 420px;
+    padding: 24px 28px;
+    text-align: left;
+}
+
+.warning-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 16px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid #ffeaa7;
+}
+
+.warning-icon {
+    font-size: 24px;
+    flex-shrink: 0;
+}
+
+.warning-title {
+    font-size: 18px;
+    font-weight: 600;
+    color: #d63031;
+    margin: 0;
+}
+
+.warning-content {
+    margin-bottom: 20px;
+}
+
+.warning-description {
+    font-size: 15px;
+    color: #2d3436;
+    margin: 0 0 12px 0;
+    font-weight: 500;
+}
+
+.warning-list {
+    margin: 12px 0 16px 20px;
+    padding: 0;
+    list-style: none;
+}
+
+.warning-list li {
+    position: relative;
+    font-size: 14px;
+    color: #636e72;
+    line-height: 1.5;
+    margin-bottom: 6px;
+    padding-left: 16px;
+}
+
+.warning-list li::before {
+    content: '•';
+    position: absolute;
+    left: 0;
+    color: #fdcb6e;
+    font-weight: bold;
+    font-size: 16px;
+}
+
+.warning-question {
+    font-size: 15px;
+    color: #2d3436;
+    margin: 16px 0 0 0;
+    font-weight: 500;
+}
+
+.auto-paste-warning-dialog .confirm-actions {
+    margin-top: 20px;
+    justify-content: flex-end;
+    gap: 12px;
+}
+
+.auto-paste-warning-dialog .confirm-btn {
+    min-width: 80px;
+    padding: 8px 16px;
+    font-size: 14px;
+}
+
+.auto-paste-warning-dialog .confirm-cancel {
+    background: #f8f9fa;
+    color: #636e72;
+    border: 1px solid #ddd;
+}
+
+.auto-paste-warning-dialog .confirm-cancel:hover {
+    background: #e9ecef;
+    border-color: #adb5bd;
+}
+
+.auto-paste-warning-dialog .confirm-ok {
+    background: #00b894;
+    color: white;
+    border: none;
+}
+
+.auto-paste-warning-dialog .confirm-ok:hover {
+    background: #00a085;
 }
 </style>
