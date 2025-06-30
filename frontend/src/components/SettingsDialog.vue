@@ -838,6 +838,242 @@ input:checked+.slider:before {
   }
 }
 
+/* Tauri窗口特殊尺寸优化 */
+@media (min-width: 400px) and (max-width: 500px) and (min-height: 600px) {
+  .settings-dialog {
+    width: 88%;
+    max-width: 450px;
+    min-width: 380px;
+  }
+  
+  .settings-content {
+    padding: 18px 22px;
+    max-height: calc(90vh - 140px);
+  }
+}
+
+/* 高度限制优化 */
+@media (max-height: 600px) {
+  .settings-dialog {
+    max-height: 85vh;
+  }
+  
+  .settings-content {
+    max-height: calc(85vh - 120px);
+    padding: 16px 20px;
+  }
+  
+  .settings-group {
+    gap: 14px;
+  }
+  
+  .settings-item {
+    gap: 16px;
+  }
+}
+
+@media (max-height: 500px) {
+  .settings-dialog {
+    max-height: 90vh;
+  }
+  
+  .settings-content {
+    max-height: calc(90vh - 100px);
+    padding: 12px 18px;
+  }
+  
+  .settings-header {
+    padding: 12px 18px;
+  }
+  
+  .settings-footer {
+    padding: 12px 18px;
+  }
+  
+  .settings-group {
+    gap: 12px;
+  }
+  
+  .settings-item {
+    gap: 14px;
+  }
+  
+  .settings-warning {
+    padding: 8px 10px;
+  }
+  
+  .warning-text {
+    font-size: 11px;
+    line-height: 1.3;
+  }
+}
+
+/* 极端尺寸优化 */
+@media (max-width: 320px) {
+  .settings-dialog {
+    width: 98%;
+    min-width: 280px;
+    margin: 0 5px;
+  }
+  
+  .settings-header {
+    padding: 12px 14px;
+  }
+  
+  .settings-title {
+    font-size: 16px;
+  }
+  
+  .close-button {
+    font-size: 20px;
+    padding: 2px;
+  }
+  
+  .settings-content {
+    padding: 12px 14px;
+  }
+  
+  .settings-footer {
+    padding: 12px 14px;
+  }
+  
+  .settings-item {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+  
+  .settings-label {
+    width: 100%;
+  }
+  
+  .switch,
+  .number-input,
+  .shortcut-input {
+    align-self: flex-end;
+  }
+  
+  .shortcut-input {
+    min-width: 100px;
+    font-size: 12px;
+  }
+  
+  .number-input input {
+    width: 50px;
+    font-size: 12px;
+  }
+  
+  .number-button {
+    width: 24px;
+    height: 24px;
+    font-size: 14px;
+  }
+  
+  .settings-warning {
+    padding: 6px 8px;
+    gap: 4px;
+  }
+  
+  .warning-title {
+    font-size: 12px;
+  }
+  
+  .warning-text {
+    font-size: 10px;
+    line-height: 1.2;
+  }
+  
+  .confirm-btn {
+    min-width: 60px;
+    padding: 6px 12px;
+    font-size: 13px;
+  }
+}
+
+/* 横屏模式优化 */
+@media (orientation: landscape) and (max-height: 400px) {
+  .settings-dialog {
+    max-height: 95vh;
+    width: 70%;
+    max-width: 600px;
+  }
+  
+  .settings-content {
+    max-height: calc(95vh - 100px);
+    padding: 10px 20px;
+  }
+  
+  .settings-group {
+    gap: 10px;
+  }
+  
+  .settings-item {
+    gap: 12px;
+  }
+  
+  .settings-header {
+    padding: 10px 20px;
+  }
+  
+  .settings-footer {
+    padding: 10px 20px;
+  }
+}
+
+/* Windows平台特殊优化 */
+@media (-ms-high-contrast: none), (-ms-high-contrast: active) {
+  .settings-overlay {
+    backdrop-filter: none;
+    background: rgba(0, 0, 0, 0.6);
+  }
+  
+  .settings-dialog {
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+  }
+}
+
+/* macOS平台特殊优化 */
+@supports (-webkit-backdrop-filter: blur()) {
+  @media (max-width: 480px) {
+    .settings-overlay {
+      backdrop-filter: blur(8px);
+    }
+    
+    .settings-dialog {
+      backdrop-filter: blur(20px);
+      background: rgba(245, 247, 250, 0.95);
+    }
+  }
+}
+
+/* 高DPI显示器优化 */
+@media (-webkit-min-device-pixel-ratio: 2), (min-resolution: 192dpi) {
+  .settings-dialog {
+    border: 0.5px solid transparent;
+  }
+  
+  .settings-header {
+    border-bottom-width: 0.5px;
+  }
+  
+  .settings-footer {
+    border-top-width: 0.5px;
+  }
+  
+  .switch .slider {
+    border: 0.5px solid transparent;
+  }
+  
+  .number-button,
+  .shortcut-input {
+    border-width: 0.5px;
+  }
+  
+  .settings-warning {
+    border-width: 0.5px;
+  }
+}
+
 /* 暗色模式支持 */
 @media (prefers-color-scheme: dark) {
   .settings-dialog {
@@ -858,6 +1094,17 @@ input:checked+.slider:before {
     --warning-border: #d69e2e;
     --warning-title: #d69e2e;
     --warning-text: #f6e05e;
+  }
+  
+  /* 暗色模式下的响应式优化 */
+  @media (max-width: 480px) {
+    .settings-dialog {
+      background: rgba(26, 26, 26, 0.95);
+    }
+    
+    .settings-overlay {
+      background: rgba(0, 0, 0, 0.7);
+    }
   }
 }
 </style>

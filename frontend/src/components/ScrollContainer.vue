@@ -31,14 +31,14 @@
       
       <!-- 真实数据，透明度渐变 -->
       <div class="real-content" :class="{ 'content-updating': isRefreshing }">
-        <ClipCard v-for="item in cards" :key="item.id" :record="item" :is-mobile="isMobile" 
+        <ClipCard v-for="item in cards" :key="item.id" :record="item" :is-mobile="responsive.isMobile.value" 
                   @click="handleCardClick" @pin="handlePin" @delete="handleDel" />
       </div>
     </div>
 
     <!-- 正常数据显示 -->
     <div class="clip-list" v-else @scroll.passive="handleScroll" ref="scrollContainer">
-      <ClipCard v-for="item in cards" :key="item.id" :record="item" :is-mobile="isMobile" 
+      <ClipCard v-for="item in cards" :key="item.id" :record="item" :is-mobile="responsive.isMobile.value" 
                 @click="handleCardClick" @pin="handlePin" @delete="handleDel" />
 
       <div v-if="isFetchingMore" class="bottom-loading">
@@ -59,6 +59,7 @@ import { listen } from '@tauri-apps/api/event';
 import { ref, onMounted, onBeforeUnmount, watch, nextTick } from 'vue';
 import SettingsDialog from './SettingsDialog.vue';
 import ClipCard from './ClipCard.vue';
+import { useWindowAdaptive } from '../utils/responsive';
 
 // 简单的防抖函数实现
 function debounce<T extends (...args: any[]) => any>(func: T, wait: number): (...args: Parameters<T>) => void {
@@ -84,6 +85,9 @@ const CACHE_DURATION = 2000; // 2秒内避免重复请求
 const lastSearchValue = ref('');
 
 const scrollContainer = ref<HTMLElement | null>(null);
+
+// 使用响应式工具
+const responsive = useWindowAdaptive();
 
 interface ClipRecord {
   id: string;
@@ -248,13 +252,7 @@ watch(search, (newValue) => {
   searchDebounced(newValue);
 });
 
-// 添加移动设备检测
-const isMobile = ref(window.innerWidth <= 768);
-
-// 监听窗口大小变化
-const handleResize = debounce(() => {
-  isMobile.value = window.innerWidth <= 768;
-}, 200);
+// 响应式设备检测已移到responsive工具中
 
 const showSettings = ref(false);
 
@@ -271,14 +269,13 @@ const handleDel = () => {
 };
 
 onMounted(() => {
-  window.addEventListener('resize', handleResize);
   lastSearchValue.value = search.value;
   fetchClipRecords();
   initEventListeners();
 });
 
 onBeforeUnmount(() => {
-  window.removeEventListener('resize', handleResize);
+  // 响应式监听器在useWindowAdaptive中自动清理
 });
 </script>
 
@@ -555,6 +552,260 @@ onBeforeUnmount(() => {
   }
 }
 
+/* 中等尺寸窗口优化 */
+@media (max-width: 600px) {
+  .panel-header {
+    padding: 10px 12px;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+  
+  .panel-title {
+    font-size: 18px;
+    min-width: 80px;
+  }
+  
+  .search-input {
+    flex: 1;
+    min-width: 120px;
+    padding: 8px 12px;
+    font-size: 12px;
+  }
+  
+  .header-icons {
+    gap: 8px;
+  }
+  
+  .icon-button {
+    width: 20px;
+    height: 20px;
+    font-size: 16px;
+  }
+  
+  .clip-list {
+    padding: 8px 0;
+  }
+}
+
+/* 小尺寸窗口优化 */
+@media (max-width: 480px) {
+  .panel-header {
+    padding: 8px 10px;
+    gap: 8px;
+    min-height: 50px;
+  }
+  
+  .panel-title {
+    font-size: 16px;
+    flex-shrink: 0;
+  }
+  
+  .search-input {
+    padding: 6px 10px;
+    font-size: 12px;
+    border-radius: 8px;
+  }
+  
+  .header-icons {
+    gap: 6px;
+  }
+  
+  .icon-button {
+    width: 18px;
+    height: 18px;
+    font-size: 14px;
+    opacity: 0.8;
+  }
+  
+  .icon-button:hover {
+    opacity: 1;
+    transform: none;
+  }
+  
+  .loading-container {
+    padding: 30px 20px;
+    gap: 12px;
+  }
+  
+  .loading-spinner {
+    width: 32px;
+    height: 32px;
+    border-width: 2px;
+  }
+  
+  .loading-text {
+    font-size: 13px;
+  }
+  
+  .skeleton-card {
+    margin: 0 8px 10px 8px;
+    padding: 10px;
+  }
+  
+  .bottom-loading {
+    padding: 12px;
+    font-size: 13px;
+  }
+}
+
+/* 极小窗口优化 */
+@media (max-width: 360px) {
+  .panel-header {
+    padding: 6px 8px;
+    gap: 6px;
+    min-height: 45px;
+  }
+  
+  .panel-title {
+    font-size: 14px;
+  }
+  
+  .search-input {
+    padding: 4px 8px;
+    font-size: 11px;
+    min-width: 80px;
+  }
+  
+  .header-icons {
+    gap: 4px;
+  }
+  
+  .icon-button {
+    width: 16px;
+    height: 16px;
+    font-size: 12px;
+  }
+  
+  .skeleton-card {
+    margin: 0 6px 8px 6px;
+    padding: 8px;
+  }
+  
+  .skeleton-header {
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+  
+  .skeleton-icon {
+    width: 16px;
+    height: 16px;
+  }
+  
+  .skeleton-title {
+    height: 14px;
+  }
+  
+  .skeleton-time {
+    width: 60px;
+    height: 10px;
+  }
+  
+  .skeleton-content {
+    height: 50px;
+  }
+}
+
+/* Tauri窗口特殊尺寸优化 - 根据窗口设置优化 */
+@media (min-width: 400px) and (max-width: 500px) and (min-height: 600px) {
+  /* 针对右侧贴边的窄窗口优化 */
+  .clipboard-panel {
+    font-size: 14px;
+  }
+  
+  .panel-header {
+    padding: 12px 14px;
+    gap: 10px;
+  }
+  
+  .panel-title {
+    font-size: 17px;
+  }
+  
+  .search-input {
+    padding: 7px 12px;
+    font-size: 13px;
+  }
+  
+  .header-icons {
+    gap: 10px;
+  }
+  
+  .icon-button {
+    width: 22px;
+    height: 22px;
+    font-size: 17px;
+  }
+}
+
+/* 高度限制时的优化 */
+@media (max-height: 500px) {
+  .panel-header {
+    padding: 8px 12px;
+    min-height: 40px;
+  }
+  
+  .panel-title {
+    font-size: 15px;
+  }
+  
+  .search-input {
+    padding: 5px 10px;
+    font-size: 12px;
+  }
+  
+  .clip-list {
+    padding: 6px 0;
+  }
+  
+  .loading-container {
+    padding: 20px;
+    gap: 10px;
+  }
+  
+  .skeleton-card {
+    padding: 8px 12px;
+    margin-bottom: 8px;
+  }
+}
+
+/* Windows平台特殊优化 */
+@media (-ms-high-contrast: none), (-ms-high-contrast: active) {
+  /* Windows特定样式 */
+  .panel-header {
+    backdrop-filter: none;
+    background-color: var(--header-bg, #2c7a7b);
+  }
+  
+  .search-input {
+    border-width: 1px;
+  }
+}
+
+/* macOS平台特殊优化 */
+@supports (-webkit-backdrop-filter: blur()) {
+  @media (max-width: 600px) {
+    .panel-header {
+      backdrop-filter: blur(20px);
+      background-color: rgba(44, 122, 123, 0.9);
+    }
+  }
+}
+
+/* 高DPI显示器优化 */
+@media (-webkit-min-device-pixel-ratio: 2), (min-resolution: 192dpi) {
+  .panel-header {
+    border-bottom-width: 0.5px;
+  }
+  
+  .search-input {
+    border-width: 0.5px;
+  }
+  
+  .icon-button {
+    border: 0.5px solid transparent;
+  }
+}
+
 /* 暗色模式支持 */
 @media (prefers-color-scheme: dark) {
   .clipboard-panel {
@@ -583,6 +834,18 @@ onBeforeUnmount(() => {
   .skeleton-content {
     background: linear-gradient(90deg, #2d2d2d 25%, #3d3d3d 50%, #2d2d2d 75%);
     background-size: 200% 100%;
+  }
+  
+  /* 暗色模式下的响应式优化 */
+  @media (max-width: 480px) {
+    .panel-header {
+      background-color: rgba(30, 58, 58, 0.95);
+    }
+    
+    .search-input {
+      background-color: #3a3a3a;
+      border-color: #4a4a4a;
+    }
   }
 }
 </style>

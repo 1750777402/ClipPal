@@ -3,6 +3,7 @@ import App from "./App.vue";
 import "./assets/styles/global.css";
 import "./assets/icons/iconfont/iconfont.css";
 import "./assets/styles/highlight.css";
+import './styles/responsive.css';
 
 createApp(App).mount("#app");
 

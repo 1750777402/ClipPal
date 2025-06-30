@@ -2,34 +2,34 @@
     <div class="clip-card" :class="{ 'clip-card-hover': !isMobile, 'is-pinned': record.pinned_flag }"
         @dblclick="handleCardDoubleClick">
         <div class="card-header">
-            <div class="card-type">
-                <i class="iconfont" :class="getTypeIcon" :title="getTypeTitle"></i>
-                <span class="type-text">{{ getTypeTitle }}
-                    <template v-if="record.type === 'File'">
-                        <span class="tip-icon-wrapper" @mouseenter="showTip = true" @mouseleave="showTip = false">
-                            <i class="iconfont icon-tishi"></i>
-                            <span v-if="showTip" class="tip-pop">该条目为文件类型，双击复制全部文件，或点击单个文件的"仅复制此文件"按钮。若有源文件丢失将提示失败</span>
-                        </span>
-                    </template>
-                </span>
-            </div>
-            <div class="card-meta">
-                <span class="time-text">{{ formatTime(record.created) }}</span>
-                <div class="card-actions" @click.stop @dblclick.stop>
-                    <button class="action-btn pin-btn" :class="{ 'is-pinned': record.pinned_flag }"
-                        @click.stop="handlePin" :title="record.pinned_flag ? '取消置顶' : '置顶'">
-                        <i class="iconfont" :class="record.pinned_flag ? 'icon-dingzhu' : 'icon-weizhiding'"></i>
-                    </button>
-                    <button class="action-btn" @click.stop="handleCopyOnly" title="仅复制">
-                        <i class="iconfont icon-copy"></i>
-                    </button>
-                    <button class="action-btn" @click.stop="handleDelete" title="删除">
-                        <i class="iconfont icon-delete"></i>
-                    </button>
-                    <button v-if="record.type === 'Image'" class="action-btn" @click.stop="handleSaveAs" title="另存为">
-                        <i class="iconfont icon-lingcunwei"></i>
-                    </button>
+            <div class="card-left">
+                <div class="card-type">
+                    <i class="iconfont" :class="getTypeIcon" :title="getTypeTitle"></i>
+                    <span class="type-text">{{ getTypeTitle }}
+                        <template v-if="record.type === 'File'">
+                            <span class="tip-icon-wrapper" @mouseenter="showTip = true" @mouseleave="showTip = false">
+                                <i class="iconfont icon-tishi"></i>
+                                <span v-if="showTip" class="tip-pop">该条目为文件类型，双击复制全部文件，或点击单个文件的"仅复制此文件"按钮。若有源文件丢失将提示失败</span>
+                            </span>
+                        </template>
+                    </span>
                 </div>
+                <span class="time-text">{{ formatTime(record.created) }}</span>
+            </div>
+            <div class="card-actions" @click.stop @dblclick.stop>
+                <button class="action-btn pin-btn" :class="{ 'is-pinned': record.pinned_flag }"
+                    @click.stop="handlePin" :title="record.pinned_flag ? '取消置顶' : '置顶'">
+                    <i class="iconfont" :class="record.pinned_flag ? 'icon-dingzhu' : 'icon-weizhiding'"></i>
+                </button>
+                <button class="action-btn" @click.stop="handleCopyOnly" title="仅复制">
+                    <i class="iconfont icon-copy"></i>
+                </button>
+                <button class="action-btn" @click.stop="handleDelete" title="删除">
+                    <i class="iconfont icon-delete"></i>
+                </button>
+                <button v-if="record.type === 'Image'" class="action-btn" @click.stop="handleSaveAs" title="另存为">
+                    <i class="iconfont icon-lingcunwei"></i>
+                </button>
             </div>
         </div>
 
@@ -428,8 +428,6 @@ const handlePin = async () => {
     emit('pin', props.record);
 };
 
-
-
 const handleImageLoad = () => {
     isImageLoaded.value = true;
     imageError.value = false;
@@ -443,8 +441,6 @@ const handleImageError = () => {
 const getFileName = (filePath: string) => {
     return filePath.split(/[\\/]/).pop() || filePath;
 };
-
-
 
 onMounted(() => {
     if (props.record.type === 'Image' && props.record.content) {
@@ -469,30 +465,10 @@ onMounted(() => {
     overflow: hidden;
 }
 
-.clip-card::after {
-    content: "双击复制并粘贴";
-    position: absolute;
-    bottom: 8px;
-    right: 12px;
-    background: rgba(44, 122, 123, 0.9);
-    color: white;
-    padding: 4px 8px;
-    border-radius: 4px;
-    font-size: 11px;
-    opacity: 0;
-    transition: opacity 0.3s ease;
-    pointer-events: none;
-    z-index: 10;
-}
-
 .clip-card-hover:hover {
     box-shadow: 0 6px 16px rgba(0, 0, 0, 0.1);
     border-color: var(--border-hover-color, #e2e8f0);
     transform: translateY(-3px);
-}
-
-.clip-card-hover:hover::after {
-    opacity: 1;
 }
 
 .clip-card.is-pinned {
@@ -511,6 +487,12 @@ onMounted(() => {
     position: relative;
 }
 
+.card-left {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+
 .card-type {
     display: flex;
     align-items: center;
@@ -522,12 +504,6 @@ onMounted(() => {
 
 .type-text {
     font-weight: 500;
-}
-
-.card-meta {
-    display: flex;
-    align-items: center;
-    gap: 16px;
 }
 
 .time-text {
@@ -1263,5 +1239,232 @@ onMounted(() => {
 
 .auto-paste-warning-dialog .confirm-ok:hover {
     background: #00a085;
+}
+
+/* 响应式设计 - 针对不同窗口尺寸优化 */
+@media (max-width: 480px) {
+  .clip-card {
+    margin: 0 12px 12px 12px;
+    border-radius: 8px;
+  }
+  
+  .card-header {
+    padding: 10px 12px;
+  }
+  
+  .card-left {
+    gap: 10px;
+  }
+  
+  .card-type .type-text {
+    font-size: 12px;
+  }
+  
+  .time-text {
+    font-size: 11px;
+  }
+  
+  .card-actions {
+    gap: 6px;
+  }
+  
+  .action-btn {
+    width: 20px;
+    height: 20px;
+    font-size: 12px;
+  }
+  
+  .card-content {
+    padding: 10px 12px 12px 12px;
+  }
+  
+  .image-container {
+    height: 160px;
+  }
+  
+  .file-item {
+    padding: 8px 10px;
+    gap: 8px;
+  }
+  
+  .file-icon-wrapper {
+    width: 28px;
+    height: 28px;
+  }
+  
+  .file-name {
+    font-size: 12px;
+  }
+  
+  .file-meta {
+    font-size: 10px;
+  }
+  
+  .single-copy-btn {
+    padding: 3px 6px;
+    font-size: 10px;
+  }
+  
+  .json-content,
+  .code-content,
+  .default-content {
+    padding: 10px;
+    gap: 8px;
+  }
+  
+  .content-icon {
+    width: 24px;
+    height: 24px;
+  }
+  
+  .json-preview,
+  .code-preview {
+    font-size: 11px;
+    max-height: 120px;
+  }
+  
+  .tip-pop {
+    max-width: 180px;
+    font-size: 11px;
+    padding: 6px 12px;
+  }
+}
+
+@media (max-width: 360px) {
+  .clip-card {
+    margin: 0 8px 10px 8px;
+  }
+  
+  .card-header {
+    padding: 8px 10px;
+  }
+  
+  .card-left {
+    gap: 8px;
+  }
+  
+  .card-actions {
+    gap: 4px;
+  }
+  
+  .action-btn {
+    width: 18px;
+    height: 18px;
+    font-size: 11px;
+  }
+  
+  .card-content {
+    padding: 8px 10px 10px 10px;
+  }
+  
+  .image-container {
+    height: 140px;
+  }
+  
+  .file-list {
+    max-height: 120px;
+  }
+  
+  .file-item {
+    padding: 6px 8px;
+    gap: 6px;
+  }
+  
+  .json-content,
+  .code-content,
+  .default-content {
+    padding: 8px;
+    gap: 6px;
+  }
+  
+  .json-preview,
+  .code-preview {
+    font-size: 10px;
+    max-height: 100px;
+  }
+}
+
+/* 针对Tauri窗口的特殊优化 - 窄窗口模式 */
+@media (max-width: 500px) and (min-height: 600px) {
+  .clip-card {
+    margin: 0 16px 14px 16px;
+  }
+  
+  .card-header {
+    padding: 10px 14px;
+  }
+  
+  .card-left {
+    gap: 12px;
+  }
+  
+  .card-type .type-text {
+    font-size: 12px;
+  }
+  
+  .time-text {
+    font-size: 11px;
+  }
+}
+
+/* Windows和macOS平台差异化处理 */
+@supports (-webkit-backdrop-filter: blur()) {
+  /* macOS样式优化 */
+  .clip-card {
+    backdrop-filter: blur(10px);
+    background: rgba(255, 255, 255, 0.9);
+  }
+  
+  .clip-card-hover:hover {
+    backdrop-filter: blur(15px);
+    background: rgba(255, 255, 255, 0.95);
+  }
+}
+
+/* 暗色模式下的响应式优化 */
+@media (prefers-color-scheme: dark) {
+  @media (max-width: 480px) {
+    .clip-card {
+      --card-bg: #2d2d2d;
+      --border-color: #3d3d3d;
+    }
+    
+    .file-item {
+      --item-bg: #3a3a3a;
+      --item-hover-bg: #404040;
+      --border-color: #4a4a4a;
+    }
+    
+    .json-content,
+    .code-content,
+    .default-content {
+      --item-bg: #3a3a3a;
+      --border-color: #4a4a4a;
+    }
+  }
+  
+  @supports (-webkit-backdrop-filter: blur()) {
+    .clip-card {
+      backdrop-filter: blur(10px);
+      background: rgba(45, 45, 45, 0.9);
+    }
+    
+    .clip-card-hover:hover {
+      backdrop-filter: blur(15px);
+      background: rgba(45, 45, 45, 0.95);
+    }
+  }
+}
+
+/* 高DPI屏幕优化 */
+@media (-webkit-min-device-pixel-ratio: 2), (min-resolution: 192dpi) {
+  .action-btn,
+  .single-copy-btn {
+    border: 0.5px solid transparent;
+  }
+  
+  .clip-card {
+    border-width: 0.5px;
+  }
 }
 </style>

@@ -1,0 +1,399 @@
+/* 全局响应式样式规则 */
+
+/* CSS自定义属性 - 响应式尺寸 */
+:root {
+    /* 断点值 */
+    --bp-xs: 360px;
+    --bp-sm: 480px;
+    --bp-md: 600px;
+    --bp-lg: 768px;
+    --bp-xl: 1024px;
+    --bp-tauri-narrow: 500px;
+    --bp-tauri-wide: 800px;
+
+    /* 动态尺寸变量 */
+    --font-scale: 1;
+    --space-scale: 1;
+    --border-width: 1px;
+
+    /* 默认间距 */
+    --spacing-xs: calc(4px * var(--space-scale));
+    --spacing-sm: calc(8px * var(--space-scale));
+    --spacing-md: calc(12px * var(--space-scale));
+    --spacing-lg: calc(16px * var(--space-scale));
+    --spacing-xl: calc(20px * var(--space-scale));
+    --spacing-2xl: calc(24px * var(--space-scale));
+
+    /* 动态字体大小 */
+    --text-xs: calc(10px * var(--font-scale));
+    --text-sm: calc(12px * var(--font-scale));
+    --text-base: calc(14px * var(--font-scale));
+    --text-lg: calc(16px * var(--font-scale));
+    --text-xl: calc(18px * var(--font-scale));
+    --text-2xl: calc(20px * var(--font-scale));
+}
+
+/* 设备类型样式 */
+.device-mobile {
+    --font-scale: 0.9;
+    --space-scale: 0.85;
+}
+
+.device-tablet {
+    --font-scale: 0.95;
+    --space-scale: 0.9;
+}
+
+.device-tauri-narrow {
+    --font-scale: 0.95;
+    --space-scale: 0.9;
+}
+
+.device-tauri-wide {
+    --font-scale: 1;
+    --space-scale: 1;
+}
+
+/* 平台特定样式 */
+.platform-windows {
+    --border-width: 1px;
+}
+
+.platform-macos.supports-blur {
+    --border-width: 0.5px;
+}
+
+/* 高DPI屏幕优化 */
+.retina {
+    --border-width: 0.5px;
+}
+
+/* 断点样式 */
+.bp-xs {
+    --font-scale: 0.85;
+    --space-scale: 0.75;
+}
+
+.bp-sm {
+    --font-scale: 0.9;
+    --space-scale: 0.85;
+}
+
+.bp-md {
+    --font-scale: 0.95;
+    --space-scale: 0.9;
+}
+
+/* 响应式工具类 */
+
+/* 显示/隐藏 */
+.hide-xs {
+    display: none !important;
+}
+
+.hide-sm {
+    display: none !important;
+}
+
+.hide-md {
+    display: none !important;
+}
+
+.hide-lg {
+    display: none !important;
+}
+
+@media (min-width: 361px) {
+    .hide-xs {
+        display: revert !important;
+    }
+
+    .show-xs {
+        display: none !important;
+    }
+}
+
+@media (min-width: 481px) {
+    .hide-sm {
+        display: revert !important;
+    }
+
+    .show-sm {
+        display: none !important;
+    }
+}
+
+@media (min-width: 601px) {
+    .hide-md {
+        display: revert !important;
+    }
+
+    .show-md {
+        display: none !important;
+    }
+}
+
+@media (min-width: 769px) {
+    .hide-lg {
+        display: revert !important;
+    }
+
+    .show-lg {
+        display: none !important;
+    }
+}
+
+/* 间距工具类 */
+.p-responsive {
+    padding: var(--spacing-md);
+}
+
+.m-responsive {
+    margin: var(--spacing-md);
+}
+
+.gap-responsive {
+    gap: var(--spacing-md);
+}
+
+/* 字体大小工具类 */
+.text-responsive {
+    font-size: var(--text-base);
+}
+
+.text-responsive-sm {
+    font-size: var(--text-sm);
+}
+
+.text-responsive-lg {
+    font-size: var(--text-lg);
+}
+
+/* 响应式容器 */
+.responsive-container {
+    width: 100%;
+    max-width: 100vw;
+    padding: 0 var(--spacing-md);
+    box-sizing: border-box;
+}
+
+/* 响应式网格 */
+.responsive-grid {
+    display: grid;
+    gap: var(--spacing-md);
+    grid-template-columns: 1fr;
+}
+
+@media (min-width: 481px) {
+    .responsive-grid {
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    }
+}
+
+/* 响应式弹性布局 */
+.responsive-flex {
+    display: flex;
+    gap: var(--spacing-md);
+    flex-wrap: wrap;
+}
+
+.responsive-flex>* {
+    flex: 1;
+    min-width: 0;
+}
+
+/* 响应式卡片 */
+.responsive-card {
+    background: var(--card-bg, #ffffff);
+    border-radius: calc(8px * var(--space-scale));
+    padding: var(--spacing-lg);
+    margin-bottom: var(--spacing-md);
+    border: var(--border-width) solid var(--border-color, #e2e8f0);
+    transition: all 0.3s ease;
+}
+
+/* 响应式按钮 */
+.responsive-button {
+    padding: var(--spacing-sm) var(--spacing-md);
+    font-size: var(--text-base);
+    border-radius: calc(6px * var(--space-scale));
+    border: var(--border-width) solid transparent;
+    transition: all 0.2s ease;
+    cursor: pointer;
+}
+
+.responsive-button:hover {
+    transform: translateY(-1px);
+}
+
+/* 响应式输入框 */
+.responsive-input {
+    padding: var(--spacing-sm) var(--spacing-md);
+    font-size: var(--text-base);
+    border-radius: calc(6px * var(--space-scale));
+    border: var(--border-width) solid var(--border-color, #d1d9e6);
+    width: 100%;
+    box-sizing: border-box;
+    transition: all 0.3s ease;
+}
+
+.responsive-input:focus {
+    outline: none;
+    border-color: var(--primary-color, #2c7a7b);
+    box-shadow: 0 0 0 2px rgba(44, 122, 123, 0.1);
+}
+
+/* 响应式弹窗 */
+.responsive-dialog {
+    width: 85%;
+    max-width: 480px;
+    min-width: 360px;
+    max-height: 90vh;
+    border-radius: calc(16px * var(--space-scale));
+    padding: var(--spacing-xl);
+    background: var(--bg-color, #ffffff);
+    border: var(--border-width) solid var(--border-color, #e2e8f0);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.15);
+}
+
+/* 断点适配 */
+@media (max-width: 360px) {
+    .responsive-dialog {
+        width: 98%;
+        max-width: 320px;
+        min-width: 280px;
+        padding: var(--spacing-lg);
+    }
+
+    .responsive-container {
+        padding: 0 var(--spacing-sm);
+    }
+}
+
+@media (max-width: 480px) {
+    .responsive-dialog {
+        width: 92%;
+        max-width: 360px;
+        min-width: 300px;
+    }
+}
+
+@media (max-width: 600px) {
+    .responsive-dialog {
+        width: 90%;
+        max-width: 400px;
+        min-width: 320px;
+    }
+}
+
+/* Tauri窗口特殊适配 */
+@media (min-width: 400px) and (max-width: 500px) and (min-height: 600px) {
+    .responsive-dialog {
+        width: 88%;
+        max-width: 450px;
+        min-width: 380px;
+    }
+
+    .responsive-container {
+        padding: 0 var(--spacing-lg);
+    }
+}
+
+/* 高度限制适配 */
+@media (max-height: 500px) {
+    .responsive-dialog {
+        max-height: 90vh;
+        padding: var(--spacing-md);
+    }
+}
+
+/* 横屏模式适配 */
+@media (orientation: landscape) and (max-height: 400px) {
+    .responsive-dialog {
+        max-height: 95vh;
+        width: 70%;
+        max-width: 600px;
+    }
+}
+
+/* 平台特定样式 */
+@media (-ms-high-contrast: none),
+(-ms-high-contrast: active) {
+
+    /* Windows特定样式 */
+    .responsive-dialog {
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+    }
+}
+
+@supports (-webkit-backdrop-filter: blur()) {
+
+    /* macOS特定样式 */
+    .supports-blur .responsive-dialog {
+        backdrop-filter: blur(20px);
+        background: rgba(255, 255, 255, 0.95);
+    }
+
+    .supports-blur .responsive-card {
+        backdrop-filter: blur(10px);
+        background: rgba(255, 255, 255, 0.9);
+    }
+}
+
+/* 触摸设备优化 */
+.touch .responsive-button {
+    min-height: 44px;
+    /* 符合触摸标准 */
+    min-width: 44px;
+}
+
+.touch .responsive-input {
+    min-height: 44px;
+}
+
+/* 暗色模式适配 */
+@media (prefers-color-scheme: dark) {
+    :root {
+        --card-bg: #2d2d2d;
+        --bg-color: #1a1a1a;
+        --border-color: #3d3d3d;
+        --text-primary: #e6e6e6;
+        --text-secondary: #999999;
+    }
+
+    .supports-blur .responsive-dialog {
+        background: rgba(26, 26, 26, 0.95);
+    }
+
+    .supports-blur .responsive-card {
+        background: rgba(45, 45, 45, 0.9);
+    }
+}
+
+/* 动画和过渡优化 */
+@media (prefers-reduced-motion: reduce) {
+
+    .responsive-button,
+    .responsive-input,
+    .responsive-card,
+    .responsive-dialog {
+        transition: none;
+    }
+
+    .responsive-button:hover {
+        transform: none;
+    }
+}
+
+/* 打印样式 */
+@media print {
+    .responsive-dialog {
+        box-shadow: none;
+        border: 1px solid #ccc;
+        background: white;
+    }
+
+    .hide-print {
+        display: none !important;
+    }
+}
