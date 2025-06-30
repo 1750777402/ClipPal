@@ -296,10 +296,10 @@ onBeforeUnmount(() => {
 }
 
 .panel-header {
-  padding: 16px;
+  padding: 14px 18px;
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 16px;
   background-color: var(--header-bg, #2c7a7b);
   border-bottom: 1px solid var(--header-border, #256d6d);
   color: var(--header-text, #e6fffa);
@@ -320,18 +320,27 @@ onBeforeUnmount(() => {
   gap: 8px;
   white-space: nowrap;
   font-size: 20px;
+  font-weight: 600;
+  letter-spacing: 1px;
+  flex-shrink: 0;
+  min-width: 80px;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.15);
+  color: #ffffff;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'SF Pro Display', 'PingFang SC', 'Microsoft YaHei', sans-serif;
 }
 
 .search-input {
   flex: 1;
-  padding: 8px 16px;
-  border-radius: 12px;
+  max-width: 280px;
+  padding: 9px 14px;
+  border-radius: 10px;
   border: 1px solid var(--input-border, #88c0d0);
-  font-size: 14px;
+  font-size: 13px;
   background-color: var(--input-bg, #e0f2f1);
   color: var(--input-text, #004d40);
   transition: all 0.3s ease;
   min-width: 0;
+  margin: 0 4px;
 }
 
 .search-input::placeholder {
@@ -507,43 +516,71 @@ onBeforeUnmount(() => {
 
 .header-icons {
   display: flex;
-  gap: 12px;
+  gap: 14px;
   align-items: center;
+  flex-shrink: 0;
+  padding-left: 8px;
 }
 
 .header-icons button.icon-button {
   background: none;
   border: none;
-  padding: 0;
+  padding: 2px;
   margin: 0;
-  font-size: 18px;
+  font-size: 17px;
   color: inherit;
   outline: none;
+  border-radius: 6px;
+  transition: all 0.2s ease;
 }
 
 .icon-button {
-  width: 24px;
-  height: 24px;
+  width: 26px;
+  height: 26px;
   cursor: pointer;
-  transition: transform 0.2s ease;
+  transition: all 0.2s ease;
   opacity: 0.9;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .icon-button:hover {
-  transform: scale(1.1);
+  transform: scale(1.05);
   opacity: 1;
+  background-color: rgba(255, 255, 255, 0.1);
 }
 
 /* 响应式布局 */
 @media (max-width: 768px) {
   .panel-header {
-    padding: 12px;
-    gap: 8px;
+    padding: 12px 16px;
+    gap: 14px;
+  }
+
+  .panel-title {
+    font-size: 19px;
+    font-weight: 600;
+    letter-spacing: 0.9px;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.13);
   }
 
   .search-input {
-    padding: 6px 12px;
+    padding: 8px 12px;
     font-size: 13px;
+    max-width: 240px;
+    margin: 0 2px;
+  }
+
+  .header-icons {
+    gap: 12px;
+    padding-left: 6px;
+  }
+
+  .icon-button {
+    width: 24px;
+    height: 24px;
+    font-size: 16px;
   }
 
   .skeleton-card {
@@ -555,14 +592,17 @@ onBeforeUnmount(() => {
 /* 中等尺寸窗口优化 */
 @media (max-width: 600px) {
   .panel-header {
-    padding: 10px 12px;
-    gap: 6px;
+    padding: 10px 14px;
+    gap: 12px;
     flex-wrap: wrap;
   }
   
   .panel-title {
     font-size: 18px;
-    min-width: 80px;
+    font-weight: 600;
+    letter-spacing: 0.8px;
+    min-width: 70px;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
   }
   
   .search-input {
@@ -570,16 +610,19 @@ onBeforeUnmount(() => {
     min-width: 120px;
     padding: 8px 12px;
     font-size: 12px;
+    max-width: 200px;
+    margin: 0 2px;
   }
   
   .header-icons {
-    gap: 8px;
+    gap: 10px;
+    padding-left: 4px;
   }
   
   .icon-button {
-    width: 20px;
-    height: 20px;
-    font-size: 16px;
+    width: 22px;
+    height: 22px;
+    font-size: 15px;
   }
   
   .clip-list {
@@ -590,29 +633,35 @@ onBeforeUnmount(() => {
 /* 小尺寸窗口优化 */
 @media (max-width: 480px) {
   .panel-header {
-    padding: 8px 10px;
-    gap: 8px;
+    padding: 8px 12px;
+    gap: 10px;
     min-height: 50px;
   }
   
   .panel-title {
     font-size: 16px;
+    font-weight: 600;
+    letter-spacing: 0.6px;
     flex-shrink: 0;
+    text-shadow: 0 1px 1px rgba(0, 0, 0, 0.1);
   }
   
   .search-input {
     padding: 6px 10px;
     font-size: 12px;
     border-radius: 8px;
+    max-width: 160px;
+    margin: 0;
   }
   
   .header-icons {
-    gap: 6px;
+    gap: 8px;
+    padding-left: 2px;
   }
   
   .icon-button {
-    width: 18px;
-    height: 18px;
+    width: 20px;
+    height: 20px;
     font-size: 14px;
     opacity: 0.8;
   }
@@ -620,6 +669,7 @@ onBeforeUnmount(() => {
   .icon-button:hover {
     opacity: 1;
     transform: none;
+    background-color: rgba(255, 255, 255, 0.08);
   }
   
   .loading-container {
@@ -651,28 +701,35 @@ onBeforeUnmount(() => {
 /* 极小窗口优化 */
 @media (max-width: 360px) {
   .panel-header {
-    padding: 6px 8px;
-    gap: 6px;
+    padding: 6px 10px;
+    gap: 8px;
     min-height: 45px;
   }
   
   .panel-title {
-    font-size: 14px;
+    font-size: 15px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    min-width: 60px;
+    text-shadow: 0 1px 1px rgba(0, 0, 0, 0.08);
   }
   
   .search-input {
     padding: 4px 8px;
     font-size: 11px;
     min-width: 80px;
+    max-width: 120px;
+    margin: 0;
   }
   
   .header-icons {
-    gap: 4px;
+    gap: 6px;
+    padding-left: 0;
   }
   
   .icon-button {
-    width: 16px;
-    height: 16px;
+    width: 18px;
+    height: 18px;
     font-size: 12px;
   }
   
@@ -713,27 +770,33 @@ onBeforeUnmount(() => {
   }
   
   .panel-header {
-    padding: 12px 14px;
-    gap: 10px;
+    padding: 12px 16px;
+    gap: 14px;
   }
   
   .panel-title {
-    font-size: 17px;
+    font-size: 18px;
+    font-weight: 600;
+    letter-spacing: 0.8px;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
   }
   
   .search-input {
-    padding: 7px 12px;
+    padding: 8px 12px;
     font-size: 13px;
+    max-width: 200px;
+    margin: 0 2px;
   }
   
   .header-icons {
-    gap: 10px;
+    gap: 12px;
+    padding-left: 6px;
   }
   
   .icon-button {
-    width: 22px;
-    height: 22px;
-    font-size: 17px;
+    width: 24px;
+    height: 24px;
+    font-size: 16px;
   }
 }
 
@@ -745,7 +808,10 @@ onBeforeUnmount(() => {
   }
   
   .panel-title {
-    font-size: 15px;
+    font-size: 17px;
+    font-weight: 600;
+    letter-spacing: 0.7px;
+    text-shadow: 0 1px 1px rgba(0, 0, 0, 0.1);
   }
   
   .search-input {
