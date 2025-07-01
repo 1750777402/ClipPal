@@ -5,4 +5,4 @@ pub mod content_processor;
 pub mod copy_clip_record;
 pub mod query_clip_record;
 pub mod system_setting;
-pub mod simple_search_bin;
+pub mod content_search_bin;

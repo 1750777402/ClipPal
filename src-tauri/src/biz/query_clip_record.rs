@@ -8,7 +8,7 @@ use crate::{
     CONTEXT,
     biz::{
         clip_record::ClipRecord, content_processor::ContentProcessor,
-        simple_search_bin::search_ids_by_content,
+        content_search_bin::search_ids_by_content,
     },
 };
 

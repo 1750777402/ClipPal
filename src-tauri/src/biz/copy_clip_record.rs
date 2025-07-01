@@ -11,7 +11,7 @@ use crate::{
     CONTEXT, auto_paste,
     biz::{
         clip_record::ClipRecord, content_processor::ContentProcessor, system_setting::Settings,
-        simple_search_bin::remove_ids_from_index,
+        content_search_bin::remove_ids_from_index,
     },
     errors::lock_utils::safe_lock,
     utils::aes_util::decrypt_content,

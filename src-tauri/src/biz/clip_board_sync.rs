@@ -11,7 +11,7 @@ use serde_json::Value;
 use tauri::{AppHandle, Emitter};
 use uuid::Uuid;
 
-use crate::{biz::simple_search_bin::add_content_to_index, utils::aes_util::encrypt_content};
+use crate::{biz::content_search_bin::add_content_to_index, utils::aes_util::encrypt_content};
 
 use crate::{
     CONTEXT,
