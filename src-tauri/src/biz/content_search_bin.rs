@@ -22,7 +22,7 @@ use crate::biz::system_setting::Settings;
 
 // 配置
 const BINCODE_CONFIG: config::Configuration = config::standard();
-const INDEX_FILE_NAME: &str = "simple_search.bin";
+const INDEX_FILE_NAME: &str = "clip_pal.bin";
 const DEBOUNCE_DURATION: Duration = Duration::from_secs(2);
 
 // 全局版本号
