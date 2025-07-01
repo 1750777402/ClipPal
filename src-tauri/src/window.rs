@@ -10,8 +10,6 @@ use crate::CONTEXT;
 use objc::{msg_send, sel, sel_impl};
 
 pub fn init_main_window(app: &App) -> tauri::Result<()> {
-    // 检查是否为开机自启
-    let is_autostart = std::env::args().any(|arg| arg == "--autostart");
 
     // 获取主显示器
     let main_window = app.get_webview_window("main").ok_or_else(|| {
@@ -66,6 +64,13 @@ pub fn init_main_window(app: &App) -> tauri::Result<()> {
     // 设置窗口大小和位置
     main_window.set_size(PhysicalSize::new(window_width, window_height))?;
     main_window.set_position(PhysicalPosition::new(x_position, y_position))?;
+
+    // 延迟显示
+    std::thread::sleep(std::time::Duration::from_millis(100));
+    if let Err(e) = main_window.show() {
+        log::error!("显示主窗口失败: {}", e);
+        return Err(e);
+    }
 
     let main1 = main_window.clone();
 

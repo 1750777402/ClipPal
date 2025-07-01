@@ -335,7 +335,7 @@ onBeforeUnmount(() => {
   max-width: none;
   min-width: 12rem;
   padding: var(--spacing-md) var(--spacing-lg);
-  border-radius: var(--radius-lg);
+  border-radius: 25px; /* 改为更大的圆角，实现圆角输入框效果 */
   border: var(--border-width) solid var(--input-border, #88c0d0);
   font-size: calc(var(--text-base) * 1.6);
   background-color: var(--input-bg, #e0f2f1);
@@ -343,6 +343,7 @@ onBeforeUnmount(() => {
   transition: all 0.3s ease;
   margin: 0 var(--spacing-md);
   height: calc(var(--input-height) * 1.2);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1); /* 添加轻微阴影增强圆角效果 */
 }
 
 .search-input::placeholder {
@@ -354,9 +355,10 @@ onBeforeUnmount(() => {
 .search-input:focus {
   outline: none;
   border-color: var(--input-focus-border, #319795);
-  box-shadow: 0 0 12px rgba(49, 151, 149, 0.2);
+  box-shadow: 0 0 12px rgba(49, 151, 149, 0.2), 0 2px 8px rgba(0, 0, 0, 0.1); /* 保持原有阴影并添加焦点阴影 */
   background-color: var(--input-focus-bg, #ffffff);
   color: var(--input-focus-text, #222);
+  transform: translateY(-1px); /* 轻微上移效果增强交互感 */
 }
 
 .loading-container {
@@ -581,6 +583,7 @@ onBeforeUnmount(() => {
     font-size: calc(var(--text-sm) * 1.6);
     margin: 0 var(--spacing-sm);
     height: calc(var(--input-height) * 1.4);
+    border-radius: 20px; /* 中等屏幕下稍微小一点的圆角 */
   }
 
   .header-icons {
@@ -624,6 +627,7 @@ onBeforeUnmount(() => {
     font-size: calc(var(--text-sm) * 1.6);
     margin: 0 var(--spacing-xs);
     height: calc(var(--input-height) * 1.2);
+    border-radius: 18px; /* 小屏幕下适中的圆角 */
   }
   
   .header-icons {
@@ -666,7 +670,7 @@ onBeforeUnmount(() => {
     min-width: 6rem;
     padding: var(--spacing-xs) var(--spacing-sm);
     font-size: calc(var(--text-xs) * 1.6);
-    border-radius: var(--radius-md);
+    border-radius: 16px; /* 极小屏幕下保持圆角 */
     margin: 0 calc(var(--spacing-xs) * 0.8);
     height: calc(var(--input-height) * 1.2);
   }
@@ -740,6 +744,7 @@ onBeforeUnmount(() => {
     font-size: calc(var(--text-xs) * 1.6);
     margin: 0 calc(var(--spacing-xs) * 0.6);
     height: calc(var(--input-height) * 0.95);
+    border-radius: 14px; /* 极小窗口下的圆角 */
   }
   
   .header-icons {
@@ -810,6 +815,7 @@ onBeforeUnmount(() => {
     font-size: calc(var(--text-sm) * 1.1);
     margin: 0 var(--spacing-xs);
     height: calc(var(--input-height) * 1.2);
+    border-radius: 18px; /* Tauri窗口特殊尺寸下的圆角 */
   }
   
   .header-icons {
@@ -842,6 +848,7 @@ onBeforeUnmount(() => {
   .search-input {
     padding: 5px 10px;
     font-size: 12px;
+    border-radius: 15px; /* 高度限制时的圆角 */
   }
   
   .clip-list {
@@ -939,10 +946,11 @@ onBeforeUnmount(() => {
       background-color: rgba(30, 58, 58, 0.95);
     }
     
-    .search-input {
-      background-color: #3a3a3a;
-      border-color: #4a4a4a;
-    }
+      .search-input {
+    background-color: #3a3a3a;
+    border-color: #4a4a4a;
+    border-radius: 16px; /* 暗色模式下的圆角 */
+  }
   }
 }
 </style>
