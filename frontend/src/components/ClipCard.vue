@@ -454,26 +454,26 @@ onMounted(() => {
 
 <style scoped>
 .clip-card {
-    background: var(--card-bg, #ffffff);
-    border-radius: 12px;
-    box-shadow: 0 3px 10px rgba(0, 0, 0, 0.06);
-    margin: 0 20px 16px 20px;
+    background: var(--card-bg);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-md);
+    margin: 0 var(--spacing-xl) var(--card-margin) var(--spacing-xl);
     transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
     cursor: pointer;
-    border: 1px solid var(--border-color, #edf2f7);
+    border: var(--border-width) solid var(--border-color);
     position: relative;
     overflow: hidden;
 }
 
 .clip-card-hover:hover {
-    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.1);
-    border-color: var(--border-hover-color, #e2e8f0);
+    box-shadow: var(--shadow-lg);
+    border-color: var(--border-hover-color);
     transform: translateY(-3px);
 }
 
 .clip-card.is-pinned {
     background: var(--pinned-bg, #f8fafc);
-    border-left: 4px solid var(--primary-color, #2c7a7b);
+    border-left: var(--spacing-xs) solid var(--primary-color);
     box-shadow: 0 4px 12px rgba(44, 122, 123, 0.12);
 }
 
@@ -481,23 +481,23 @@ onMounted(() => {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 12px 16px;
-    border-bottom: 1px solid var(--border-color, #e2e8f0);
-    background: var(--header-bg, #f8fafc);
+    padding: var(--spacing-md) var(--spacing-lg);
+    border-bottom: var(--border-width) solid var(--border-color);
+    background: #f8fafc;
     position: relative;
 }
 
 .card-left {
     display: flex;
     align-items: center;
-    gap: 16px;
+    gap: var(--spacing-lg);
 }
 
 .card-type {
     display: flex;
     align-items: center;
-    gap: 8px;
-    color: var(--text-secondary, #64748b);
+    gap: var(--spacing-sm);
+    color: var(--text-secondary);
     font-size: 13px;
     font-weight: 500;
 }

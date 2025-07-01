@@ -296,18 +296,19 @@ onBeforeUnmount(() => {
 }
 
 .panel-header {
-  padding: 14px 18px;
+  padding: var(--spacing-md) var(--spacing-lg);
   display: flex;
   align-items: center;
-  gap: 16px;
-  background-color: var(--header-bg, #2c7a7b);
-  border-bottom: 1px solid var(--header-border, #256d6d);
+  gap: var(--spacing-lg);
+  background-color: var(--header-bg);
+  border-bottom: var(--border-width) solid var(--header-border, #256d6d);
   color: var(--header-text, #e6fffa);
   font-weight: 600;
-  font-size: clamp(16px, 2vw, 18px);
+  font-size: var(--text-lg);
   user-select: none;
   flex-shrink: 0;
-  min-height: 0;
+  min-height: var(--header-height);
+  height: var(--header-height);
   position: sticky;
   top: 0;
   z-index: 10;
@@ -317,13 +318,13 @@ onBeforeUnmount(() => {
 .panel-title {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--spacing-sm);
   white-space: nowrap;
-  font-size: 20px;
+  font-size: var(--text-xl);
   font-weight: 600;
   letter-spacing: 1px;
   flex-shrink: 0;
-  min-width: 80px;
+  min-width: 5rem;
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.15);
   color: #ffffff;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'SF Pro Display', 'PingFang SC', 'Microsoft YaHei', sans-serif;
@@ -331,16 +332,17 @@ onBeforeUnmount(() => {
 
 .search-input {
   flex: 1;
-  max-width: 280px;
-  padding: 9px 14px;
-  border-radius: 10px;
-  border: 1px solid var(--input-border, #88c0d0);
-  font-size: 13px;
+  max-width: 17.5rem;
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-radius: var(--radius-md);
+  border: var(--border-width) solid var(--input-border, #88c0d0);
+  font-size: var(--text-sm);
   background-color: var(--input-bg, #e0f2f1);
   color: var(--input-text, #004d40);
   transition: all 0.3s ease;
   min-width: 0;
-  margin: 0 4px;
+  margin: 0 var(--spacing-xs);
+  height: var(--input-height);
 }
 
 .search-input::placeholder {
@@ -360,8 +362,8 @@ onBeforeUnmount(() => {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 40px;
-  gap: 16px;
+  padding: var(--spacing-3xl);
+  gap: var(--spacing-lg);
 }
 
 .loading-spinner {
@@ -393,9 +395,9 @@ onBeforeUnmount(() => {
 .clip-list {
   flex: 1;
   overflow-y: auto;
-  padding: 12px 0;
+  padding: var(--spacing-md) 0;
   scrollbar-width: thin;
-  scrollbar-color: var(--scrollbar-thumb, #81e6d9) transparent;
+  scrollbar-color: var(--scrollbar-thumb) transparent;
   box-sizing: border-box;
   min-height: 0;
   -webkit-overflow-scrolling: touch;
@@ -428,18 +430,18 @@ onBeforeUnmount(() => {
 }
 
 .skeleton-card {
-  background: var(--card-bg, #ffffff);
-  border-radius: 12px;
-  margin: 0 20px 16px 20px;
-  padding: 16px;
-  border: 1px solid var(--border-color, #edf2f7);
+  background: var(--card-bg);
+  border-radius: var(--radius-lg);
+  margin: 0 var(--spacing-xl) var(--spacing-lg) var(--spacing-xl);
+  padding: var(--spacing-lg);
+  border: var(--border-width) solid var(--border-color);
 }
 
 .skeleton-header {
   display: flex;
   align-items: center;
-  gap: 12px;
-  margin-bottom: 12px;
+  gap: var(--spacing-md);
+  margin-bottom: var(--spacing-md);
 }
 
 .skeleton-icon {

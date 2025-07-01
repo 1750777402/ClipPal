@@ -16,37 +16,101 @@
     --space-scale: 1;
     --border-width: 1px;
 
-    /* 默认间距 */
-    --spacing-xs: calc(4px * var(--space-scale));
-    --spacing-sm: calc(8px * var(--space-scale));
-    --spacing-md: calc(12px * var(--space-scale));
-    --spacing-lg: calc(16px * var(--space-scale));
-    --spacing-xl: calc(20px * var(--space-scale));
-    --spacing-2xl: calc(24px * var(--space-scale));
+    /* 基于rem的响应式间距 */
+    --spacing-xs: calc(0.25rem * var(--space-scale));
+    /* 4px 基准 */
+    --spacing-sm: calc(0.5rem * var(--space-scale));
+    /* 8px 基准 */
+    --spacing-md: calc(0.75rem * var(--space-scale));
+    /* 12px 基准 */
+    --spacing-lg: calc(1rem * var(--space-scale));
+    /* 16px 基准 */
+    --spacing-xl: calc(1.25rem * var(--space-scale));
+    /* 20px 基准 */
+    --spacing-2xl: calc(1.5rem * var(--space-scale));
+    /* 24px 基准 */
+    --spacing-3xl: calc(2rem * var(--space-scale));
+    /* 32px 基准 */
 
-    /* 动态字体大小 */
-    --text-xs: calc(10px * var(--font-scale));
-    --text-sm: calc(12px * var(--font-scale));
-    --text-base: calc(14px * var(--font-scale));
-    --text-lg: calc(16px * var(--font-scale));
-    --text-xl: calc(18px * var(--font-scale));
-    --text-2xl: calc(20px * var(--font-scale));
+    /* 基于rem的动态字体大小 */
+    --text-xs: calc(0.75rem * var(--font-scale));
+    /* 12px 基准 */
+    --text-sm: calc(0.875rem * var(--font-scale));
+    /* 14px 基准 */
+    --text-base: calc(1rem * var(--font-scale));
+    /* 16px 基准 */
+    --text-lg: calc(1.125rem * var(--font-scale));
+    /* 18px 基准 */
+    --text-xl: calc(1.25rem * var(--font-scale));
+    /* 20px 基准 */
+    --text-2xl: calc(1.5rem * var(--font-scale));
+    /* 24px 基准 */
+    --text-3xl: calc(1.875rem * var(--font-scale));
+    /* 30px 基准 */
+
+    /* 基于rem的圆角 */
+    --radius-xs: calc(0.25rem * var(--space-scale));
+    /* 4px 基准 */
+    --radius-sm: calc(0.375rem * var(--space-scale));
+    /* 6px 基准 */
+    --radius-md: calc(0.5rem * var(--space-scale));
+    /* 8px 基准 */
+    --radius-lg: calc(0.75rem * var(--space-scale));
+    /* 12px 基准 */
+    --radius-xl: calc(1rem * var(--space-scale));
+    /* 16px 基准 */
+
+    /* 基于rem的阴影 */
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
+    --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.07);
+    --shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.1);
+    --shadow-xl: 0 20px 25px rgba(0, 0, 0, 0.1);
+
+    /* 组件特定尺寸 */
+    --header-height: calc(3.5rem * var(--space-scale));
+    /* 56px 基准 */
+    --card-padding: var(--spacing-lg);
+    --card-margin: var(--spacing-md);
+    --button-height: calc(2.5rem * var(--space-scale));
+    /* 40px 基准 */
+    --input-height: calc(2.5rem * var(--space-scale));
+    /* 40px 基准 */
+
+    /* 颜色变量 */
+    --primary-color: #2c7a7b;
+    --primary-light: #4fd1c7;
+    --primary-dark: #234e52;
+
+    --bg-color: #f5f7fa;
+    --bg-secondary: #edf2f7;
+    --card-bg: #ffffff;
+    --header-bg: #2c7a7b;
+
+    --text-primary: #2d3748;
+    --text-secondary: #64748b;
+    --text-muted: #94a3b8;
+
+    --border-color: #e2e8f0;
+    --border-hover-color: #cbd5e0;
+
+    --scrollbar-thumb: #81e6d9;
+    --scrollbar-thumb-hover: #4fd1c7;
 }
 
 /* 设备类型样式 */
 .device-mobile {
+    --font-scale: 0.85;
+    --space-scale: 0.8;
+}
+
+.device-tablet {
     --font-scale: 0.9;
     --space-scale: 0.85;
 }
 
-.device-tablet {
-    --font-scale: 0.95;
-    --space-scale: 0.9;
-}
-
 .device-tauri-narrow {
-    --font-scale: 0.95;
-    --space-scale: 0.9;
+    --font-scale: 0.9;
+    --space-scale: 0.85;
 }
 
 .device-tauri-wide {
@@ -68,20 +132,26 @@
     --border-width: 0.5px;
 }
 
-/* 断点样式 */
+/* 断点样式 - 更细粒度的控制 */
 .bp-xs {
-    --font-scale: 0.85;
+    --font-scale: 0.8;
     --space-scale: 0.75;
+    --card-padding: var(--spacing-md);
+    --card-margin: var(--spacing-sm);
 }
 
 .bp-sm {
-    --font-scale: 0.9;
-    --space-scale: 0.85;
+    --font-scale: 0.85;
+    --space-scale: 0.8;
+    --card-padding: var(--spacing-md);
+    --card-margin: var(--spacing-sm);
 }
 
 .bp-md {
-    --font-scale: 0.95;
-    --space-scale: 0.9;
+    --font-scale: 0.9;
+    --space-scale: 0.85;
+    --card-padding: var(--spacing-lg);
+    --card-margin: var(--spacing-md);
 }
 
 /* 响应式工具类 */
@@ -145,20 +215,56 @@
 
 /* 间距工具类 */
 .p-responsive {
+    padding: var(--card-padding);
+}
+
+.p-responsive-sm {
+    padding: var(--spacing-sm);
+}
+
+.p-responsive-md {
     padding: var(--spacing-md);
 }
 
+.p-responsive-lg {
+    padding: var(--spacing-lg);
+}
+
 .m-responsive {
+    margin: var(--card-margin);
+}
+
+.m-responsive-sm {
+    margin: var(--spacing-sm);
+}
+
+.m-responsive-md {
     margin: var(--spacing-md);
+}
+
+.m-responsive-lg {
+    margin: var(--spacing-lg);
 }
 
 .gap-responsive {
     gap: var(--spacing-md);
 }
 
+.gap-responsive-sm {
+    gap: var(--spacing-sm);
+}
+
+.gap-responsive-lg {
+    gap: var(--spacing-lg);
+}
+
 /* 字体大小工具类 */
 .text-responsive {
     font-size: var(--text-base);
+}
+
+.text-responsive-xs {
+    font-size: var(--text-xs);
 }
 
 .text-responsive-sm {
@@ -167,6 +273,10 @@
 
 .text-responsive-lg {
     font-size: var(--text-lg);
+}
+
+.text-responsive-xl {
+    font-size: var(--text-xl);
 }
 
 /* 响应式容器 */
@@ -204,22 +314,33 @@
 
 /* 响应式卡片 */
 .responsive-card {
-    background: var(--card-bg, #ffffff);
-    border-radius: calc(8px * var(--space-scale));
-    padding: var(--spacing-lg);
-    margin-bottom: var(--spacing-md);
-    border: var(--border-width) solid var(--border-color, #e2e8f0);
+    background: var(--card-bg);
+    border-radius: var(--radius-lg);
+    padding: var(--card-padding);
+    margin-bottom: var(--card-margin);
+    border: var(--border-width) solid var(--border-color);
+    box-shadow: var(--shadow-md);
     transition: all 0.3s ease;
+}
+
+.responsive-card:hover {
+    box-shadow: var(--shadow-lg);
+    transform: translateY(-1px);
 }
 
 /* 响应式按钮 */
 .responsive-button {
     padding: var(--spacing-sm) var(--spacing-md);
     font-size: var(--text-base);
-    border-radius: calc(6px * var(--space-scale));
+    border-radius: var(--radius-sm);
     border: var(--border-width) solid transparent;
+    height: var(--button-height);
+    min-height: var(--button-height);
     transition: all 0.2s ease;
     cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
 }
 
 .responsive-button:hover {
@@ -230,8 +351,9 @@
 .responsive-input {
     padding: var(--spacing-sm) var(--spacing-md);
     font-size: var(--text-base);
-    border-radius: calc(6px * var(--space-scale));
-    border: var(--border-width) solid var(--border-color, #d1d9e6);
+    border-radius: var(--radius-sm);
+    border: var(--border-width) solid var(--border-color);
+    height: var(--input-height);
     width: 100%;
     box-sizing: border-box;
     transition: all 0.3s ease;
@@ -239,29 +361,33 @@
 
 .responsive-input:focus {
     outline: none;
-    border-color: var(--primary-color, #2c7a7b);
+    border-color: var(--primary-color);
     box-shadow: 0 0 0 2px rgba(44, 122, 123, 0.1);
 }
 
 /* 响应式弹窗 */
 .responsive-dialog {
     width: 85%;
-    max-width: 480px;
-    min-width: 360px;
+    max-width: 30rem;
+    /* 480px in default */
+    min-width: 22.5rem;
+    /* 360px in default */
     max-height: 90vh;
-    border-radius: calc(16px * var(--space-scale));
+    border-radius: var(--radius-xl);
     padding: var(--spacing-xl);
-    background: var(--bg-color, #ffffff);
-    border: var(--border-width) solid var(--border-color, #e2e8f0);
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.15);
+    background: var(--card-bg);
+    border: var(--border-width) solid var(--border-color);
+    box-shadow: var(--shadow-xl);
 }
 
-/* 断点适配 */
+/* 断点适配 - 基于rem的响应式 */
 @media (max-width: 360px) {
     .responsive-dialog {
         width: 98%;
-        max-width: 320px;
-        min-width: 280px;
+        max-width: 20rem;
+        /* 320px */
+        min-width: 17.5rem;
+        /* 280px */
         padding: var(--spacing-lg);
     }
 
@@ -273,16 +399,20 @@
 @media (max-width: 480px) {
     .responsive-dialog {
         width: 92%;
-        max-width: 360px;
-        min-width: 300px;
+        max-width: 22.5rem;
+        /* 360px */
+        min-width: 18.75rem;
+        /* 300px */
     }
 }
 
 @media (max-width: 600px) {
     .responsive-dialog {
         width: 90%;
-        max-width: 400px;
-        min-width: 320px;
+        max-width: 25rem;
+        /* 400px */
+        min-width: 20rem;
+        /* 320px */
     }
 }
 
@@ -290,8 +420,10 @@
 @media (min-width: 400px) and (max-width: 500px) and (min-height: 600px) {
     .responsive-dialog {
         width: 88%;
-        max-width: 450px;
-        min-width: 380px;
+        max-width: 28.125rem;
+        /* 450px */
+        min-width: 23.75rem;
+        /* 380px */
     }
 
     .responsive-container {
@@ -312,7 +444,8 @@
     .responsive-dialog {
         max-height: 95vh;
         width: 70%;
-        max-width: 600px;
+        max-width: 37.5rem;
+        /* 600px */
     }
 }
 
@@ -322,7 +455,7 @@
 
     /* Windows特定样式 */
     .responsive-dialog {
-        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+        box-shadow: var(--shadow-xl);
     }
 }
 
@@ -342,23 +475,30 @@
 
 /* 触摸设备优化 */
 .touch .responsive-button {
-    min-height: 44px;
-    /* 符合触摸标准 */
-    min-width: 44px;
+    min-height: 2.75rem;
+    /* 44px */
+    min-width: 2.75rem;
 }
 
 .touch .responsive-input {
-    min-height: 44px;
+    min-height: 2.75rem;
+    /* 44px */
 }
 
 /* 暗色模式适配 */
 @media (prefers-color-scheme: dark) {
     :root {
-        --card-bg: #2d2d2d;
         --bg-color: #1a1a1a;
-        --border-color: #3d3d3d;
+        --bg-secondary: #2d2d2d;
+        --card-bg: #2d2d2d;
+        --header-bg: #1a365d;
+
         --text-primary: #e6e6e6;
         --text-secondary: #999999;
+        --text-muted: #666666;
+
+        --border-color: #3d3d3d;
+        --border-hover-color: #4a4a4a;
     }
 
     .supports-blur .responsive-dialog {
@@ -380,7 +520,8 @@
         transition: none;
     }
 
-    .responsive-button:hover {
+    .responsive-button:hover,
+    .responsive-card:hover {
         transform: none;
     }
 }

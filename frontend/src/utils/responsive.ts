@@ -71,6 +71,45 @@ export function isTouchDevice(): boolean {
     return 'ontouchstart' in window || navigator.maxTouchPoints > 0
 }
 
+// 动态更新CSS变量 - 新增功能
+export function updateCSSVariables(width: number) {
+    const root = document.documentElement
+
+    // 根据窗口宽度计算缩放比例
+    let fontScale = 1
+    let spaceScale = 1
+
+    if (width <= 400) {
+        fontScale = 0.8
+        spaceScale = 0.75
+    } else if (width <= 500) {
+        fontScale = 0.85
+        spaceScale = 0.8
+    } else if (width <= 600) {
+        fontScale = 0.9
+        spaceScale = 0.85
+    } else if (width <= 700) {
+        fontScale = 0.95
+        spaceScale = 0.9
+    }
+
+    // 应用CSS变量
+    root.style.setProperty('--font-scale', fontScale.toString())
+    root.style.setProperty('--space-scale', spaceScale.toString())
+
+    // 根据宽度调整卡片边距
+    if (width <= 400) {
+        root.style.setProperty('--card-margin', 'var(--spacing-sm)')
+        root.style.setProperty('--card-padding', 'var(--spacing-md)')
+    } else if (width <= 500) {
+        root.style.setProperty('--card-margin', 'var(--spacing-sm)')
+        root.style.setProperty('--card-padding', 'var(--spacing-md)')
+    } else {
+        root.style.setProperty('--card-margin', 'var(--spacing-md)')
+        root.style.setProperty('--card-padding', 'var(--spacing-lg)')
+    }
+}
+
 // 响应式断点Hook
 export function useBreakpoint() {
     const width = ref(window.innerWidth)
@@ -122,6 +161,9 @@ export function useBreakpoint() {
         isDesktop.value = newDeviceType === 'desktop'
         isTauriNarrow.value = newDeviceType === 'tauri-narrow'
         isTauriWide.value = newDeviceType === 'tauri-wide'
+
+        // 动态更新CSS变量
+        updateCSSVariables(width.value)
     }
 
     const handleResize = () => {
@@ -181,41 +223,41 @@ export function useWindowAdaptive() {
 
     // 根据窗口大小调整字体
     const getFontScale = (): number => {
-        if (breakpoint.isXs.value) return 0.85
-        if (breakpoint.isSm.value) return 0.9
-        if (breakpoint.isTauriNarrow.value) return 0.95
+        if (breakpoint.isXs.value) return 0.8
+        if (breakpoint.isSm.value) return 0.85
+        if (breakpoint.isTauriNarrow.value) return 0.9
         return 1
     }
 
     // 根据窗口大小调整间距
     const getSpaceScale = (): number => {
         if (breakpoint.isXs.value) return 0.75
-        if (breakpoint.isSm.value) return 0.85
-        if (breakpoint.isTauriNarrow.value) return 0.9
+        if (breakpoint.isSm.value) return 0.8
+        if (breakpoint.isTauriNarrow.value) return 0.85
         return 1
     }
 
     // 获取合适的卡片边距
     const getCardMargin = (): string => {
-        if (breakpoint.isXs.value) return '0 6px 8px 6px'
-        if (breakpoint.isSm.value) return '0 8px 10px 8px'
-        if (breakpoint.isMd.value) return '0 12px 12px 12px'
-        if (breakpoint.isTauriNarrow.value) return '0 16px 14px 16px'
-        return '0 20px 16px 20px'
+        if (breakpoint.isXs.value) return '0 0.375rem 0.5rem 0.375rem'
+        if (breakpoint.isSm.value) return '0 0.5rem 0.625rem 0.5rem'
+        if (breakpoint.isMd.value) return '0 0.75rem 0.75rem 0.75rem'
+        if (breakpoint.isTauriNarrow.value) return '0 1rem 0.875rem 1rem'
+        return '0 1.25rem 1rem 1.25rem'
     }
 
     // 获取合适的弹窗尺寸
     const getDialogSize = (): { width: string; maxWidth: string; minWidth: string } => {
         if (breakpoint.isXs.value) {
-            return { width: '98%', maxWidth: '320px', minWidth: '280px' }
+            return { width: '98%', maxWidth: '20rem', minWidth: '17.5rem' }
         } else if (breakpoint.isSm.value) {
-            return { width: '92%', maxWidth: '360px', minWidth: '300px' }
+            return { width: '92%', maxWidth: '22.5rem', minWidth: '18.75rem' }
         } else if (breakpoint.isMd.value) {
-            return { width: '90%', maxWidth: '400px', minWidth: '320px' }
+            return { width: '90%', maxWidth: '25rem', minWidth: '20rem' }
         } else if (breakpoint.isTauriNarrow.value) {
-            return { width: '88%', maxWidth: '450px', minWidth: '380px' }
+            return { width: '88%', maxWidth: '28.125rem', minWidth: '23.75rem' }
         }
-        return { width: '85%', maxWidth: '480px', minWidth: '360px' }
+        return { width: '85%', maxWidth: '30rem', minWidth: '22.5rem' }
     }
 
     return {

@@ -32,15 +32,29 @@ pub fn init_main_window(app: &App) -> tauri::Result<()> {
     let screen_size = monitor.size();
     let screen_width = screen_size.width as i32;
     let screen_height = screen_size.height as i32;
+    let scale_factor = monitor.scale_factor();
 
-    // 设置窗口参数 - 右侧贴边，高度与屏幕同高  宽度为屏幕宽度六分之一，最小400
-    let window_width = (screen_width / 6).max(400);
-    // 设置x轴时在右侧贴边，但是留出一点距离防止边框溢出
-    let x_position = (screen_width - window_width - 8).max(0);
+    log::info!("显示器信息: {}x{}, 缩放比例: {}", screen_width, screen_height, scale_factor);
+
+    // 智能窗口宽度计算
+    let window_width = calculate_optimal_width(screen_width, scale_factor);
+    
+    // 窗口高度直接使用屏幕高度，让系统自动处理可用区域
+    let window_height = screen_height;
+    
+    // 计算x位置 - 右侧贴边，预留适当边距防止边框溢出
+    let edge_margin = (8.0 * scale_factor) as i32;
+    let x_position = (screen_width - window_width - edge_margin).max(0);
+    
+    // y位置设为0，窗口贴顶部显示
+    let y_position = 0;
+
+    log::info!("计算得出窗口尺寸: {}x{}, 位置: ({}, {})", 
+               window_width, window_height, x_position, y_position);
 
     // 设置窗口大小和位置
-    main_window.set_size(PhysicalSize::new(window_width, screen_height))?;
-    main_window.set_position(PhysicalPosition::new(x_position, 0))?;
+    main_window.set_size(PhysicalSize::new(window_width, window_height))?;
+    main_window.set_position(PhysicalPosition::new(x_position, y_position))?;
     
     // 只有在非开机启动时才显示窗口
     if !is_autostart {
@@ -80,6 +94,38 @@ pub fn init_main_window(app: &App) -> tauri::Result<()> {
         _ => {}
     });
     Ok(())
+}
+
+/// 计算最佳窗口宽度
+/// 
+/// 算法逻辑：
+/// 1. 基础宽度：屏幕宽度的合理比例
+/// 2. DPI适配：根据缩放比例调整
+/// 3. 范围限制：设置最小和最大值
+fn calculate_optimal_width(screen_width: i32, scale_factor: f64) -> i32 {
+    // 基础比例计算 - 根据屏幕宽度采用不同策略
+    let base_width = if screen_width <= 1366 {
+        // 小屏幕：占用较小比例，避免过于拥挤
+        (screen_width as f64 * 0.28).round() as i32
+    } else if screen_width <= 1920 {
+        // 标准屏幕：1/5 到 1/6 之间
+        (screen_width as f64 * 0.18).round() as i32
+    } else if screen_width <= 2560 {
+        // 大屏幕：稍小比例
+        (screen_width as f64 * 0.15).round() as i32
+    } else {
+        // 超大屏幕：更小比例，避免过宽
+        (screen_width as f64 * 0.12).round() as i32
+    };
+
+    // DPI 适配调整
+    let dpi_adjusted_width = (base_width as f64 * scale_factor.min(2.0)) as i32;
+
+    // 设置合理的范围限制
+    let min_width = (380.0 * scale_factor) as i32;  // 最小380px（逻辑像素）
+    let max_width = (600.0 * scale_factor) as i32;  // 最大600px（逻辑像素）
+
+        dpi_adjusted_width.clamp(min_width, max_width)
 }
 
 #[derive(Default, Debug)]
