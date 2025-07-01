@@ -1,6 +1,6 @@
 <template>
   <div v-if="modelValue" class="settings-overlay" @click.self="handleClose">
-    <div class="settings-dialog">
+    <div class="settings-dialog responsive-dialog" :class="responsiveClasses">
       <div class="settings-header">
         <h2 class="settings-title">设置</h2>
         <button class="close-button" @click="handleClose">×</button>
@@ -99,6 +99,7 @@
 <script setup lang="ts">
 import { ref, watch, onMounted, onBeforeUnmount, computed } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
+import { useWindowAdaptive, generateResponsiveClasses } from '../utils/responsive';
 
 const props = defineProps<{
   modelValue: boolean
@@ -129,6 +130,10 @@ const isRecording = ref(false);
 const isSaving = ref(false);
 const shortcutError = ref('');
 const pressedKeys = ref<string[]>([]);
+
+// 使用响应式工具
+const responsive = useWindowAdaptive();
+const responsiveClasses = computed(() => generateResponsiveClasses(responsive));
 
 // 检测Mac系统
 const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0 || 
@@ -425,25 +430,36 @@ onBeforeUnmount(() => {
   align-items: center;
   z-index: 1000;
   backdrop-filter: blur(4px);
-  padding: 20px;
+  padding: var(--spacing-xl);
   box-sizing: border-box;
   overflow: hidden;
 }
 
 .settings-dialog {
-  background: var(--bg-color, #f5f7fa);
-  border-radius: 16px;
-  width: 85%;
-  max-width: 480px;
-  min-width: 360px;
-  max-height: 90vh;
-  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.15);
+  background: var(--card-bg);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-xl);
   display: flex;
   flex-direction: column;
   animation: dialog-in 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   overflow: hidden;
   margin: 0 auto;
+  /* 设置弹窗专用的字体放大 */
+  --settings-font-scale: 1.25; /* 适度放大25% */
+  
+  /* 优化字体渲染 */
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  font-variant-ligatures: normal;
+  
+  /* 优化文字颜色对比度 */
+  --settings-text-primary: #1a1a1a;
+  --settings-text-secondary: #666666;
 }
+
+/* 响应式弹窗已在responsive.css中定义，这里扩展设置弹窗特定样式 */
 
 @keyframes dialog-in {
   from {
@@ -458,8 +474,8 @@ onBeforeUnmount(() => {
 }
 
 .settings-header {
-  padding: 16px 20px;
-  border-bottom: 1px solid var(--border-color, #d1d9e6);
+  padding: var(--spacing-lg) var(--spacing-xl);
+  border-bottom: var(--border-width) solid var(--border-color);
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -467,20 +483,23 @@ onBeforeUnmount(() => {
 
 .settings-title {
   margin: 0;
-  font-size: 18px;
-  color: var(--text-primary, #2d3748);
-  font-weight: 600;
+  font-size: calc(var(--text-xl) * var(--settings-font-scale) * 1.2);
+  color: var(--settings-text-primary);
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+  font-feature-settings: 'kern' 1;
 }
 
 .close-button {
   background: none;
   border: none;
-  font-size: 24px;
+  font-size: calc(24px * var(--settings-font-scale));
   color: var(--text-secondary, #666);
   cursor: pointer;
-  padding: 4px;
+  padding: calc(4px + (var(--settings-font-scale) - 1) * 1px);
   line-height: 1;
-  border-radius: 4px;
+  border-radius: calc(4px + (var(--settings-font-scale) - 1) * 1px);
   transition: all 0.2s ease;
 }
 
@@ -490,18 +509,18 @@ onBeforeUnmount(() => {
 }
 
 .settings-content {
-  padding: 20px 24px;
+  padding: var(--spacing-xl) var(--spacing-2xl);
   overflow-y: auto;
   overflow-x: hidden;
   flex: 1;
   min-height: 0;
-  max-height: calc(90vh - 120px);
+  max-height: calc(90vh - 7.5rem);
 }
 
 .settings-group {
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: var(--spacing-lg);
 }
 
 .settings-item-wrapper {
@@ -513,34 +532,42 @@ onBeforeUnmount(() => {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 20px;
+  gap: var(--spacing-xl);
 }
 
 .settings-label {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--spacing-xs);
   flex: 1;
   min-width: 0;
   overflow: hidden;
 }
 
 .settings-label span:first-child {
-  font-weight: 500;
-  color: var(--text-primary, #2d3748);
+  font-weight: 600;
+  color: var(--settings-text-primary);
+  font-size: calc(var(--text-lg) * var(--settings-font-scale) * 1.1);
+  letter-spacing: 0.3px;
+  text-shadow: 0 0.5px 1px rgba(0, 0, 0, 0.04);
+  font-feature-settings: 'kern' 1;
 }
 
 .settings-description {
-  font-size: 12px;
-  color: var(--text-secondary, #666);
+  font-size: calc(var(--text-sm) * var(--settings-font-scale) * 1);
+  color: var(--settings-text-secondary);
+  line-height: 1.4;
+  font-weight: 400;
+  opacity: 0.9;
+  font-feature-settings: 'kern' 1;
 }
 
 /* 开关样式 */
 .switch {
   position: relative;
   display: inline-block;
-  width: 44px;
-  height: 24px;
+  width: calc(44px + (var(--settings-font-scale) - 1) * 8px);
+  height: calc(24px + (var(--settings-font-scale) - 1) * 4px);
 }
 
 .switch input {
@@ -564,10 +591,10 @@ onBeforeUnmount(() => {
 .slider:before {
   position: absolute;
   content: "";
-  height: 20px;
-  width: 20px;
-  left: 2px;
-  bottom: 2px;
+  height: calc(20px + (var(--settings-font-scale) - 1) * 3px);
+  width: calc(20px + (var(--settings-font-scale) - 1) * 3px);
+  left: calc(2px + (var(--settings-font-scale) - 1) * 1px);
+  bottom: calc(2px + (var(--settings-font-scale) - 1) * 0.5px);
   background-color: white;
   transition: .3s;
   border-radius: 50%;
@@ -578,29 +605,32 @@ input:checked+.slider {
 }
 
 input:checked+.slider:before {
-  transform: translateX(20px);
+  transform: translateX(calc(20px + (var(--settings-font-scale) - 1) * 4px));
 }
 
 /* 数字输入框样式 */
 .number-input {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: calc(8px + (var(--settings-font-scale) - 1) * 2px);
 }
 
 .number-button {
-  width: 28px;
-  height: 28px;
+  width: calc(28px + (var(--settings-font-scale) - 1) * 6px);
+  height: calc(28px + (var(--settings-font-scale) - 1) * 6px);
   border: 1px solid var(--border-color, #d1d9e6);
   background: var(--button-bg, #fff);
   border-radius: 6px;
-  font-size: 16px;
+  font-size: calc(var(--text-lg) * var(--settings-font-scale) * 0.85);
   color: var(--text-primary, #2d3748);
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
   transition: all 0.2s ease;
+  font-weight: 600;
+  text-shadow: 0 0.5px 1px rgba(0, 0, 0, 0.1);
+  font-feature-settings: 'kern' 1;
 }
 
 .number-button:hover {
@@ -608,33 +638,38 @@ input:checked+.slider:before {
 }
 
 .number-input input {
-  width: 60px;
-  height: 28px;
+  width: calc(60px + (var(--settings-font-scale) - 1) * 10px);
+  height: calc(28px + (var(--settings-font-scale) - 1) * 6px);
   border: 1px solid var(--border-color, #d1d9e6);
   border-radius: 6px;
   text-align: center;
-  font-size: 14px;
+  font-size: calc(var(--text-base) * var(--settings-font-scale) * 0.9);
   color: var(--text-primary, #2d3748);
   background: var(--input-bg, #fff);
+  font-weight: 500;
+  font-feature-settings: 'kern' 1, 'tnum' 1;
 }
 
 /* 快捷键输入框样式 */
 .shortcut-input {
-  min-width: 120px;
-  height: 32px;
+  min-width: calc(120px + (var(--settings-font-scale) - 1) * 20px);
+  height: calc(32px + (var(--settings-font-scale) - 1) * 6px);
   border: 1px solid var(--border-color, #d1d9e6);
   border-radius: 6px;
-  padding: 0 12px;
+  padding: 0 calc(12px + (var(--settings-font-scale) - 1) * 3px);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 14px;
+  font-size: calc(var(--text-base) * var(--settings-font-scale) * 0.9);
   color: var(--text-primary, #2d3748);
   background: var(--input-bg, #fff);
   cursor: pointer;
   transition: all 0.2s ease;
   user-select: none;
   position: relative;
+  font-weight: 500;
+  font-feature-settings: 'kern' 1;
+  font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace;
 }
 
 .shortcut-input:hover {
@@ -658,15 +693,18 @@ input:checked+.slider:before {
 }
 
 .error-icon {
-  margin-left: 8px;
-  font-size: 16px;
+  margin-left: calc(8px + (var(--settings-font-scale) - 1) * 2px);
+  font-size: calc(var(--text-base) * var(--settings-font-scale));
 }
 
 .error-message {
-  font-size: 12px;
+  font-size: calc(var(--text-sm) * var(--settings-font-scale) * 0.9);
   color: var(--error-color, #e53e3e);
-  margin-top: 4px;
+  margin-top: calc(4px + (var(--settings-font-scale) - 1) * 1px);
   width: 100%;
+  line-height: 1.3;
+  font-weight: 500;
+  font-feature-settings: 'kern' 1;
 }
 
 @keyframes pulse {
@@ -684,21 +722,24 @@ input:checked+.slider:before {
 }
 
 .settings-footer {
-  padding: 16px 20px;
-  border-top: 1px solid var(--border-color, #d1d9e6);
+  padding: var(--spacing-lg) var(--spacing-xl);
+  border-top: var(--border-width) solid var(--border-color);
   display: flex;
   justify-content: flex-end;
-  gap: 12px;
+  gap: var(--spacing-md);
 }
 
 .cancel-button,
 .confirm-button {
-  padding: 8px 20px;
-  border-radius: 8px;
-  font-size: 14px;
-  font-weight: 500;
+  padding: var(--spacing-sm) var(--spacing-xl);
+  border-radius: var(--radius-md);
+  font-size: calc(var(--text-base) * var(--settings-font-scale));
+  font-weight: 600;
   cursor: pointer;
   transition: all 0.2s ease;
+  letter-spacing: 0.2px;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+  font-feature-settings: 'kern' 1;
 }
 
 .cancel-button {
@@ -729,12 +770,12 @@ input:checked+.slider:before {
 /* 警告框样式 */
 .settings-warning {
   display: flex;
-  gap: 10px;
-  margin-top: 8px;
-  padding: 10px 12px;
+  gap: calc(10px + (var(--settings-font-scale) - 1) * 2px);
+  margin-top: calc(8px + (var(--settings-font-scale) - 1) * 2px);
+  padding: calc(10px + (var(--settings-font-scale) - 1) * 2px) calc(12px + (var(--settings-font-scale) - 1) * 3px);
   background: var(--warning-bg, #fffaf0);
   border: 1px solid var(--warning-border, #f6e05e);
-  border-radius: 8px;
+  border-radius: calc(8px + (var(--settings-font-scale) - 1) * 2px);
   width: 100%;
   max-width: 100%;
   box-sizing: border-box;
@@ -754,9 +795,9 @@ input:checked+.slider:before {
 }
 
 .warning-icon {
-  font-size: 14px;
+  font-size: calc(var(--text-sm) * var(--settings-font-scale));
   line-height: 1;
-  margin-top: 1px;
+  margin-top: calc(1px + (var(--settings-font-scale) - 1) * 0.5px);
   flex-shrink: 0;
 }
 
@@ -766,258 +807,65 @@ input:checked+.slider:before {
 }
 
 .warning-title {
-  font-size: 13px;
+  font-size: calc(var(--text-base) * var(--settings-font-scale) * 0.9);
   font-weight: 600;
   color: var(--warning-title, #b7791f);
-  margin-bottom: 3px;
+  margin-bottom: calc(3px + (var(--settings-font-scale) - 1) * 1px);
+  letter-spacing: 0.2px;
+  font-feature-settings: 'kern' 1;
 }
 
 .warning-text {
-  font-size: 12px;
+  font-size: calc(var(--text-sm) * var(--settings-font-scale) * 1);
   line-height: 1.4;
   color: var(--warning-text, #975a16);
   word-wrap: break-word;
   word-break: break-word;
   hyphens: auto;
+  font-weight: 400;
+  font-feature-settings: 'kern' 1;
 }
 
-/* 响应式设计 - 小屏幕宽度适配 */
-@media (max-width: 540px) {
-  .settings-dialog {
-    width: 90%;
-    max-width: 400px;
-    min-width: 320px;
-  }
+/* 设置弹窗特定的响应式优化 */
+/* 基础响应式已在 responsive.css 中处理，这里只做设置弹窗特殊调整 */
+
+/* 不同屏幕尺寸下的字体放大系数调整 */
+.bp-xs.settings-dialog {
+  --settings-font-scale: 1.35; /* 极小屏幕字体放大35% */
 }
 
-@media (max-width: 420px) {
-  .settings-dialog {
-    width: 92%;
-    max-width: 360px;
-    min-width: 300px;
-    margin: 0 15px;
-  }
-  
-  .settings-header {
-    padding: 14px 18px;
-  }
-  
-  .settings-content {
-    padding: 16px 18px;
-  }
-  
-  .settings-footer {
-    padding: 14px 18px;
-  }
+.bp-sm.settings-dialog {
+  --settings-font-scale: 1.3; /* 小屏幕字体放大30% */
 }
 
-@media (max-width: 360px) {
-  .settings-dialog {
-    width: 95%;
-    max-width: 320px;
-    min-width: 280px;
-    margin: 0 10px;
-  }
-  
-  .settings-content {
-    padding: 14px 16px;
-  }
-  
-  .settings-item {
-    gap: 12px;
-  }
-  
-  .settings-warning {
-    padding: 8px;
-    gap: 6px;
-  }
-  
-  .warning-text {
-    font-size: 10px;
-    line-height: 1.2;
-  }
+.bp-md.settings-dialog {
+  --settings-font-scale: 1.25; /* 中等屏幕字体放大25% */
 }
 
-/* Tauri窗口特殊尺寸优化 */
-@media (min-width: 400px) and (max-width: 500px) and (min-height: 600px) {
-  .settings-dialog {
-    width: 88%;
-    max-width: 450px;
-    min-width: 380px;
-  }
-  
-  .settings-content {
-    padding: 18px 22px;
-    max-height: calc(90vh - 140px);
-  }
+/* 极小窗口下的布局调整 */
+.bp-xs .settings-item {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--spacing-sm);
 }
 
-/* 高度限制优化 */
-@media (max-height: 600px) {
-  .settings-dialog {
-    max-height: 85vh;
-  }
-  
-  .settings-content {
-    max-height: calc(85vh - 120px);
-    padding: 16px 20px;
-  }
-  
-  .settings-group {
-    gap: 14px;
-  }
-  
-  .settings-item {
-    gap: 16px;
-  }
+.bp-xs .settings-label {
+  width: 100%;
 }
 
-@media (max-height: 500px) {
-  .settings-dialog {
-    max-height: 90vh;
-  }
-  
-  .settings-content {
-    max-height: calc(90vh - 100px);
-    padding: 12px 18px;
-  }
-  
-  .settings-header {
-    padding: 12px 18px;
-  }
-  
-  .settings-footer {
-    padding: 12px 18px;
-  }
-  
-  .settings-group {
-    gap: 12px;
-  }
-  
-  .settings-item {
-    gap: 14px;
-  }
-  
-  .settings-warning {
-    padding: 8px 10px;
-  }
-  
-  .warning-text {
-    font-size: 11px;
-    line-height: 1.3;
-  }
+.bp-xs .switch,
+.bp-xs .number-input,
+.bp-xs .shortcut-input {
+  align-self: flex-end;
 }
 
-/* 极端尺寸优化 */
-@media (max-width: 320px) {
-  .settings-dialog {
-    width: 98%;
-    min-width: 280px;
-    margin: 0 5px;
-  }
-  
-  .settings-header {
-    padding: 12px 14px;
-  }
-  
-  .settings-title {
-    font-size: 16px;
-  }
-  
-  .close-button {
-    font-size: 20px;
-    padding: 2px;
-  }
-  
-  .settings-content {
-    padding: 12px 14px;
-  }
-  
-  .settings-footer {
-    padding: 12px 14px;
-  }
-  
-  .settings-item {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 8px;
-  }
-  
-  .settings-label {
-    width: 100%;
-  }
-  
-  .switch,
-  .number-input,
-  .shortcut-input {
-    align-self: flex-end;
-  }
-  
-  .shortcut-input {
-    min-width: 100px;
-    font-size: 12px;
-  }
-  
-  .number-input input {
-    width: 50px;
-    font-size: 12px;
-  }
-  
-  .number-button {
-    width: 24px;
-    height: 24px;
-    font-size: 14px;
-  }
-  
-  .settings-warning {
-    padding: 6px 8px;
-    gap: 4px;
-  }
-  
-  .warning-title {
-    font-size: 12px;
-  }
-  
-  .warning-text {
-    font-size: 10px;
-    line-height: 1.2;
-  }
-  
-  .confirm-btn {
-    min-width: 60px;
-    padding: 6px 12px;
-    font-size: 13px;
-  }
+/* 小窗口下的间距优化 */
+.bp-sm .settings-content {
+  padding: var(--spacing-lg) var(--spacing-xl);
 }
 
-/* 横屏模式优化 */
-@media (orientation: landscape) and (max-height: 400px) {
-  .settings-dialog {
-    max-height: 95vh;
-    width: 70%;
-    max-width: 600px;
-  }
-  
-  .settings-content {
-    max-height: calc(95vh - 100px);
-    padding: 10px 20px;
-  }
-  
-  .settings-group {
-    gap: 10px;
-  }
-  
-  .settings-item {
-    gap: 12px;
-  }
-  
-  .settings-header {
-    padding: 10px 20px;
-  }
-  
-  .settings-footer {
-    padding: 10px 20px;
-  }
+.bp-sm .settings-group {
+  gap: var(--spacing-md);
 }
 
 /* Windows平台特殊优化 */

@@ -320,33 +320,35 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: var(--spacing-sm);
   white-space: nowrap;
-  font-size: var(--text-xl);
-  font-weight: 600;
-  letter-spacing: 1px;
+  font-size: calc(var(--text-2xl) * 1.7);
+  font-weight: 700;
+  letter-spacing: 1.2px;
   flex-shrink: 0;
-  min-width: 5rem;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.15);
+  min-width: 9rem;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
   color: #ffffff;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'SF Pro Display', 'PingFang SC', 'Microsoft YaHei', sans-serif;
 }
 
 .search-input {
   flex: 1;
-  max-width: 17.5rem;
-  padding: var(--spacing-sm) var(--spacing-md);
-  border-radius: var(--radius-md);
+  max-width: none;
+  min-width: 12rem;
+  padding: var(--spacing-md) var(--spacing-lg);
+  border-radius: var(--radius-lg);
   border: var(--border-width) solid var(--input-border, #88c0d0);
-  font-size: var(--text-sm);
+  font-size: calc(var(--text-base) * 1.6);
   background-color: var(--input-bg, #e0f2f1);
   color: var(--input-text, #004d40);
   transition: all 0.3s ease;
-  min-width: 0;
-  margin: 0 var(--spacing-xs);
-  height: var(--input-height);
+  margin: 0 var(--spacing-md);
+  height: calc(var(--input-height) * 1.2);
 }
 
 .search-input::placeholder {
-  color: #4a4a4aaa;
+  color: #333333cc;
+  font-size: inherit;
+  font-weight: 500;
 }
 
 .search-input:focus {
@@ -518,71 +520,79 @@ onBeforeUnmount(() => {
 
 .header-icons {
   display: flex;
-  gap: 14px;
+  gap: var(--spacing-xl);
   align-items: center;
   flex-shrink: 0;
-  padding-left: 8px;
+  margin-left: auto;
+  padding-left: var(--spacing-lg);
 }
 
 .header-icons button.icon-button {
   background: none;
   border: none;
-  padding: 2px;
+  padding: 4px;
   margin: 0;
-  font-size: 17px;
+  font-size: 20px;
   color: inherit;
   outline: none;
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   transition: all 0.2s ease;
 }
 
 .icon-button {
-  width: 26px;
-  height: 26px;
+  width: 32px;
+  height: 32px;
   cursor: pointer;
   transition: all 0.2s ease;
   opacity: 0.9;
   display: flex;
   align-items: center;
   justify-content: center;
+  border-radius: var(--radius-md);
 }
 
 .icon-button:hover {
   transform: scale(1.05);
   opacity: 1;
-  background-color: rgba(255, 255, 255, 0.1);
+  background-color: rgba(255, 255, 255, 0.12);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
 }
 
 /* 响应式布局 */
 @media (max-width: 768px) {
   .panel-header {
     padding: 12px 16px;
-    gap: 14px;
+    gap: var(--spacing-md);
   }
 
   .panel-title {
-    font-size: 19px;
-    font-weight: 600;
-    letter-spacing: 0.9px;
-    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.13);
+    font-size: calc(var(--text-xl) * 1.8);
+    font-weight: 700;
+    letter-spacing: 1px;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.18);
+    min-width: 7rem;
   }
 
   .search-input {
-    padding: 8px 12px;
-    font-size: 13px;
-    max-width: 240px;
-    margin: 0 2px;
+    flex: 1;
+    max-width: none;
+    min-width: 10rem;
+    padding: var(--spacing-sm) var(--spacing-md);
+    font-size: calc(var(--text-sm) * 1.6);
+    margin: 0 var(--spacing-sm);
+    height: calc(var(--input-height) * 1.4);
   }
 
   .header-icons {
-    gap: 12px;
-    padding-left: 6px;
+    gap: var(--spacing-lg);
+    margin-left: auto;
+    padding-left: var(--spacing-md);
   }
 
   .icon-button {
-    width: 24px;
-    height: 24px;
-    font-size: 16px;
+    width: 28px;
+    height: 28px;
+    font-size: 18px;
   }
 
   .skeleton-card {
@@ -595,36 +605,37 @@ onBeforeUnmount(() => {
 @media (max-width: 600px) {
   .panel-header {
     padding: 10px 14px;
-    gap: 12px;
-    flex-wrap: wrap;
+    gap: var(--spacing-sm);
   }
   
   .panel-title {
-    font-size: 18px;
-    font-weight: 600;
+    font-size: calc(var(--text-lg) * 1.8);
+    font-weight: 700;
     letter-spacing: 0.8px;
-    min-width: 70px;
-    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
+    min-width: 95px;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.15);
   }
   
   .search-input {
     flex: 1;
-    min-width: 120px;
-    padding: 8px 12px;
-    font-size: 12px;
-    max-width: 200px;
-    margin: 0 2px;
+    max-width: none;
+    min-width: 8rem;
+    padding: var(--spacing-sm) var(--spacing-md);
+    font-size: calc(var(--text-sm) * 1.6);
+    margin: 0 var(--spacing-xs);
+    height: calc(var(--input-height) * 1.2);
   }
   
   .header-icons {
-    gap: 10px;
-    padding-left: 4px;
+    gap: var(--spacing-md);
+    margin-left: auto;
+    padding-left: var(--spacing-sm);
   }
   
   .icon-button {
-    width: 22px;
-    height: 22px;
-    font-size: 15px;
+    width: 26px;
+    height: 26px;
+    font-size: 16px;
   }
   
   .clip-list {
@@ -636,42 +647,47 @@ onBeforeUnmount(() => {
 @media (max-width: 480px) {
   .panel-header {
     padding: 8px 12px;
-    gap: 10px;
-    min-height: 50px;
+    gap: var(--spacing-xs);
+    min-height: 52px;
   }
   
   .panel-title {
-    font-size: 16px;
-    font-weight: 600;
+    font-size: calc(var(--text-base) * 1.8);
+    font-weight: 700;
     letter-spacing: 0.6px;
     flex-shrink: 0;
-    text-shadow: 0 1px 1px rgba(0, 0, 0, 0.1);
+    min-width: 80px;
+    text-shadow: 0 1px 1px rgba(0, 0, 0, 0.12);
   }
   
   .search-input {
-    padding: 6px 10px;
-    font-size: 12px;
-    border-radius: 8px;
-    max-width: 160px;
-    margin: 0;
+    flex: 1;
+    max-width: none;
+    min-width: 6rem;
+    padding: var(--spacing-xs) var(--spacing-sm);
+    font-size: calc(var(--text-xs) * 1.6);
+    border-radius: var(--radius-md);
+    margin: 0 calc(var(--spacing-xs) * 0.8);
+    height: calc(var(--input-height) * 1.2);
   }
   
   .header-icons {
-    gap: 8px;
-    padding-left: 2px;
+    gap: var(--spacing-sm);
+    margin-left: auto;
+    padding-left: var(--spacing-xs);
   }
   
   .icon-button {
-    width: 20px;
-    height: 20px;
-    font-size: 14px;
-    opacity: 0.8;
+    width: 24px;
+    height: 24px;
+    font-size: 15px;
+    opacity: 0.85;
   }
   
   .icon-button:hover {
     opacity: 1;
-    transform: none;
-    background-color: rgba(255, 255, 255, 0.08);
+    transform: scale(1.02);
+    background-color: rgba(255, 255, 255, 0.1);
   }
   
   .loading-container {
@@ -704,35 +720,38 @@ onBeforeUnmount(() => {
 @media (max-width: 360px) {
   .panel-header {
     padding: 6px 10px;
-    gap: 8px;
-    min-height: 45px;
+    gap: var(--spacing-xs);
+    min-height: 48px;
   }
   
   .panel-title {
-    font-size: 15px;
-    font-weight: 600;
+    font-size: calc(var(--text-sm) * 1.8);
+    font-weight: 700;
     letter-spacing: 0.5px;
-    min-width: 60px;
-    text-shadow: 0 1px 1px rgba(0, 0, 0, 0.08);
+    min-width: 70px;
+    text-shadow: 0 1px 1px rgba(0, 0, 0, 0.1);
   }
   
   .search-input {
-    padding: 4px 8px;
-    font-size: 11px;
-    min-width: 80px;
-    max-width: 120px;
-    margin: 0;
+    flex: 1;
+    max-width: none;
+    min-width: 5rem;
+    padding: calc(var(--spacing-xs) * 0.8) var(--spacing-xs);
+    font-size: calc(var(--text-xs) * 1.6);
+    margin: 0 calc(var(--spacing-xs) * 0.6);
+    height: calc(var(--input-height) * 0.95);
   }
   
   .header-icons {
-    gap: 6px;
-    padding-left: 0;
+    gap: calc(var(--spacing-xs) * 0.8);
+    margin-left: auto;
+    padding-left: calc(var(--spacing-xs) * 0.8);
   }
   
   .icon-button {
-    width: 18px;
-    height: 18px;
-    font-size: 12px;
+    width: 20px;
+    height: 20px;
+    font-size: 13px;
   }
   
   .skeleton-card {
@@ -773,26 +792,30 @@ onBeforeUnmount(() => {
   
   .panel-header {
     padding: 12px 16px;
-    gap: 14px;
+    gap: var(--spacing-md);
   }
   
   .panel-title {
-    font-size: 18px;
-    font-weight: 600;
+    font-size: calc(var(--text-lg) * 1.8);
+    font-weight: 700;
     letter-spacing: 0.8px;
-    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.15);
   }
   
   .search-input {
-    padding: 8px 12px;
-    font-size: 13px;
-    max-width: 200px;
-    margin: 0 2px;
+    flex: 1;
+    max-width: none;
+    min-width: 8rem;
+    padding: var(--spacing-sm) var(--spacing-md);
+    font-size: calc(var(--text-sm) * 1.1);
+    margin: 0 var(--spacing-xs);
+    height: calc(var(--input-height) * 1.2);
   }
   
   .header-icons {
-    gap: 12px;
-    padding-left: 6px;
+    gap: var(--spacing-md);
+    margin-left: auto;
+    padding-left: var(--spacing-sm);
   }
   
   .icon-button {
@@ -810,7 +833,7 @@ onBeforeUnmount(() => {
   }
   
   .panel-title {
-    font-size: 17px;
+    font-size: calc(var(--text-lg) * 1.8);
     font-weight: 600;
     letter-spacing: 0.7px;
     text-shadow: 0 1px 1px rgba(0, 0, 0, 0.1);
@@ -902,6 +925,12 @@ onBeforeUnmount(() => {
   .skeleton-content {
     background: linear-gradient(90deg, #2d2d2d 25%, #3d3d3d 50%, #2d2d2d 75%);
     background-size: 200% 100%;
+  }
+  
+  .search-input::placeholder {
+    color: #b0b0b0dd;
+    font-size: inherit;
+    font-weight: 500;
   }
   
   /* 暗色模式下的响应式优化 */
