@@ -101,8 +101,12 @@ impl ClipRecord {
         limit: i32,
         offset: i32,
     ) -> Result<Vec<ClipRecord>, Error> {
+        if ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        
         let sql = format!(
-            "SELECT * FROM clip_record WHERE id IN ({})",
+            "SELECT * FROM clip_record WHERE id IN ({}) ORDER BY pinned_flag DESC, sort DESC, created DESC",
             ids.iter().map(|_| "?").collect::<Vec<_>>().join(",")
         );
         // 转换ids为Vec<Value>

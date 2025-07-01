@@ -32,6 +32,8 @@ pub struct Settings {
     pub auto_paste: u32,
     // 是否已完成新手引导 0 未完成 1 已完成
     pub tutorial_completed: u32,
+    // 新增：搜索索引最大内容大小（字节）
+    pub search_index_max_content_size: Option<usize>,
 }
 
 unsafe impl Send for Settings {}
@@ -45,6 +47,7 @@ impl Default for Settings {
             cloud_sync: 0,
             auto_paste: 1, // 默认开启自动粘贴
             tutorial_completed: 0, // 默认未完成引导
+            search_index_max_content_size: Some(2 * 1024 * 1024), // 默认2M
         }
     }
 }
