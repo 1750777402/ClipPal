@@ -7,7 +7,7 @@ use rbatis::RBatis;
 use crate::{
     CONTEXT,
     biz::{
-        clip_record::ClipRecord, system_setting::Settings, tokenize_bin::remove_ids_from_token_bin,
+        clip_record::ClipRecord, system_setting::Settings, simple_search_bin::remove_ids_from_index,
     },
     errors::lock_utils::safe_lock,
     utils::file_dir::get_resources_dir,
@@ -44,8 +44,8 @@ pub async fn clip_record_clean() {
             let del_res = ClipRecord::del_by_ids(rb, &del_ids).await;
             match del_res {
                 Ok(_) => {
-                    // 同步删除分词映射
-                    let _ = remove_ids_from_token_bin(&del_ids);
+                    // 同步删除搜索索引
+                    let _ = remove_ids_from_index(&del_ids).await;
                     if img_path_arr.len() > 0 {
                         let base_path = get_resources_dir();
                         if let Some(resource_path) = base_path {

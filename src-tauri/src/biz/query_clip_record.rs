@@ -8,7 +8,7 @@ use crate::{
     CONTEXT,
     biz::{
         clip_record::ClipRecord, content_processor::ContentProcessor,
-        tokenize_bin::get_ids_by_content,
+        simple_search_bin::search_ids_by_content,
     },
 };
 
@@ -53,7 +53,7 @@ pub async fn get_clip_records(param: QueryParam) -> Vec<ClipRecordDTO> {
     // 执行数据库查询逻辑
     let query_result = match param.search.as_deref().filter(|s| !s.is_empty()) {
         Some(search) => {
-            let res_ids = get_ids_by_content(search).await;
+            let res_ids = search_ids_by_content(search).await;
             ClipRecord::select_by_ids(rb, &res_ids, param.size, offset).await
         }
         None => ClipRecord::select_order_by_limit(rb, param.size, offset).await,

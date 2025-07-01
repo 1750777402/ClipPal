@@ -45,7 +45,6 @@ base64 = { workspace = true}
 anyhow = { workspace = true}
 directories = { workspace = true}
 dashmap = { workspace = true}
-charabia = { workspace = true}
 aes-gcm = { workspace = true}
 aes = { workspace = true}
 rand = { workspace = true}

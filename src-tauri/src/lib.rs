@@ -9,7 +9,7 @@ use crate::{
         },
         query_clip_record::get_clip_records,
         system_setting::{init_settings, load_settings, save_settings, validate_shortcut},
-        tokenize_bin::{load_index_from_disk, rebuild_index_after_crash},
+        simple_search_bin::{load_index_from_disk, rebuild_index_after_crash},
     },
     log_config::init_logging,
 };
