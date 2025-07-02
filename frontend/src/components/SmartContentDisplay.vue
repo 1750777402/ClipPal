@@ -31,45 +31,7 @@
         <pre class="formatted-code" v-html="highlightedContent" ref="codeElement"></pre>
       </div>
 
-      <!-- SQL 内容 -->
-      <div v-else-if="detectedContent.type.type === 'sql'" class="sql-content">
-        <div class="content-header">
-          <span class="content-label">SQL 查询</span>
-          <button class="copy-btn" @click="copyContent" title="复制格式化内容">
-            <i class="iconfont icon-copy"></i>
-          </button>
-        </div>
-        <pre class="formatted-code" v-html="highlightedContent" ref="codeElement"></pre>
-      </div>
 
-      <!-- HTML 内容 -->
-      <div v-else-if="detectedContent.type.type === 'html'" class="html-content">
-        <div class="content-header">
-          <span class="content-label">HTML 文档</span>
-          <div class="html-controls">
-            <button :class="{ active: htmlViewMode === 'preview' }" 
-                    @click="htmlViewMode = 'preview'" class="view-btn">预览</button>
-            <button :class="{ active: htmlViewMode === 'code' }" 
-                    @click="htmlViewMode = 'code'" class="view-btn">代码</button>
-            <button class="copy-btn" @click="copyContent" title="复制HTML代码">
-              <i class="iconfont icon-copy"></i>
-            </button>
-          </div>
-        </div>
-        <div v-if="htmlViewMode === 'preview'" class="html-preview-content" v-html="sanitizedHtml"></div>
-        <pre v-else class="formatted-code" v-html="highlightedContent"></pre>
-      </div>
-
-      <!-- XML 内容 -->
-      <div v-else-if="detectedContent.type.type === 'xml'" class="xml-content">
-        <div class="content-header">
-          <span class="content-label">XML 文档</span>
-          <button class="copy-btn" @click="copyContent" title="复制XML">
-            <i class="iconfont icon-copy"></i>
-          </button>
-        </div>
-        <pre class="formatted-code" v-html="highlightedContent" ref="codeElement"></pre>
-      </div>
 
       <!-- Markdown 内容 -->
       <div v-else-if="detectedContent.type.type === 'markdown'" class="markdown-content">
@@ -97,7 +59,7 @@
             <i class="iconfont icon-copy"></i>
           </button>
         </div>
-        <pre class="formatted-code" ref="codeElement">{{ formattedContent }}</pre>
+        <pre class="formatted-code" v-html="highlightedContent" ref="codeElement"></pre>
       </div>
 
       <!-- URL 内容 -->
@@ -153,19 +115,21 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onBeforeUnmount, nextTick, watch } from 'vue';
 import hljs from 'highlight.js/lib/core';
-import { detectContentType, formatContent, type DetectedContent } from '../utils/contentDetector';
+import { detectContentType, formatContent, getHighlightLanguage, type DetectedContent } from '../utils/contentDetector';
 import { marked } from 'marked';
 
 // 只引入必要的语言
 import json from 'highlight.js/lib/languages/json';
 import sql from 'highlight.js/lib/languages/sql';
 import xml from 'highlight.js/lib/languages/xml'; // 用于HTML和XML
+import javascript from 'highlight.js/lib/languages/javascript';
 
 // 注册语言
 hljs.registerLanguage('json', json);
 hljs.registerLanguage('sql', sql);
 hljs.registerLanguage('html', xml);
 hljs.registerLanguage('xml', xml);
+hljs.registerLanguage('javascript', javascript);
 
 interface Props {
   content: string;
@@ -190,7 +154,6 @@ const showScrollbar = ref(false);
 const shouldShowExpand = ref(false);
 const shouldShowOverlay = ref<'none' | 'partial' | 'full'>('none');
 const showStickyCollapse = ref(false);
-const htmlViewMode = ref<'preview' | 'code'>('preview');
 const markdownViewMode = ref<'preview' | 'code'>('preview');
 const contentArea = ref<HTMLElement | null>(null);
 const codeElement = ref<HTMLElement | null>(null);
@@ -211,19 +174,9 @@ const highlightedContent = computed(() => {
   const type = detectedContent.value.type;
 
   try {
-    if (type.type === 'json') {
-      const result = hljs.highlight(content, { language: 'json' });
-      return result.value;
-    } else if (type.type === 'sql') {
-      const result = hljs.highlight(content, { language: 'sql' });
-      return result.value;
-    } else if (type.type === 'html') {
-      const result = hljs.highlight(content, { language: 'html' });
-      return result.value;
-    } else if (type.type === 'xml') {
-      const result = hljs.highlight(content, { language: 'xml' });
-      return result.value;
-    }
+    const language = getHighlightLanguage(props.content, type);
+    const result = hljs.highlight(content, { language });
+    return result.value;
   } catch (error) {
     console.warn('语法高亮失败:', error);
   }
@@ -247,17 +200,7 @@ const renderedMarkdown = computed(() => {
   return '';
 });
 
-// HTML 内容清理
-const sanitizedHtml = computed(() => {
-  if (detectedContent.value.type.type === 'html') {
-    // 简单的HTML清理（生产环境建议使用DOMPurify）
-    return props.content
-      .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
-      .replace(/on\w+="[^"]*"/gi, '')
-      .replace(/javascript:/gi, '');
-  }
-  return '';
-});
+
 
 // 提取URL
 const extractedUrls = computed(() => {
@@ -281,9 +224,6 @@ const extractedEmails = computed(() => {
 const getTypeIcon = (type: any) => {
   const iconMap: Record<string, string> = {
     json: 'icon-json',
-    xml: 'icon-code',
-    sql: 'icon-database',
-    html: 'icon-html',
     markdown: 'icon-text',
     code: 'icon-code',
     url: 'icon-link',
@@ -297,9 +237,6 @@ const getTypeIcon = (type: any) => {
 const getTypeDisplayName = (type: any) => {
   const nameMap: Record<string, string> = {
     json: 'JSON',
-    xml: 'XML',
-    sql: 'SQL',
-    html: 'HTML',
     markdown: 'Markdown',
     code: '代码片段',
     url: 'URL',
@@ -312,9 +249,7 @@ const getTypeDisplayName = (type: any) => {
 // 复制内容
 const copyContent = async () => {
   try {
-    const contentToCopy = detectedContent.value.type.type === 'html' 
-      ? props.content 
-      : formattedContent.value;
+    const contentToCopy = formattedContent.value;
     await navigator.clipboard.writeText(contentToCopy);
     emit('copy', contentToCopy);
   } catch (error) {
@@ -416,17 +351,7 @@ onBeforeUnmount(() => {
   border-color: #fbbf24;
 }
 
-.type-badge.type-sql {
-  background: #dbeafe;
-  color: #1d4ed8;
-  border-color: #60a5fa;
-}
 
-.type-badge.type-html {
-  background: #fed7d7;
-  color: #e53e3e;
-  border-color: #fc8181;
-}
 
 .type-badge.type-code {
   background: #e6fffa;
@@ -446,11 +371,7 @@ onBeforeUnmount(() => {
   border-color: #c4b5fd;
 }
 
-.type-badge.type-xml {
-  background: #ecfdf5;
-  color: #059669;
-  border-color: #6ee7b7;
-}
+
 
 .type-badge.type-markdown {
   background: #fef7ff;
@@ -544,7 +465,6 @@ onBeforeUnmount(() => {
   color: #64748b;
 }
 
-.html-controls,
 .markdown-controls {
   display: flex;
   align-items: center;
@@ -589,7 +509,7 @@ onBeforeUnmount(() => {
   margin: 0;
   padding: 12px;
   font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
-  font-size: 12px;
+  font-size: 13px;
   line-height: 1.5;
   white-space: pre-wrap;
   word-break: break-word;
@@ -602,18 +522,14 @@ onBeforeUnmount(() => {
   user-select: text;
 }
 
-/* JSON、XML、SQL、HTML、Markdown、代码 内容 */
+/* JSON、Markdown、代码 内容 */
 .json-content,
-.xml-content,
-.sql-content,
-.html-content,
 .markdown-content,
 .code-content {
   background: #f8fafc;
 }
 
-/* HTML 和 Markdown 预览 */
-.html-preview-content,
+/* Markdown 预览 */
 .markdown-preview-content {
   padding: 12px;
   background: #ffffff;
@@ -850,7 +766,7 @@ onBeforeUnmount(() => {
 /* 响应式设计 */
 @media (max-width: 768px) {
   .formatted-code {
-    font-size: 11px;
+    font-size: 12px;
   }
   
   .content-header {

@@ -1319,7 +1319,7 @@ onMounted(() => {
   
   .json-preview,
   .code-preview {
-    font-size: 11px;
+    font-size: 12px;
     max-height: 120px;
   }
   
@@ -1379,7 +1379,7 @@ onMounted(() => {
   
   .json-preview,
   .code-preview {
-    font-size: 10px;
+    font-size: 12px;
     max-height: 100px;
   }
 }

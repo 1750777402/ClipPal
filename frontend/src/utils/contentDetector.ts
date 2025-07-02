@@ -1,5 +1,16 @@
 import { jsonrepair } from 'jsonrepair';
 
+// 轻量级highlight.js引入 - 只引入核心部分
+import hljs from 'highlight.js/lib/core';
+import javascript from 'highlight.js/lib/languages/javascript';
+import typescript from 'highlight.js/lib/languages/typescript';
+import python from 'highlight.js/lib/languages/python';
+
+// 注册必要的语言
+hljs.registerLanguage('javascript', javascript);
+hljs.registerLanguage('typescript', typescript);
+hljs.registerLanguage('python', python);
+
 export interface ContentType {
     type: 'json' | 'xml' | 'sql' | 'html' | 'markdown' | 'code' | 'url' | 'email' | 'text';
     confidence: number; // 检测置信度 0-1
@@ -100,7 +111,7 @@ function detectSQL(content: string): ContentType | null {
 
     if (matchCount >= 1 || keywordCount >= 3) {
         const confidence = Math.min(0.9, (matchCount * 0.3) + (keywordCount * 0.1));
-        return { type: 'sql', confidence };
+        return { type: 'code', confidence };
     }
 
     return null;
@@ -146,7 +157,7 @@ function detectHTML(content: string): ContentType | null {
     // 判断是否为HTML
     if (documentFeatures >= 2 || tagDensity > 0.05 || (tags.length >= 3 && commonTagCount >= 2)) {
         const confidence = Math.min(0.9, documentFeatures * 0.2 + tagDensity * 10 + commonTagCount * 0.1);
-        return { type: 'html', confidence };
+        return { type: 'code', confidence };
     }
 
     return null;
@@ -243,7 +254,7 @@ function detectXML(content: string): ContentType | null {
         if (xmlFeatureCount >= 2) confidence += 0.2;
         if (hasBalancedTags) confidence += 0.1;
 
-        return { type: 'xml', confidence: Math.min(0.9, confidence) };
+        return { type: 'code', confidence: Math.min(0.9, confidence) };
     }
 
     return null;
@@ -288,85 +299,111 @@ function detectMarkdown(content: string): ContentType | null {
     return null;
 }
 
-// 检测代码（通用代码特征检测，包含前端、后端、脚本等）
-function detectCode(content: string): ContentType | null {
-    const codeFeatures = [
-        // 函数定义（多语言）
-        /function\s+\w+\s*\(/,              // JavaScript/TypeScript
-        /def\s+\w+\s*\(/,                   // Python
-        /(public|private|protected)\s+(static\s+)?\w+\s+\w+\s*\(/,  // Java/C#
-        /func\s+\w+\s*\(/,                  // Go/Swift
-        /fn\s+\w+\s*\(/,                    // Rust
-
-        // 变量声明
-        /(const|let|var)\s+\w+\s*=/,       // JavaScript/TypeScript
-        /\w+\s*=\s*new\s+\w+/,             // 对象实例化
-        /\$\w+\s*=/,                       // PHP/Shell变量
-
-        // 控制结构
-        /\bif\s*\([^)]+\)\s*\{/,
-        /\bfor\s*\([^)]*\)\s*\{/,
-        /\bwhile\s*\([^)]+\)\s*\{/,
-        /\btry\s*\{[\s\S]*\}\s*catch/,
-        /\bswitch\s*\([^)]+\)\s*\{/,
-
-        // 导入和引用
-        /import\s+.+\s+from\s+/,           // ES6 imports
-        /#include\s*<.+>/,                 // C/C++
-        /using\s+\w+/,                     // C#
-        /require\s*\(['"]/,                // Node.js
-        /from\s+\w+\s+import/,             // Python
-
-        // 前端框架特征
-        /<template[^>]*>/i,                // Vue
-        /\{\{[^}]+\}\}/,                   // Vue/Angular插值
-        /v-[a-z]+=/i,                      // Vue指令
-        /className\s*=/,                   // React JSX
-        /useState|useEffect/,              // React Hooks
-        /@Component/i,                     // Angular
-
-        // 代码块和结构特征
-        /\{\s*[\r\n]/,                     // 代码块开始
-        /;\s*[\r\n]/,                      // 语句结束
-        /\/\/.*$/gm,                       // 单行注释
-        /\/\*[\s\S]*?\*\//,               // 多行注释
-        /#.*$/gm,                          // Python/Shell注释
-        /--.*$/gm,                         // SQL注释
-
-        // 其他编程语言特征
-        /\bclass\s+\w+/,                   // 类定义
-        /\binterface\s+\w+/,               // 接口定义
-        /\w+\.\w+\(/,                      // 方法调用
-        /=>\s*\{/,                         // 箭头函数
-        /\[\w+\]/,                         // 数组访问或属性
+// 自定义启发式检测规则
+function heuristicCodeCheck(text: string): boolean {
+    const keywords = [
+        'function', 'const', 'let', 'var', 'return', 'if', 'else', 'while',
+        'for', 'switch', 'class', 'import', 'export', 'def', 'fn', '#include',
+        'public', 'private', '=>', '===', '!==', 'new', 'try', 'catch',
+        'interface', 'extends', 'implements', 'async', 'await', 'typeof'
     ];
 
-    let featureCount = 0;
-    for (const pattern of codeFeatures) {
-        if (pattern.test(content)) {
-            featureCount++;
-        }
-    }
+    const score = keywords.reduce((acc, kw) => acc + (text.includes(kw) ? 1 : 0), 0);
 
-    // 计算代码密度指标
+    const lines = text.split('\n');
+    const indentedLines = lines.filter(line =>
+        line.startsWith('  ') || line.startsWith('\t')
+    ).length;
+
+    const hasMultipleLines = lines.length >= 3;
+    const hasSymbols = /[{};=()\[\]]/.test(text);
+    const hasFunctionCalls = /\w+\s*\(/.test(text);
+    const hasCodeComments = /\/\/|\/\*|\*\/|#(?!\s*\w+\s*$)|<!--/.test(text);
+
+    // 计算代码特征密度
+    const textLength = text.length;
+    const symbolDensity = (text.match(/[{};=()\[\]]/g) || []).length / textLength;
+
+    // 检查是否为自然语言文本特征
+    const hasNaturalLanguage = /[.!?]+\s+[A-Z]/.test(text); // 句子结构
+    const hasContinuousText = /\w{15,}/.test(text); // 长单词（可能是自然语言）
+    const hasCommonWords = /\b(the|and|or|but|in|on|at|to|for|of|with|by)\b/gi.test(text);
+
+    // 强化判断逻辑
+    const isLikelyCode = (
+        (score >= 2 && hasSymbols && hasFunctionCalls) ||
+        (indentedLines >= 2 && hasMultipleLines && symbolDensity > 0.01) ||
+        (hasCodeComments && (score >= 1 || symbolDensity > 0.005))
+    );
+
+    // 排除自然语言特征明显的文本
+    const isLikelyNaturalText = hasNaturalLanguage && hasContinuousText && hasCommonWords && symbolDensity < 0.005;
+
+    return isLikelyCode && !isLikelyNaturalText;
+}
+
+// 检测代码（结合highlight.js和启发式判断）
+function detectCode(content: string): ContentType | null {
+    // 最小长度要求，过短的内容不太可能是有意义的代码
+    if (!content || content.length < 10) return null;
+
+    // 如果文本过长且没有明显代码结构，降低识别为代码的可能性
     const lines = content.split('\n');
+    const isVeryLongText = content.length > 1000 && lines.length > 20;
 
-    // 检查是否有典型的代码结构
-    const hasCodeBlocks = /\{[\s\S]*\}/.test(content);
-    const hasSemicolons = (content.match(/;/g) || []).length >= 2;
-    const hasIndentation = lines.some(line => /^\s{2,}/.test(line));
-    const hasOperators = /[+\-*\/=<>!&|]{1,2}/.test(content);
+    try {
+        // 使用 highlight.js 自动检测语言（仅限注册的语言）
+        const { language, relevance } = hljs.highlightAuto(content);
 
-    // 提高检测精度，降低误判
-    const codeScore = featureCount * 0.15 +
-        (hasCodeBlocks ? 0.25 : 0) +
-        (hasIndentation ? 0.15 : 0) +
-        (hasSemicolons ? 0.1 : 0) +
-        (hasOperators ? 0.05 : 0);
+        // 1. highlight.js 检测成功 + 置信度较高
+        if (language && relevance >= 5) {
+            // 对于长文本，提高阈值要求
+            const minRelevance = isVeryLongText ? 8 : 5;
+            if (relevance >= minRelevance) {
+                return { type: 'code', confidence: Math.min(0.9, relevance / 10) };
+            }
+        }
 
-    if (featureCount >= 2 || codeScore >= 0.5) {
-        const confidence = Math.min(0.85, codeScore);
-        return { type: 'code', confidence };
+        // 2. 自定义启发式判断兜底
+        const heuristicResult = heuristicCodeCheck(content);
+        if (heuristicResult) {
+            // 对于长文本，降低置信度
+            const baseConfidence = isVeryLongText ? 0.6 : 0.75;
+            const hljsBonus = (language && relevance >= 3) ? 0.15 : 0;
+            return {
+                type: 'code',
+                confidence: Math.min(0.85, baseConfidence + hljsBonus)
+            };
+        }
+
+        // 3. 如果highlight.js检测到语言但置信度不够高，进行二次验证
+        if (language && relevance >= 2) {
+            // 检查一些明确的代码特征
+            const codePatterns = [
+                /function\s+\w+\s*\(/,
+                /(const|let|var)\s+\w+\s*=/,
+                /\bif\s*\([^)]+\)\s*\{/,
+                /import\s+.+\s+from/,
+                /class\s+\w+/,
+                /\w+\.\w+\(/
+            ];
+
+            const patternMatches = codePatterns.reduce((count, pattern) =>
+                pattern.test(content) ? count + 1 : count, 0);
+
+            if (patternMatches >= 2) {
+                const confidence = Math.min(0.8, 0.5 + (patternMatches * 0.1) + (relevance / 20));
+                return { type: 'code', confidence };
+            }
+        }
+
+    } catch (error) {
+        console.warn('highlight.js 检测失败，使用启发式检测:', error);
+        // 降级到启发式检测
+        const heuristicResult = heuristicCodeCheck(content);
+        if (heuristicResult) {
+            return { type: 'code', confidence: 0.6 };
+        }
     }
 
     return null;
@@ -411,6 +448,65 @@ export function detectContentType(content: string): DetectedContent {
     };
 }
 
+// 检测内容的原始类型（用于格式化和语法高亮）
+function detectOriginalType(content: string): string {
+    // 检测SQL
+    const upperContent = content.toUpperCase().trim();
+    const sqlPatterns = [
+        /^SELECT\s+.+\s+FROM\s+/i,
+        /^INSERT\s+INTO\s+/i,
+        /^UPDATE\s+.+\s+SET\s+/i,
+        /^DELETE\s+FROM\s+/i,
+        /^CREATE\s+(TABLE|DATABASE|INDEX|VIEW)\s+/i
+    ];
+    const sqlKeywords = ['SELECT', 'FROM', 'WHERE', 'INSERT', 'UPDATE', 'DELETE', 'CREATE', 'ALTER', 'DROP'];
+
+    if (sqlPatterns.some(pattern => pattern.test(content)) ||
+        sqlKeywords.filter(kw => upperContent.includes(kw)).length >= 3) {
+        return 'sql';
+    }
+
+    // 检测HTML
+    const trimmed = content.trim();
+    const htmlFeatures = [
+        /<!DOCTYPE\s+html/i,
+        /<html[^>]*>/i,
+        /<head[^>]*>/i,
+        /<body[^>]*>/i,
+        /<title[^>]*>/i
+    ];
+    const tagPattern = /<\/?[a-zA-Z][a-zA-Z0-9]*[^>]*>/g;
+    const tags = trimmed.match(tagPattern) || [];
+
+    if (htmlFeatures.some(pattern => pattern.test(trimmed)) || tags.length >= 3) {
+        return 'html';
+    }
+
+    // 检测XML
+    const hasXmlDecl = /^<\?xml\s+version\s*=\s*["'][^"']*["'][^>]*\?>/i.test(trimmed);
+    const xmlFeatures = [
+        /^<\?xml/i,                     // XML声明
+        /<\/[a-zA-Z][a-zA-Z0-9:]*>/,   // 结束标签
+        /xmlns[^=]*=/i,                 // 命名空间
+        /<[a-zA-Z][a-zA-Z0-9:]*[^>]*\/>/,  // 自闭合标签
+        /<!\[CDATA\[/,                  // CDATA
+        /<!--[\s\S]*?-->/               // XML注释
+    ];
+
+    let xmlFeatureCount = 0;
+    for (const pattern of xmlFeatures) {
+        if (pattern.test(trimmed)) {
+            xmlFeatureCount++;
+        }
+    }
+
+    if (hasXmlDecl || xmlFeatureCount >= 2) {
+        return 'xml';
+    }
+
+    return 'code';
+}
+
 // 格式化内容
 export function formatContent(content: string, type: ContentType): string {
     try {
@@ -429,18 +525,23 @@ export function formatContent(content: string, type: ContentType): string {
                         return content;
                     }
                 }
-            case 'sql':
-                // 简单的SQL格式化：添加换行和缩进
-                return content
-                    .replace(/\bSELECT\b/gi, 'SELECT')
-                    .replace(/\bFROM\b/gi, '\nFROM')
-                    .replace(/\bWHERE\b/gi, '\nWHERE')
-                    .replace(/\bAND\b/gi, '\n  AND')
-                    .replace(/\bOR\b/gi, '\n  OR')
-                    .replace(/\bJOIN\b/gi, '\nJOIN')
-                    .replace(/\bGROUP BY\b/gi, '\nGROUP BY')
-                    .replace(/\bORDER BY\b/gi, '\nORDER BY')
-                    .replace(/\bLIMIT\b/gi, '\nLIMIT');
+            case 'code':
+                // 对于统一归类为code的内容，检测原始类型进行格式化
+                const originalType = detectOriginalType(content);
+                if (originalType === 'sql') {
+                    // 简单的SQL格式化：添加换行和缩进
+                    return content
+                        .replace(/\bSELECT\b/gi, 'SELECT')
+                        .replace(/\bFROM\b/gi, '\nFROM')
+                        .replace(/\bWHERE\b/gi, '\nWHERE')
+                        .replace(/\bAND\b/gi, '\n  AND')
+                        .replace(/\bOR\b/gi, '\n  OR')
+                        .replace(/\bJOIN\b/gi, '\nJOIN')
+                        .replace(/\bGROUP BY\b/gi, '\nGROUP BY')
+                        .replace(/\bORDER BY\b/gi, '\nORDER BY')
+                        .replace(/\bLIMIT\b/gi, '\nLIMIT');
+                }
+                return content;
             case 'xml':
                 // XML保持原始格式，由语法高亮处理
                 return content;
@@ -452,5 +553,59 @@ export function formatContent(content: string, type: ContentType): string {
         }
     } catch {
         return content;
+    }
+}
+
+// 获取语法高亮的语言类型
+export function getHighlightLanguage(content: string, type: ContentType): string {
+    switch (type.type) {
+        case 'json':
+            return 'json';
+        case 'markdown':
+            return 'markdown';
+        case 'code':
+            // 对于统一归类为code的内容，检测原始类型
+            const originalType = detectOriginalType(content);
+            if (originalType === 'sql') return 'sql';
+            if (originalType === 'html') return 'html';
+            if (originalType === 'xml') return 'xml';
+            return 'javascript'; // 默认使用JavaScript高亮
+        default:
+            return 'javascript';
+    }
+}
+
+// 导出独立的代码检测函数（优化版本）
+export function isCodeSnippet(text: string): boolean {
+    const result = detectCode(text);
+    return result !== null && result.confidence > 0.5;
+}
+
+// 导出带详细信息的代码检测函数
+export function detectCodeWithDetails(text: string): { isCode: boolean; confidence: number; language?: string; relevance?: number } {
+    if (!text || text.length < 10) {
+        return { isCode: false, confidence: 0 };
+    }
+
+    try {
+        // 使用 highlight.js 获取详细信息
+        const { language, relevance } = hljs.highlightAuto(text);
+        const codeResult = detectCode(text);
+
+        return {
+            isCode: codeResult !== null && codeResult.confidence > 0.5,
+            confidence: codeResult?.confidence || 0,
+            language: language || undefined,
+            relevance: relevance || 0
+        };
+    } catch (error) {
+        console.warn('代码检测失败:', error);
+        const codeResult = detectCode(text);
+        return {
+            isCode: codeResult !== null && codeResult.confidence > 0.5,
+            confidence: codeResult?.confidence || 0,
+            language: undefined,
+            relevance: 0
+        };
     }
 } 
