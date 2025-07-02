@@ -18,6 +18,8 @@ use crate::{
     utils::file_dir::get_config_dir
 };
 
+pub static DEFAULT_BLOOM_FILTER_TRUST_THRESHOLD: usize = 1 * 1024 * 1024;
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Settings {
     // 最大记录条数
@@ -47,7 +49,7 @@ impl Default for Settings {
             cloud_sync: 0,
             auto_paste: 1, // 默认开启自动粘贴
             tutorial_completed: 0, // 默认未完成引导
-            bloom_filter_trust_threshold : Some(1 * 1024 * 1024), // 默认2M
+            bloom_filter_trust_threshold : Some(DEFAULT_BLOOM_FILTER_TRUST_THRESHOLD), // 默认2M
         }
     }
 }

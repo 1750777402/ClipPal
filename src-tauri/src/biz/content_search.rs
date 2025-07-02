@@ -1,4 +1,5 @@
 use crate::biz::clip_record::ClipRecord;
+use crate::biz::system_setting::DEFAULT_BLOOM_FILTER_TRUST_THRESHOLD;
 use crate::{CONTEXT, errors::lock_utils::safe_lock, biz::system_setting::Settings};
 use anyhow::Result;
 use bloomfilter::Bloom;
@@ -150,8 +151,8 @@ impl RecordSearchData {
         let bloom_trust_threshold = {
             let lock = CONTEXT.get::<Arc<Mutex<Settings>>>().clone();
             let threshold = match safe_lock(&lock) {
-                Ok(settings) => settings.bloom_filter_trust_threshold.unwrap_or(1 * 1024 * 1024),
-                Err(_) => 1 * 1024 * 1024, // 默认1MB
+                Ok(settings) => settings.bloom_filter_trust_threshold.unwrap_or(DEFAULT_BLOOM_FILTER_TRUST_THRESHOLD),
+                Err(_) => DEFAULT_BLOOM_FILTER_TRUST_THRESHOLD, // 默认1MB
             };
             threshold
         };
