@@ -40,18 +40,35 @@ impl RecordSearchData {
     fn extract_search_terms(content: &str) -> Vec<String> {
         let mut terms = Vec::new();
         
-        // 预处理：去除标点符号和特殊字符，只保留字母、数字、中文、空格
-        let cleaned = Self::clean_content(content);
+        // 1. 直接从原始内容提取英文单词（在任何清理之前）
+        let english_regex = regex::Regex::new(r"[a-zA-Z]+").unwrap();
+        for cap in english_regex.find_iter(content) {
+            let word = cap.as_str().to_lowercase();
+            if word.len() >= 1 {
+                terms.push(word);
+            }
+        }
+        
+        // 2. 数字提取（从原始内容）
+        let number_regex = regex::Regex::new(r"\d+").unwrap();
+        for cap in number_regex.find_iter(content) {
+            let number = cap.as_str();
+            terms.push(number.to_string());
+        }
+        
+        // 预处理：在中英文边界处插入空格，然后清理
+        let spaced_content = Self::add_spaces_between_languages(content);
+        let cleaned = Self::clean_content(&spaced_content);
         let normalized = cleaned.to_lowercase();
         
-        // 1. 空格分词 - 处理英文和数字
+        // 3. 空格分词 - 处理已分离的英文和数字
         for word in normalized.split_whitespace() {
-            if Self::is_english_or_number(word) && word.len() >= 2 {
+            if Self::is_english_or_number(word) && word.len() >= 1 {
                 terms.push(word.to_string());
             }
         }
         
-        // 2. 中文 n-gram 滑动窗口分词 (仅2-3字，减少词汇数量)
+        // 4. 中文 n-gram 滑动窗口分词 (仅2-3字，减少词汇数量)
         let chinese_text = Self::extract_chinese_only(&normalized);
         if !chinese_text.is_empty() {
             let chars: Vec<char> = chinese_text.chars().collect();
@@ -72,8 +89,37 @@ impl RecordSearchData {
             }
         }
         
-        // 3. 添加清理后的完整内容
+        // 5. 添加清理后的完整内容
         terms.push(normalized.clone());
+        
+        // 6. XML标签内容特殊处理
+        if content.contains('<') && content.contains('>') {
+            // 提取XML标签名
+            let tag_regex = regex::Regex::new(r"</?([a-zA-Z][a-zA-Z0-9]*)\b[^>]*>").unwrap();
+            for cap in tag_regex.captures_iter(content) {
+                if let Some(tag_name) = cap.get(1) {
+                    terms.push(tag_name.as_str().to_lowercase());
+                }
+            }
+            
+            // 提取XML属性名和值
+            let attr_regex = regex::Regex::new(r#"(\w+)=["']([^"']+)["']"#).unwrap();
+            for cap in attr_regex.captures_iter(content) {
+                if let Some(attr_name) = cap.get(1) {
+                    terms.push(attr_name.as_str().to_lowercase());
+                }
+                if let Some(attr_value) = cap.get(2) {
+                    let value = attr_value.as_str().to_lowercase();
+                    terms.push(value.clone());
+                    // 如果属性值包含空格，也按空格分词
+                    for word in value.split_whitespace() {
+                        if word.len() >= 1 {
+                            terms.push(word.to_string());
+                        }
+                    }
+                }
+            }
+        }
         
         // 去重
         terms.sort();
@@ -100,44 +146,47 @@ impl RecordSearchData {
     
     /// 布隆过滤器快速过滤 + 可选精确匹配
     fn smart_search(&self, query: &str) -> bool {
-        // 获取内容大小阈值配置，当内容大于此值时直接信任布隆过滤器
+        // 获取内容大小阈值配置
         let bloom_trust_threshold = {
             let lock = CONTEXT.get::<Arc<Mutex<Settings>>>().clone();
             let threshold = match safe_lock(&lock) {
                 Ok(settings) => settings.bloom_filter_trust_threshold.unwrap_or(1 * 1024 * 1024),
-                Err(_) => 1 * 1024 * 1024, // 默认2M
+                Err(_) => 1 * 1024 * 1024, // 默认1MB
             };
             threshold
         };
-        
-        // 对于复杂查询，先用布隆过滤器快速过滤
-        let query_terms = Self::extract_search_terms(query);
-        
-        // 检查关键词汇是否在布隆过滤器中
-        let mut has_match = false;
+    
+        let normalized_query = query.trim().to_lowercase();
+    
+        // 查询内容分词（使用和索引一致的分词方式）
+        let query_terms = Self::extract_search_terms(&normalized_query);
+    
+        // 尝试匹配任意一个分词
+        let content_size = self.content.as_bytes().len();
         for term in &query_terms {
-            if term.len() >= 2 && self.bloom_filter.check(term) {
-                has_match = true;
-                break;
+            if term.len() < 1 {
+                continue;
+            }
+    
+            if self.bloom_filter.check(term) {
+                if content_size >= bloom_trust_threshold {
+                    log::debug!(
+                        "内容大小 {} 字节超过阈值 {} 字节，信任布隆过滤器结果",
+                        content_size,
+                        bloom_trust_threshold
+                    );
+                    return true;
+                } else {
+                    return self.content_contains(&normalized_query);
+                }
             }
         }
-        
-        // 根据内容大小决定是否直接信任布隆过滤器
-        if has_match {
-            let content_size = self.content.as_bytes().len();
-            if content_size > bloom_trust_threshold {
-                // 内容大于阈值，直接信任布隆过滤器结果
-                log::debug!("内容大小 {} 字节超过阈值 {} 字节，直接信任布隆过滤器结果", 
-                          content_size, bloom_trust_threshold);
-                return true;
-            } else {
-                // 内容小于阈值，进行精确搜索确认
-                return self.content_contains(query);
-            }
-        }
-        
+    
+        // 所有关键词都未命中
         false
     }
+    
+    
     
     /// 内容包含搜索
     fn content_contains(&self, query: &str) -> bool {
@@ -146,6 +195,38 @@ impl RecordSearchData {
         
         // 直接字符串包含搜索
         normalized_content.contains(&normalized_query)
+    }
+    
+    /// 在不同语言字符之间添加空格
+    fn add_spaces_between_languages(content: &str) -> String {
+        let mut result = String::new();
+        let chars: Vec<char> = content.chars().collect();
+        
+        for i in 0..chars.len() {
+            let current_char = chars[i];
+            result.push(current_char);
+            
+            // 如果还有下一个字符
+            if i + 1 < chars.len() {
+                let next_char = chars[i + 1];
+                
+                // 检查是否需要在当前字符和下一个字符之间插入空格
+                let current_is_ascii = current_char.is_ascii_alphanumeric();
+                let current_is_chinese = '\u{4e00}' <= current_char && current_char <= '\u{9fff}';
+                let next_is_ascii = next_char.is_ascii_alphanumeric();
+                let next_is_chinese = '\u{4e00}' <= next_char && next_char <= '\u{9fff}';
+                
+                // 在以下情况下插入空格：
+                // 1. 英文/数字 -> 中文
+                // 2. 中文 -> 英文/数字
+                if (current_is_ascii && next_is_chinese) || 
+                   (current_is_chinese && next_is_ascii) {
+                    result.push(' ');
+                }
+            }
+        }
+        
+        result
     }
 }
 
@@ -217,16 +298,7 @@ pub async fn add_content_to_index(id: &str, content: &str) -> Result<()> {
 
 /// 根据内容搜索ID列表
 pub async fn search_ids_by_content(content: &str) -> Vec<String> {
-    let start_time = std::time::Instant::now();
-    let results = SEARCH_INDEX.search(content);
-    let elapsed = start_time.elapsed();
-    
-    log::debug!(
-        "搜索完成 - 查询: '{}', 结果数: {}, 耗时: {:?}",
-        content, results.len(), elapsed
-    );
-    
-    results
+    SEARCH_INDEX.search(content)
 }
 
 /// 删除ID并更新索引
