@@ -9,7 +9,9 @@ use crate::{
         },
         query_clip_record::get_clip_records,
         system_setting::{init_settings, load_settings, save_settings, validate_shortcut},
-        content_search_bin::{load_index_from_disk, rebuild_index_after_crash},
+        content_search::{
+            initialize_search_index
+        },
     },
     log_config::init_logging,
 };
@@ -58,25 +60,16 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
-    // 初始化索引文件
-    if let Err(e) = load_index_from_disk().await {
-        log::error!("索引文件初始化失败: {}", e);
-        // 不退出程序，继续运行但记录错误
-    }
+    // 初始化搜索索引
+    let all_clips = ClipRecord::select_order_by(&rb_res)
+        .await
+        .unwrap_or_else(|e| {
+            log::error!("获取剪贴板记录失败: {}", e);
+            vec![]
+        });
 
-    // 如果有程序崩溃，则重建索引
-    if let Err(e) = rebuild_index_after_crash(|| async {
-        // 实现获取所有剪贴板内容的函数
-        ClipRecord::select_order_by(&rb_res)
-            .await
-            .unwrap_or_else(|e| {
-                log::error!("获取剪贴板记录失败: {}", e);
-                vec![]
-            })
-    })
-    .await
-    {
-        log::error!("重建索引失败: {}", e);
+    if let Err(e) = initialize_search_index(all_clips).await {
+        log::error!("搜索索引初始化失败: {}", e);
     }
 
     tauri::Builder::default()

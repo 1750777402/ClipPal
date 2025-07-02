@@ -11,7 +11,7 @@ use crate::{
     CONTEXT, auto_paste,
     biz::{
         clip_record::ClipRecord, content_processor::ContentProcessor, system_setting::Settings,
-        content_search_bin::remove_ids_from_index,
+        content_search::remove_ids_from_index,
     },
     errors::lock_utils::safe_lock,
     utils::aes_util::decrypt_content,
@@ -220,7 +220,12 @@ pub async fn del_record(param: CopyClipRecord) -> Result<String, String> {
     let ids = vec![param.record_id];
     let res = ClipRecord::del_by_ids(rb, &ids).await;
     if let Ok(_) = res {
-        let _ = remove_ids_from_index(&ids).await;
+        // 异步从搜索索引中移除记录
+        tokio::spawn(async move {
+            if let Err(e) = remove_ids_from_index(&ids).await {
+                log::error!("从搜索索引删除记录失败: {}", e);
+            }
+        });
     }
     Ok(String::new())
 }

@@ -7,7 +7,7 @@ use rbatis::RBatis;
 use crate::{
     CONTEXT,
     biz::{
-        clip_record::ClipRecord, system_setting::Settings, content_search_bin::remove_ids_from_index,
+        clip_record::ClipRecord, system_setting::Settings, content_search::remove_ids_from_index,
     },
     errors::lock_utils::safe_lock,
     utils::file_dir::get_resources_dir,
