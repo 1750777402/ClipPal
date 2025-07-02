@@ -11,7 +11,7 @@ use serde_json::Value;
 use tauri::{AppHandle, Emitter};
 use uuid::Uuid;
 
-use crate::{biz::tokenize_bin::content_tokenize_save_bin, utils::aes_util::encrypt_content};
+use crate::{biz::content_search::add_content_to_index, utils::aes_util::encrypt_content};
 
 use crate::{
     CONTEXT,
@@ -94,17 +94,17 @@ async fn handle_text(rb: &RBatis, content: &str, sort: i32) {
 
                 match ClipRecord::insert(rb, &record).await {
                     Ok(_res) => {
-                        // 对内容进行分词并存储进.bin文件
+                        // 异步添加原始内容到搜索索引
                         let content_string = content.to_string();
                         let record_id = record.id.clone();
                         tokio::spawn(async move {
-                            if let Err(e) = content_tokenize_save_bin(
+                            if let Err(e) = add_content_to_index(
                                 record_id.as_str(),
                                 content_string.as_str(),
                             )
                             .await
                             {
-                                log::error!("分词处理失败: {}", e);
+                                log::error!("搜索索引更新失败: {}", e);
                             }
                         });
                     }
@@ -181,8 +181,23 @@ async fn handle_file(rb: &RBatis, file_paths: Option<&Vec<String>>, sort: i32) {
                 ..Default::default()
             };
 
-            if let Err(e) = ClipRecord::insert(rb, &record).await {
-                log::error!("insert file error: {}", e);
+            match ClipRecord::insert(rb, &record).await {
+                Ok(_res) => {
+                    // 异步添加文件路径到搜索索引  
+                    let file_paths_string = paths.join(":::");
+                    let record_id = record.id.clone();
+                    tokio::spawn(async move {
+                        if let Err(e) = add_content_to_index(
+                            record_id.as_str(),
+                            file_paths_string.as_str(),
+                        )
+                        .await
+                        {
+                            log::error!("搜索索引更新失败: {}", e);
+                        }
+                    });
+                }
+                Err(e) => log::error!("insert file error: {}", e),
             }
         }
     }
