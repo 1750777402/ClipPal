@@ -10,7 +10,6 @@ use crate::CONTEXT;
 use objc::{msg_send, sel, sel_impl};
 
 pub fn init_main_window(app: &App) -> tauri::Result<()> {
-
     // 获取主显示器
     let main_window = app.get_webview_window("main").ok_or_else(|| {
         log::error!("无法获取主窗口");
@@ -71,6 +70,10 @@ pub fn init_main_window(app: &App) -> tauri::Result<()> {
         log::error!("显示主窗口失败: {}", e);
         return Err(e);
     }
+    // 设置主窗口获取焦点
+    if let Err(e) = main_window.set_focus() {
+        log::error!("设置窗口焦点失败: {}", e);
+    }
 
     let main1 = main_window.clone();
 
@@ -78,6 +81,7 @@ pub fn init_main_window(app: &App) -> tauri::Result<()> {
     CONTEXT.set(WindowFocusCount::default());
     // 设置一个窗口隐藏标志，用于判断窗口是否被隐藏
     CONTEXT.set(WindowHideFlag::default());
+
     main_window.on_window_event(move |event| match event {
         WindowEvent::Focused(false) => {
             let window_focus_count = CONTEXT.get::<WindowFocusCount>();
