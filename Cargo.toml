@@ -73,5 +73,3 @@ tauri-plugin-window-state = "2"
 # Build dependencies
 tauri-build = "2"
 tauri-plugin = "2.0.2"
-
-# Platform-specific dependencies should be defined in individual crates, not at workspace level
