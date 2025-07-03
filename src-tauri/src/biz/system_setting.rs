@@ -18,7 +18,11 @@ use crate::{
     utils::file_dir::get_config_dir
 };
 
+// 默认超过这个大小的内容，使用布隆过滤器进行搜索   不会进行contains
 pub static DEFAULT_BLOOM_FILTER_TRUST_THRESHOLD: usize = 1 * 1024 * 1024;
+
+// 默认小于这个大小的内容，直接使用contains进行搜索
+pub static DEFAULT_DIRECT_CONTAINS_THRESHOLD: usize = 128 * 1024;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Settings {
@@ -34,8 +38,10 @@ pub struct Settings {
     pub auto_paste: u32,
     // 是否已完成新手引导 0 未完成 1 已完成
     pub tutorial_completed: u32,
-    // 新增：搜索索引最大内容大小（字节）
+    // 搜索索引最大内容大小（字节）
     pub bloom_filter_trust_threshold : Option<usize>,
+    // 直接使用contains搜索的内容大小阈值（字节）
+    pub direct_contains_threshold: Option<usize>,
 }
 
 unsafe impl Send for Settings {}
@@ -49,7 +55,8 @@ impl Default for Settings {
             cloud_sync: 0,
             auto_paste: 1, // 默认开启自动粘贴
             tutorial_completed: 0, // 默认未完成引导
-            bloom_filter_trust_threshold : Some(DEFAULT_BLOOM_FILTER_TRUST_THRESHOLD), // 默认2M
+            bloom_filter_trust_threshold : Some(DEFAULT_BLOOM_FILTER_TRUST_THRESHOLD), // 默认1MB
+            direct_contains_threshold: Some(DEFAULT_DIRECT_CONTAINS_THRESHOLD), // 默认128KB
         }
     }
 }

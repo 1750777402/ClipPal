@@ -98,11 +98,9 @@ async fn handle_text(rb: &RBatis, content: &str, sort: i32) {
                         let content_string = content.to_string();
                         let record_id = record.id.clone();
                         tokio::spawn(async move {
-                            if let Err(e) = add_content_to_index(
-                                record_id.as_str(),
-                                content_string.as_str(),
-                            )
-                            .await
+                            if let Err(e) =
+                                add_content_to_index(record_id.as_str(), content_string.as_str())
+                                    .await
                             {
                                 log::error!("搜索索引更新失败: {}", e);
                             }
@@ -183,15 +181,13 @@ async fn handle_file(rb: &RBatis, file_paths: Option<&Vec<String>>, sort: i32) {
 
             match ClipRecord::insert(rb, &record).await {
                 Ok(_res) => {
-                    // 异步添加文件路径到搜索索引  
+                    // 异步添加文件路径到搜索索引
                     let file_paths_string = paths.join(":::");
                     let record_id = record.id.clone();
                     tokio::spawn(async move {
-                        if let Err(e) = add_content_to_index(
-                            record_id.as_str(),
-                            file_paths_string.as_str(),
-                        )
-                        .await
+                        if let Err(e) =
+                            add_content_to_index(record_id.as_str(), file_paths_string.as_str())
+                                .await
                         {
                             log::error!("搜索索引更新失败: {}", e);
                         }
