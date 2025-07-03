@@ -1,5 +1,7 @@
 use crate::biz::clip_record::ClipRecord;
-use crate::biz::system_setting::{DEFAULT_BLOOM_FILTER_TRUST_THRESHOLD, DEFAULT_DIRECT_CONTAINS_THRESHOLD};
+use crate::biz::system_setting::{
+    DEFAULT_BLOOM_FILTER_TRUST_THRESHOLD, DEFAULT_DIRECT_CONTAINS_THRESHOLD,
+};
 use crate::{CONTEXT, biz::system_setting::Settings, errors::lock_utils::safe_lock};
 use anyhow::Result;
 use bloomfilter::Bloom;
@@ -42,7 +44,7 @@ impl RecordSearchData {
         let mut terms = Vec::new();
 
         // 1. 直接从原始内容提取英文单词（在任何清理之前）
-        let english_regex = regex::Regex::new(r"[a-zA-Z]+").unwrap();
+        let english_regex = regex::Regex::new(r"\b[a-zA-Z]{2,}\b").unwrap();
         for cap in english_regex.find_iter(content) {
             let word = cap.as_str().to_lowercase();
             if word.len() >= 1 {
@@ -51,7 +53,7 @@ impl RecordSearchData {
         }
 
         // 2. 数字提取（从原始内容）
-        let number_regex = regex::Regex::new(r"\d+").unwrap();
+        let number_regex = regex::Regex::new(r"\b\d{2,}\b").unwrap();
         for cap in number_regex.find_iter(content) {
             let number = cap.as_str();
             terms.push(number.to_string());
@@ -163,7 +165,10 @@ impl RecordSearchData {
                         .unwrap_or(DEFAULT_DIRECT_CONTAINS_THRESHOLD);
                     (bloom_threshold, direct_threshold)
                 }
-                Err(_) => (DEFAULT_BLOOM_FILTER_TRUST_THRESHOLD, DEFAULT_DIRECT_CONTAINS_THRESHOLD),
+                Err(_) => (
+                    DEFAULT_BLOOM_FILTER_TRUST_THRESHOLD,
+                    DEFAULT_DIRECT_CONTAINS_THRESHOLD,
+                ),
             }
         };
 
@@ -183,29 +188,22 @@ impl RecordSearchData {
         // 查询内容分词（使用和索引一致的分词方式）
         let query_terms = Self::extract_search_terms(&normalized_query);
 
-        // 尝试匹配任意一个分词
-        for term in &query_terms {
-            if term.len() < 1 {
-                continue;
-            }
+        // all_terms_in_bloom表示分词后的每个结果是否都在布隆过滤器中命中
+        let all_terms_in_bloom = query_terms
+            .iter()
+            .all(|term| !term.is_empty() && self.bloom_filter.check(term));
 
-            if self.bloom_filter.check(term) {
-                // 如果内容大小大于配置的bloom_filter_trust_threshold，直接信任布隆过滤器结果
-                if content_size >= bloom_trust_threshold {
-                    log::debug!(
-                        "内容大小 {} 字节超过阈值 {} 字节，信任布隆过滤器结果",
-                        content_size,
-                        bloom_trust_threshold
-                    );
-                    return true;
-                } else {
-                    return self.content_contains(&normalized_query);
-                }
-            }
+        // 如果内容大小大于配置的bloom_trust_threshold，直接信任布隆过滤器结果
+        if content_size >= bloom_trust_threshold {
+            log::debug!(
+                "内容大小 {} 字节超过阈值 {} 字节，信任布隆过滤器结果",
+                content_size,
+                bloom_trust_threshold
+            );
+            return all_terms_in_bloom;
         }
-
         // 所有关键词都未命中
-        false
+        return self.content_contains(&normalized_query);
     }
 
     /// 内容包含搜索

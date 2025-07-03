@@ -31,8 +31,6 @@
         <pre class="formatted-code" v-html="highlightedContent" ref="codeElement"></pre>
       </div>
 
-
-
       <!-- Markdown 内容 -->
       <div v-else-if="detectedContent.type.type === 'markdown'" class="markdown-content">
         <div class="content-header">
@@ -55,9 +53,6 @@
       <div v-else-if="detectedContent.type.type === 'code'" class="code-content">
         <div class="content-header">
           <span class="content-label">代码片段</span>
-          <button class="copy-btn" @click="copyContent" title="复制代码">
-            <i class="iconfont icon-copy"></i>
-          </button>
         </div>
         <pre class="formatted-code" v-html="highlightedContent" ref="codeElement"></pre>
       </div>
@@ -199,8 +194,6 @@ const renderedMarkdown = computed(() => {
   }
   return '';
 });
-
-
 
 // 提取URL
 const extractedUrls = computed(() => {
@@ -351,8 +344,6 @@ onBeforeUnmount(() => {
   border-color: #fbbf24;
 }
 
-
-
 .type-badge.type-code {
   background: #e6fffa;
   color: #319795;
@@ -370,8 +361,6 @@ onBeforeUnmount(() => {
   color: #805ad5;
   border-color: #c4b5fd;
 }
-
-
 
 .type-badge.type-markdown {
   background: #fef7ff;
@@ -520,6 +509,17 @@ onBeforeUnmount(() => {
   -moz-user-select: text;
   -ms-user-select: text;
   user-select: text;
+  /* 额外的文本选择优化 */
+  -webkit-touch-callout: text;
+  -webkit-user-drag: none;
+}
+
+/* 确保格式化代码内的所有元素都支持文本选择 */
+.formatted-code * {
+  -webkit-user-select: text !important;
+  -moz-user-select: text !important;
+  -ms-user-select: text !important;
+  user-select: text !important;
 }
 
 /* JSON、Markdown、代码 内容 */

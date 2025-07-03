@@ -8,6 +8,31 @@
     background: #f8f8f8;
 }
 
+/* 确保语法高亮不会影响文本选择 */
+.hljs,
+.hljs * {
+    -webkit-user-select: text !important;
+    -moz-user-select: text !important;
+    -ms-user-select: text !important;
+    user-select: text !important;
+    /* 确保span元素不会阻断文本选择 */
+    pointer-events: none;
+}
+
+/* 恢复容器的pointer-events，只对内容span禁用 */
+.hljs {
+    pointer-events: auto;
+}
+
+/* 确保所有highlight.js的span元素都支持连续选择 */
+.hljs span {
+    display: inline !important;
+    white-space: inherit !important;
+    /* 确保文本选择可以跨越多个span */
+    -webkit-touch-callout: text;
+    -webkit-user-drag: none;
+}
+
 .hljs-comment,
 .hljs-quote {
     color: #998;

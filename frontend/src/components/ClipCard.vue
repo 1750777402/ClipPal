@@ -108,12 +108,12 @@
 
             <!-- 代码内容 -->
             <template v-else-if="record.type === 'Code'">
-                <div class="code-content">
-                    <div class="content-icon">
-                        <i class="iconfont icon-code"></i>
-                    </div>
-                    <pre class="code-preview">{{ record.content }}</pre>
-                </div>
+                <SmartContentDisplay 
+                    :content="record.content" 
+                    :show-type-indicator="false"
+                    :max-height="300"
+                    @copy="handleSmartCopy"
+                />
             </template>
 
             <!-- 默认内容 -->
