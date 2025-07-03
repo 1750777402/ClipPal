@@ -493,16 +493,6 @@ const handlePin = async () => {
     emit('pin', props.record);
 };
 
-const handleImageLoad = () => {
-    isImageLoaded.value = true;
-    imageError.value = false;
-};
-
-const handleImageError = () => {
-    isImageLoaded.value = false;
-    imageError.value = true;
-};
-
 const getFileName = (filePath: string) => {
     return filePath.split(/[\\/]/).pop() || filePath;
 };
