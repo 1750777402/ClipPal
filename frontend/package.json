@@ -11,9 +11,7 @@
   },
   "dependencies": {
     "@tauri-apps/api": "^2.5.0",
-    "@tauri-apps/plugin-opener": "^2",
     "date-fns": "^4.1.0",
-    "element-plus": "^2.9.11",
     "highlight.js": "^11.11.1",
     "jsonrepair": "^3.12.0",
     "marked": "^16.0.0",
