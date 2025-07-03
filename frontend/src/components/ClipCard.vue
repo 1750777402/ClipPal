@@ -46,16 +46,26 @@
 
             <!-- 图片类型 -->
             <template v-else-if="record.type === 'Image'">
-                <div class="image-container">
-                    <img v-if="record.content && !imageError" :src="record.content" class="image-preview" @load="handleImageLoad"
-                        @error="handleImageError" @click.stop="showImagePreview = true" />
-                    <div v-if="!isImageLoaded && !imageError" class="image-placeholder">
-                        <div class="placeholder-spinner"></div>
-                        <span class="loading-text">加载中...</span>
+                <div class="image-container" ref="imageContainer">
+                    <!-- 已加载的图片 -->
+                    <img v-if="imageBase64Data && !imageError" :src="imageBase64Data" class="image-preview" 
+                        @click.stop="showImagePreview = true" />
+                    
+                    <!-- 加载中状态 -->
+                    <div v-else-if="isLoadingImage || (!shouldLoadImage && !imageError)" class="image-placeholder" @click="triggerImageLoad">
+                        <div v-if="isLoadingImage" class="placeholder-spinner"></div>
+                        <i v-else class="iconfont icon-image placeholder-icon"></i>
+                        <span class="loading-text">{{ isLoadingImage ? '加载中...' : '点击加载图片' }}</span>
+                        <div v-if="record.image_info" class="image-meta">
+                            {{ formatFileSize(record.image_info.size) }}
+                        </div>
                     </div>
+                    
+                    <!-- 错误状态 -->
                     <div v-if="imageError" class="image-error">
                         <i class="iconfont icon-tishi"></i>
                         <span class="error-text">图片加载失败</span>
+                        <button class="retry-btn" @click="loadImageBase64">重试</button>
                     </div>
                 </div>
             </template>
@@ -119,8 +129,8 @@
     </div>
 
     <!-- 图片预览组件 -->
-    <vue-easy-lightbox v-if="record.type === 'Image' && record.content" :visible="showImagePreview"
-        :imgs="[{ src: record.content }]" :index="0" @hide="showImagePreview = false" />
+    <vue-easy-lightbox v-if="record.type === 'Image' && imageBase64Data" :visible="showImagePreview"
+        :imgs="[{ src: imageBase64Data }]" :index="0" @hide="showImagePreview = false" />
 
     <template v-if="showConfirm">
         <div class="confirm-mask" @click.self="cancelDelete">
@@ -162,7 +172,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, inject } from 'vue';
+import { ref, computed, onMounted, onUnmounted, inject } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { formatDistanceToNow } from 'date-fns';
 import { zhCN } from 'date-fns/locale';
@@ -179,6 +189,14 @@ interface ClipRecord {
     fileSize?: number;
     pinned_flag?: number;
     file_info?: FileInfo[];
+    image_info?: ImageInfo;
+}
+
+interface ImageInfo {
+    path: string;
+    size: number;
+    width?: number;
+    height?: number;
 }
 
 interface FileInfo {
@@ -206,7 +224,54 @@ const showTip = ref(false);
 const showConfirm = ref(false);
 const showAutoPasteWarning = ref(false);
 
+// 图片懒加载相关状态
+const imageBase64Data = ref<string>('');
+const isLoadingImage = ref(false);
+const shouldLoadImage = ref(false);
+
 const showMessageBar = inject('showMessageBar') as (msg: string, type?: 'success' | 'error') => void;
+
+// 懒加载图片base64数据
+const loadImageBase64 = async () => {
+    if (isLoadingImage.value || imageBase64Data.value || props.record.type !== 'Image') {
+        return;
+    }
+    
+    isLoadingImage.value = true;
+    try {
+        const response = await invoke('get_image_base64', {
+            param: { record_id: props.record.id }
+        }) as { id: string; base64_data: string };
+        
+        imageBase64Data.value = response.base64_data;
+        
+        // 预加载图片确保能正常显示
+        const img = new Image();
+        img.onload = () => {
+            isImageLoaded.value = true;
+            imageError.value = false;
+        };
+        img.onerror = () => {
+            isImageLoaded.value = false;
+            imageError.value = true;
+        };
+        img.src = imageBase64Data.value;
+        
+    } catch (error) {
+        console.error('加载图片失败:', error);
+        imageError.value = true;
+    } finally {
+        isLoadingImage.value = false;
+    }
+};
+
+// 触发图片加载（可见时或用户交互时）
+const triggerImageLoad = () => {
+    if (!shouldLoadImage.value && props.record.type === 'Image') {
+        shouldLoadImage.value = true;
+        loadImageBase64();
+    }
+};
 
 // 检查是否需要显示自动粘贴提示
 const checkFirstAutoPasteUsage = () => {
@@ -442,12 +507,33 @@ const getFileName = (filePath: string) => {
     return filePath.split(/[\\/]/).pop() || filePath;
 };
 
+// 图片容器引用
+const imageContainer = ref<HTMLElement>();
+
+// 使用 Intersection Observer 实现可见时自动加载
 onMounted(() => {
-    if (props.record.type === 'Image' && props.record.content) {
-        const img = new Image();
-        img.src = props.record.content;
-        img.onload = handleImageLoad;
-        img.onerror = handleImageError;
+    if (props.record.type === 'Image' && imageContainer.value) {
+        const observer = new IntersectionObserver(
+            (entries) => {
+                entries.forEach((entry) => {
+                    if (entry.isIntersecting && !shouldLoadImage.value) {
+                        triggerImageLoad();
+                        observer.unobserve(entry.target);
+                    }
+                });
+            },
+            {
+                rootMargin: '50px', // 提前50px开始加载
+                threshold: 0.1
+            }
+        );
+        
+        observer.observe(imageContainer.value);
+        
+        // 组件卸载时清理observer
+        onUnmounted(() => {
+            observer.disconnect();
+        });
     }
 });
 </script>
@@ -799,6 +885,25 @@ onMounted(() => {
     justify-content: center;
     align-items: center;
     gap: 12px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    background: var(--image-placeholder-bg, #f8fafc);
+}
+
+.image-placeholder:hover {
+    background: var(--image-placeholder-hover-bg, #e2e8f0);
+}
+
+.placeholder-icon {
+    font-size: 48px;
+    opacity: 0.6;
+    color: var(--text-secondary, #64748b);
+    transition: all 0.2s ease;
+}
+
+.image-placeholder:hover .placeholder-icon {
+    opacity: 0.8;
+    transform: scale(1.1);
 }
 
 .placeholder-spinner {
@@ -813,6 +918,13 @@ onMounted(() => {
 .loading-text {
     font-size: 12px;
     color: var(--text-secondary, #64748b);
+    font-weight: 500;
+}
+
+.image-meta {
+    font-size: 11px;
+    color: var(--text-tertiary, #94a3b8);
+    margin-top: 4px;
 }
 
 .image-error {
@@ -836,6 +948,22 @@ onMounted(() => {
 .error-text {
     font-size: 12px;
     color: var(--error-color, #e53e3e);
+}
+
+.retry-btn {
+    background: var(--primary-color, #2c7a7b);
+    color: white;
+    border: none;
+    border-radius: 4px;
+    padding: 6px 12px;
+    font-size: 11px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.retry-btn:hover {
+    background: var(--primary-hover-color, #234e52);
+    transform: translateY(-1px);
 }
 
 /* 文件内容样式 */

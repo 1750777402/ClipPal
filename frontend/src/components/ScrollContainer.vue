@@ -97,6 +97,22 @@ interface ClipRecord {
   user_id: number;
   os_type: string;
   fileSize?: number;
+  pinned_flag?: number;
+  file_info?: FileInfo[];
+  image_info?: ImageInfo;
+}
+
+interface ImageInfo {
+  path: string;
+  size: number;
+  width?: number;
+  height?: number;
+}
+
+interface FileInfo {
+  path: string;
+  size: number;
+  type?: string;
 }
 
 const handleCardClick = async (item: ClipRecord) => {

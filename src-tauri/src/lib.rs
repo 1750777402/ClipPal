@@ -3,15 +3,13 @@ use std::sync::Arc;
 use crate::{
     biz::{
         clip_record::ClipRecord,
+        content_search::initialize_search_index,
         copy_clip_record::{
             copy_clip_record, copy_clip_record_no_paste, copy_single_file, del_record,
             image_save_as, set_pinned,
         },
-        query_clip_record::get_clip_records,
+        query_clip_record::{get_clip_records, get_image_base64},
         system_setting::{init_settings, load_settings, save_settings, validate_shortcut},
-        content_search::{
-            initialize_search_index
-        },
     },
     log_config::init_logging,
 };
@@ -109,6 +107,7 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
         })
         .invoke_handler(tauri::generate_handler![
             get_clip_records,
+            get_image_base64,
             copy_clip_record,
             copy_clip_record_no_paste,
             copy_single_file,

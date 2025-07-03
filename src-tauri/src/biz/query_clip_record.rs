@@ -1,4 +1,3 @@
-
 use rbatis::RBatis;
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -22,7 +21,7 @@ pub struct ClipRecordDTO {
     pub id: String,
     // 类型
     pub r#type: String,
-    // 内容
+    // 内容 - 对于图片类型，这里只存储文件路径，不转换为base64
     pub content: String,
     // os类型
     pub os_type: String,
@@ -32,6 +31,8 @@ pub struct ClipRecordDTO {
     pub pinned_flag: i32,
     // 文件内容属性
     pub file_info: Vec<FileInfo>,
+    // 图片预览信息（仅用于图片类型）
+    pub image_info: Option<ImageInfo>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -42,6 +43,28 @@ pub struct FileInfo {
     pub size: i32,
     // 文件类型
     pub r#type: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ImageInfo {
+    // 图片文件路径（相对路径）
+    pub path: String,
+    // 图片文件大小（字节）
+    pub size: u64,
+    // 图片尺寸信息（可选）
+    pub width: Option<u32>,
+    pub height: Option<u32>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct GetImageParam {
+    pub record_id: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ImageBase64Response {
+    pub id: String,
+    pub base64_data: String,
 }
 
 #[tauri::command]
@@ -82,6 +105,21 @@ pub async fn get_clip_records(param: QueryParam) -> Vec<ClipRecordDTO> {
                     created: item.created,
                     pinned_flag: item.pinned_flag,
                     file_info: get_file_info(content_str),
+                    image_info: None,
+                };
+            } else if item.r#type == "Image" {
+                // 对于图片类型，不转换为base64，而是返回元数据
+                let image_path = item.content.as_str().unwrap_or_default();
+                let image_info = get_image_info(image_path);
+                return ClipRecordDTO {
+                    id: item.id.clone(),
+                    r#type: item.r#type.clone(),
+                    content: image_path.to_string(), // 只返回路径
+                    os_type: item.os_type.clone(),
+                    created: item.created,
+                    pinned_flag: item.pinned_flag,
+                    file_info: vec![],
+                    image_info,
                 };
             } else {
                 return ClipRecordDTO {
@@ -92,6 +130,7 @@ pub async fn get_clip_records(param: QueryParam) -> Vec<ClipRecordDTO> {
                     created: item.created,
                     pinned_flag: item.pinned_flag,
                     file_info: vec![],
+                    image_info: None,
                 };
             }
         })
@@ -136,4 +175,61 @@ pub fn get_file_info(paths: String) -> Vec<FileInfo> {
             })
         })
         .collect()
+}
+
+// 获取图片元数据信息
+pub fn get_image_info(relative_path: &str) -> Option<ImageInfo> {
+    if relative_path.is_empty() {
+        return None;
+    }
+    
+    let base_path = crate::utils::file_dir::get_resources_dir()?;
+    let abs_path = base_path.join(relative_path);
+    
+    if !abs_path.exists() {
+        return None;
+    }
+    
+    let metadata = fs::metadata(&abs_path).ok()?;
+    let size = metadata.len();
+    
+    // 可以考虑使用image crate获取图片尺寸，但为了性能考虑暂时不获取
+    // let dimensions = image::image_dimensions(&abs_path).ok();
+    
+    Some(ImageInfo {
+        path: relative_path.to_string(),
+        size,
+        width: None,  // dimensions.map(|(w, _)| w),
+        height: None, // dimensions.map(|(_, h)| h),
+    })
+}
+
+// 按需获取图片base64数据
+#[tauri::command]
+pub async fn get_image_base64(param: GetImageParam) -> Result<ImageBase64Response, String> {
+    let rb: &RBatis = CONTEXT.get::<RBatis>();
+    
+    // 从数据库获取记录
+    let records = ClipRecord::select_by_id(rb, &param.record_id)
+        .await
+        .map_err(|e| format!("查询记录失败: {}", e))?;
+    
+    let record = records.first().ok_or("记录不存在")?;
+    
+    // 验证是否为图片类型
+    if record.r#type != "Image" {
+        return Err("记录类型不是图片".to_string());
+    }
+    
+    // 获取图片路径
+    let image_path = record.content.as_str().ok_or("图片路径无效")?;
+    
+    // 转换为base64
+    let base64_data = ContentProcessor::process_image_content(image_path)
+        .ok_or("图片转换失败")?;
+    
+    Ok(ImageBase64Response {
+        id: param.record_id,
+        base64_data,
+    })
 }
