@@ -16,6 +16,7 @@ use crate::{
 
 use biz::clip_board_sync::ClipboardEventTigger;
 use clipboard_listener::{ClipboardEvent, EventManager};
+use log::LevelFilter;
 use state::TypeMap;
 use tauri_plugin_autostart::MacosLauncher;
 
@@ -37,7 +38,7 @@ pub static CONTEXT: TypeMap![Send + Sync] = <TypeMap![Send + Sync]>::new();
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
     // 初始化日志
-    init_logging();
+    init_logging(LevelFilter::Debug);
 
     // 初始化系统设置
     init_settings();

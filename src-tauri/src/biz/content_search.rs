@@ -8,6 +8,7 @@ use bloomfilter::Bloom;
 use dashmap::DashMap;
 use once_cell::sync::Lazy;
 use regex::Regex;
+use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 
 /// 搜索索引配置
@@ -29,6 +30,11 @@ impl RecordSearchData {
 
         // 将内容的所有可能搜索词汇添加到bloom filter
         let search_terms = Self::extract_search_terms(&content);
+        log::debug!(
+            "为记录内容创建布隆过滤器 - 内容{}, \n分词结果: {:?}, ",
+            content,
+            search_terms
+        );
         for term in search_terms {
             bloom_filter.set(&term);
         }
@@ -40,83 +46,95 @@ impl RecordSearchData {
     }
 
     /// 混合 n-gram 滑动窗口 + 空格分词的内容分词方法
-    fn extract_search_terms(content: &str) -> Vec<String> {
-        let mut terms = Vec::new();
+    pub fn extract_search_terms(text: &str) -> HashSet<String> {
+        let mut tokens = HashSet::new();
+        let cleaned_text = Self::clean_text(text).to_lowercase();
 
-        // 1. 直接从原始内容提取英文单词（在任何清理之前）
-        let english_regex = regex::Regex::new(r"\b[a-zA-Z]{2,}\b").unwrap();
-        for cap in english_regex.find_iter(content) {
-            let word = cap.as_str().to_lowercase();
-            if word.len() >= 1 {
-                terms.push(word);
+        // ===== 1. 统一提取字母和数字序列 =====
+        let word_regex = Regex::new(r"\b[a-z]{2,}\b|\b\d{2,}\b").unwrap();
+        for cap in word_regex.find_iter(&cleaned_text) {
+            tokens.insert(cap.as_str().to_string());
+        }
+
+        // ===== 2. 结构化内容处理 =====
+        if text.contains('<') && text.contains('>') {
+            Self::extract_xml_tokens(text, &mut tokens);
+        }
+
+        // ===== 3. 中文n-gram处理 =====
+        Self::extract_cjk_ngrams(&cleaned_text, &mut tokens);
+
+        // ===== 4. 空格分词补充 =====
+        for word in cleaned_text.split_whitespace() {
+            if word.len() >= 2 && !tokens.contains(word) {
+                tokens.insert(word.to_string());
             }
         }
 
-        // 2. 数字提取（从原始内容）
-        let number_regex = regex::Regex::new(r"\b\d{2,}\b").unwrap();
-        for cap in number_regex.find_iter(content) {
-            let number = cap.as_str();
-            terms.push(number.to_string());
-        }
+        tokens
+    }
 
-        // 预处理：在中英文边界处插入空格，然后清理
-        let spaced_content = Self::add_spaces_between_languages(content);
-        let cleaned = Self::clean_content(&spaced_content);
-        let normalized = cleaned.to_lowercase();
-
-        // 3. 空格分词 - 处理已分离的英文和数字
-        for word in normalized.split_whitespace() {
-            if Self::is_english_or_number(word) && word.len() >= 1 {
-                terms.push(word.to_string());
+    // XML/HTML标签处理（独立函数）
+    fn extract_xml_tokens(text: &str, tokens: &mut HashSet<String>) {
+        let tag_regex = Regex::new(r"</?([a-z][a-z0-9]*)\b").unwrap();
+        for cap in tag_regex.captures_iter(text) {
+            if let Some(tag) = cap.get(1) {
+                tokens.insert(tag.as_str().to_string());
             }
         }
 
-        // 4. 中文 n-gram 滑动窗口分词 (仅2-3字，减少词汇数量)
-        let chinese_text = Self::extract_chinese_only(&normalized);
-        if !chinese_text.is_empty() {
-            let chars: Vec<char> = chinese_text.chars().collect();
-
-            // 只生成2字和3字n-gram，避免过多词汇
-            // 2字 n-gram
-            for i in 0..=chars.len().saturating_sub(2) {
-                let bigram: String = chars[i..i + 2].iter().collect();
-                terms.push(bigram);
+        let attr_regex = Regex::new(r#"(\w+)=["']([^"']*)["']"#).unwrap();
+        for cap in attr_regex.captures_iter(text) {
+            if let Some(name) = cap.get(1) {
+                tokens.insert(name.as_str().to_string());
             }
+            if let Some(value) = cap.get(2) {
+                let val = value.as_str().to_lowercase();
+                if val.len() >= 2 {
+                    tokens.insert(val.clone());
 
-            // 3字 n-gram (限制数量)
-            if chars.len() >= 3 && chars.len() <= 10 {
-                for i in 0..=chars.len().saturating_sub(3) {
-                    let trigram: String = chars[i..i + 3].iter().collect();
-                    terms.push(trigram);
+                    // 属性值分词
+                    for word in val.split_whitespace() {
+                        if word.len() >= 2 {
+                            tokens.insert(word.to_string());
+                        }
+                    }
                 }
             }
         }
-
-        // 5. 添加清理后的完整内容
-        terms.push(normalized.clone());
-
-        // 去重
-        terms.sort();
-        terms.dedup();
-
-        terms
     }
 
-    /// 清理内容，去除标点符号和特殊字符
-    fn clean_content(content: &str) -> String {
-        let regex = Regex::new(r"[^\w\s\u4e00-\u9fff]").unwrap();
-        regex.replace_all(content, " ").to_string()
+    // 中日韩n-gram处理
+    fn extract_cjk_ngrams(text: &str, tokens: &mut HashSet<String>) {
+        let cjk_text: String = text
+            .chars()
+            .filter(|&c| ('\u{4e00}'..='\u{9fff}').contains(&c))
+            .collect();
+
+        let chars: Vec<char> = cjk_text.chars().collect();
+        let len = chars.len();
+
+        for n in 2..=4 {
+            if len < n {
+                continue;
+            }
+
+            for i in 0..=(len - n) {
+                let gram: String = chars[i..i + n].iter().collect();
+                tokens.insert(gram);
+            }
+        }
     }
 
-    /// 检查是否为英文或数字
-    fn is_english_or_number(text: &str) -> bool {
-        text.chars().all(|c| c.is_ascii_alphanumeric())
-    }
-
-    /// 提取纯中文内容
-    fn extract_chinese_only(text: &str) -> String {
+    // 清理文本（保留字母、数字、空格、汉字）
+    fn clean_text(text: &str) -> String {
         text.chars()
-            .filter(|c| '\u{4e00}' <= *c && *c <= '\u{9fff}')
+            .filter(|&c| {
+                c.is_alphabetic()
+                    || c.is_numeric()
+                    || c.is_whitespace()
+                    || ('\u{4e00}'..='\u{9fff}').contains(&c)
+            })
             .collect()
     }
 
@@ -145,7 +163,6 @@ impl RecordSearchData {
 
         let normalized_query = query.trim().to_lowercase();
         let content_size = self.content.as_bytes().len();
-
         // 如果内容大小小于配置的direct_contains_threshold，直接使用contains搜索
         if content_size < direct_contains_threshold {
             log::debug!(
@@ -185,37 +202,6 @@ impl RecordSearchData {
         // 直接字符串包含搜索
         normalized_content.contains(&normalized_query)
     }
-
-    /// 在不同语言字符之间添加空格
-    fn add_spaces_between_languages(content: &str) -> String {
-        let mut result = String::new();
-        let chars: Vec<char> = content.chars().collect();
-
-        for i in 0..chars.len() {
-            let current_char = chars[i];
-            result.push(current_char);
-
-            // 如果还有下一个字符
-            if i + 1 < chars.len() {
-                let next_char = chars[i + 1];
-
-                // 检查是否需要在当前字符和下一个字符之间插入空格
-                let current_is_ascii = current_char.is_ascii_alphanumeric();
-                let current_is_chinese = '\u{4e00}' <= current_char && current_char <= '\u{9fff}';
-                let next_is_ascii = next_char.is_ascii_alphanumeric();
-                let next_is_chinese = '\u{4e00}' <= next_char && next_char <= '\u{9fff}';
-
-                // 在以下情况下插入空格：
-                // 1. 英文/数字 -> 中文
-                // 2. 中文 -> 英文/数字
-                if (current_is_ascii && next_is_chinese) || (current_is_chinese && next_is_ascii) {
-                    result.push(' ');
-                }
-            }
-        }
-
-        result
-    }
 }
 
 struct SimpleSearchIndex {
@@ -249,10 +235,8 @@ impl SimpleSearchIndex {
         }
 
         let mut results = Vec::new();
-
         for entry in self.records.iter() {
             let (id, search_data) = (entry.key(), entry.value());
-
             // 布隆过滤器优先 + 内容包含搜索
             if search_data.smart_search(query) {
                 results.push(id.clone());
@@ -307,8 +291,6 @@ pub async fn remove_ids_from_index(ids: &[String]) -> Result<()> {
 /// 异步初始化搜索索引，从现有记录中构建
 pub async fn initialize_search_index(clips: Vec<ClipRecord>) -> Result<()> {
     tokio::spawn(async move {
-        log::info!("开始初始化搜索索引...");
-
         // 清空现有索引
         SEARCH_INDEX.clear();
 

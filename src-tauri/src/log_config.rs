@@ -2,13 +2,11 @@ use log::LevelFilter;
 use log4rs::{
     Config,
     append::{
-        console::ConsoleAppender, 
+        console::ConsoleAppender,
         rolling_file::{
             RollingFileAppender,
             policy::compound::{
-                CompoundPolicy,
-                trigger::size::SizeTrigger,
-                roll::fixed_window::FixedWindowRoller,
+                CompoundPolicy, roll::fixed_window::FixedWindowRoller, trigger::size::SizeTrigger,
             },
         },
     },
@@ -20,7 +18,7 @@ use crate::utils::file_dir::get_logs_dir;
 
 /// 初始化日志系统，将日志文件放到统一的logs目录下
 /// 自动管理日志文件轮转和清理，无需外部干预
-pub fn init_logging() {
+pub fn init_logging(level: LevelFilter) {
     // 获取logs目录路径
     let log_file_path = match get_logs_dir() {
         Some(mut logs_dir) => {
@@ -43,20 +41,21 @@ pub fn init_logging() {
     // 配置日志轮转策略
     // 单文件最大12MB，保证5个文件不超过60MB总限制
     let trigger = SizeTrigger::new(12 * 1024 * 1024); // 12MB触发轮转
-    
+
     // 配置固定窗口滚动策略，最多保留4个历史文件（加上当前文件总共5个）
     let roller = match get_logs_dir() {
         Some(logs_dir) => {
-            let pattern = logs_dir.join("clip_pal.{}.log").to_string_lossy().to_string();
+            let pattern = logs_dir
+                .join("clip_pal.{}.log")
+                .to_string_lossy()
+                .to_string();
             FixedWindowRoller::builder()
                 .build(&pattern, 4) // 保留4个历史文件，加上当前文件总共5个
                 .expect("Failed to create fixed window roller")
         }
-        None => {
-            FixedWindowRoller::builder()
-                .build("clip_pal.{}.log", 4)
-                .expect("Failed to create fixed window roller")
-        }
+        None => FixedWindowRoller::builder()
+            .build("clip_pal.{}.log", 4)
+            .expect("Failed to create fixed window roller"),
     };
 
     // 创建复合策略，结合大小触发和固定窗口滚动
@@ -86,7 +85,7 @@ pub fn init_logging() {
             Root::builder()
                 .appender("stdout")
                 .appender("logfile")
-                .build(LevelFilter::Info),
+                .build(level),
         ) {
         Ok(config) => config,
         Err(e) => {
