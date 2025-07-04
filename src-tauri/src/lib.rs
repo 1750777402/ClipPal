@@ -38,7 +38,7 @@ pub static CONTEXT: TypeMap![Send + Sync] = <TypeMap![Send + Sync]>::new();
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
     // 初始化日志
-    init_logging(LevelFilter::Debug);
+    init_logging(LevelFilter::Info);
 
     // 初始化系统设置
     init_settings();
