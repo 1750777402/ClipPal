@@ -95,35 +95,6 @@ impl RecordSearchData {
         // 5. 添加清理后的完整内容
         terms.push(normalized.clone());
 
-        // 6. XML标签内容特殊处理
-        if content.contains('<') && content.contains('>') {
-            // 提取XML标签名
-            let tag_regex = regex::Regex::new(r"</?([a-zA-Z][a-zA-Z0-9]*)\b[^>]*>").unwrap();
-            for cap in tag_regex.captures_iter(content) {
-                if let Some(tag_name) = cap.get(1) {
-                    terms.push(tag_name.as_str().to_lowercase());
-                }
-            }
-
-            // 提取XML属性名和值
-            let attr_regex = regex::Regex::new(r#"(\w+)=["']([^"']+)["']"#).unwrap();
-            for cap in attr_regex.captures_iter(content) {
-                if let Some(attr_name) = cap.get(1) {
-                    terms.push(attr_name.as_str().to_lowercase());
-                }
-                if let Some(attr_value) = cap.get(2) {
-                    let value = attr_value.as_str().to_lowercase();
-                    terms.push(value.clone());
-                    // 如果属性值包含空格，也按空格分词
-                    for word in value.split_whitespace() {
-                        if word.len() >= 1 {
-                            terms.push(word.to_string());
-                        }
-                    }
-                }
-            }
-        }
-
         // 去重
         terms.sort();
         terms.dedup();
