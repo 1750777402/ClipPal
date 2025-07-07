@@ -1,4 +1,4 @@
-use crate::{CONTEXT, utils::file_dir::get_data_dir};
+use crate::{CONTEXT, utils::{file_dir::get_data_dir, path_utils::to_safe_string}};
 use anyhow::{Error, Ok};
 use rbatis::RBatis;
 use serde::{Deserialize, Serialize};
@@ -299,14 +299,16 @@ async fn check_and_fix_database_schema(rb: &RBatis) -> Result<(), Error> {
 pub async fn init_sqlite() -> Result<RBatis, Error> {
     // 创建sqlite链接
     let rb = RBatis::new();
+    
+    // 安全地处理数据库路径，确保中文字符正确处理
     let db_path = get_data_dir()
         .ok_or_else(|| anyhow::anyhow!("无法获取数据目录"))?
-        .join("clip_record.db")
-        .to_str()
-        .ok_or_else(|| anyhow::anyhow!("数据库路径包含无效字符"))?
-        .to_string();
+        .join("clip_record.db");
+    
+    // 使用工具函数安全地处理路径
+    let db_path_str = to_safe_string(&db_path);
 
-    rb.init(rbdc_sqlite::Driver {}, &format!("sqlite://{}", db_path))
+    rb.init(rbdc_sqlite::Driver {}, &format!("sqlite://{}", db_path_str))
         .map_err(|e| anyhow::anyhow!("数据库连接初始化失败: {}", e))?;
 
     // 检查并修复数据库结构

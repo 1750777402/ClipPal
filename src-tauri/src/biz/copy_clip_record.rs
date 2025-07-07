@@ -10,11 +10,11 @@ use tauri_plugin_dialog::DialogExt;
 use crate::{
     CONTEXT, auto_paste,
     biz::{
-        clip_record::ClipRecord, content_processor::ContentProcessor, system_setting::Settings,
-        content_search::remove_ids_from_index,
+        clip_record::ClipRecord, content_processor::ContentProcessor,
+        content_search::remove_ids_from_index, system_setting::Settings,
     },
     errors::lock_utils::safe_lock,
-    utils::aes_util::decrypt_content,
+    utils::{aes_util::decrypt_content, path_utils::{str_to_safe_string, generate_file_not_found_error}},
     window::{WindowHideFlag, WindowHideGuard},
 };
 
@@ -81,10 +81,7 @@ pub async fn copy_clip_record(param: CopyClipRecord) -> Result<String, String> {
                     }
                 }
                 if !not_found.is_empty() {
-                    return Err(format!(
-                        "以下文件不存在，无法复制:\n{}",
-                        not_found.join("\n")
-                    ));
+                    return Err(generate_file_not_found_error(&not_found));
                 }
                 let _ = clipboard.write_files_uris(restored);
             } else {
@@ -183,10 +180,7 @@ pub async fn copy_clip_record_no_paste(param: CopyClipRecord) -> Result<String, 
                     }
                 }
                 if !not_found.is_empty() {
-                    return Err(format!(
-                        "以下文件不存在，无法复制:\n{}",
-                        not_found.join("\n")
-                    ));
+                    return Err(generate_file_not_found_error(&not_found));
                 }
                 let _ = clipboard.write_files_uris(restored);
             } else {
@@ -262,14 +256,16 @@ pub async fn image_save_as(param: CopyClipRecord) -> Result<String, String> {
                 .save_file(move |file_path| {
                     // guard_clone在闭包内，作用域结束时自动drop，恢复窗口可隐藏
                     let _guard = guard_clone;
-                    if let Some(select_path) = file_path {
-                        let select_path = select_path.as_path();
-                        if let Some(select_path) = select_path {
-                            if let Err(e) = std::fs::copy(&abs_path_clone, &select_path) {
-                                log::error!("Copy image error: {}", e);
+                                            if let Some(select_path) = file_path {
+                            let select_path = select_path.as_path();
+                            if let Some(select_path) = select_path {
+                                if let Err(e) = std::fs::copy(&abs_path_clone, &select_path) {
+                                    let source_path = abs_path_clone.to_string_lossy();
+                                    let dest_path = select_path.to_string_lossy();
+                                    log::error!("复制图片失败: {}, 源文件: {}, 目标文件: {}", e, source_path, dest_path);
+                                }
                             }
                         }
-                    }
                 });
             Ok("图片已成功保存".to_string())
         }
@@ -311,7 +307,8 @@ pub async fn copy_single_file(param: CopySingleFileRecord) -> Result<String, Str
 
         // 检查文件是否存在
         if !std::path::Path::new(&param.file_path).exists() {
-            return Err(format!("文件不存在: {}", param.file_path));
+            let safe_path = str_to_safe_string(&param.file_path);
+            return Err(format!("文件不存在: {}", safe_path));
         }
 
         // 复制单个文件

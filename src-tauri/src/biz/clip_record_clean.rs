@@ -1,4 +1,3 @@
-
 use std::sync::{Arc, Mutex};
 
 use clipboard_listener::ClipType;
@@ -10,7 +9,7 @@ use crate::{
         clip_record::ClipRecord, system_setting::Settings, content_search::remove_ids_from_index,
     },
     errors::lock_utils::safe_lock,
-    utils::file_dir::get_resources_dir,
+    utils::{file_dir::get_resources_dir, path_utils::to_safe_string},
 };
 
 pub async fn clip_record_clean() {
@@ -53,7 +52,8 @@ pub async fn clip_record_clean() {
                             for path in img_path_arr {
                                 let full_path = resource_path.join(path);
                                 std::fs::remove_file(full_path.clone()).unwrap_or_else(|e| {
-                                    log::error!("删除图片失败:{}，{:?}", e, full_path.clone());
+                                    let safe_path = to_safe_string(&full_path);
+                                    log::error!("删除图片失败: {}, 路径: {}", e, safe_path);
                                 })
                             }
                         }

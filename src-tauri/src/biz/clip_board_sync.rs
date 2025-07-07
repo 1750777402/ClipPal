@@ -11,7 +11,7 @@ use serde_json::Value;
 use tauri::{AppHandle, Emitter};
 use uuid::Uuid;
 
-use crate::{biz::content_search::add_content_to_index, utils::aes_util::encrypt_content};
+use crate::{biz::content_search::add_content_to_index, utils::{aes_util::encrypt_content, path_utils::to_safe_string}};
 
 use crate::{
     CONTEXT,
@@ -220,7 +220,8 @@ async fn save_img_to_resource(data_id: &str, rb: &RBatis, image: &Vec<u8>) {
                 }
             }
             Err(e) => {
-                log::error!("创建图片文件失败: {}", e);
+                let safe_path = to_safe_string(&full_path);
+                log::error!("创建图片文件失败: {}, 路径: {}", e, safe_path);
             }
         }
     } else {
