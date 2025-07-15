@@ -28,6 +28,8 @@ pub struct ClipRecord {
     pub sync_time: Option<u64>,
     // 设备标识
     pub device_id: Option<String>,
+    // 云同步版本号
+    pub version: Option<i32>,
 }
 
 crud!(ClipRecord {}, "clip_record");
@@ -104,7 +106,7 @@ impl ClipRecord {
         if ids.is_empty() {
             return Ok(Vec::new());
         }
-        
+
         let sql = format!(
             "SELECT * FROM clip_record WHERE id IN ({}) ORDER BY pinned_flag DESC, sort DESC, created DESC",
             ids.iter().map(|_| "?").collect::<Vec<_>>().join(",")

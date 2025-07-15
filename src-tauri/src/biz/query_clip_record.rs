@@ -4,9 +4,11 @@ use std::fs;
 use std::path::Path;
 
 use crate::{
+    CONTEXT,
     biz::{
-        clip_record::ClipRecord, content_processor::ContentProcessor, content_search::search_ids_by_content
-    }, CONTEXT
+        clip_record::ClipRecord, content_processor::ContentProcessor,
+        content_search::search_ids_by_content,
+    },
 };
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -33,6 +35,8 @@ pub struct ClipRecordDTO {
     pub file_info: Vec<FileInfo>,
     // 图片预览信息（仅用于图片类型）
     pub image_info: Option<ImageInfo>,
+    // 是否已同步标识
+    pub sync_flag: Option<i32>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -106,6 +110,7 @@ pub async fn get_clip_records(param: QueryParam) -> Vec<ClipRecordDTO> {
                     pinned_flag: item.pinned_flag,
                     file_info: get_file_info(content_str),
                     image_info: None,
+                    sync_flag: item.sync_flag,
                 };
             } else if item.r#type == "Image" {
                 // 对于图片类型，不转换为base64，而是返回元数据
@@ -120,6 +125,7 @@ pub async fn get_clip_records(param: QueryParam) -> Vec<ClipRecordDTO> {
                     pinned_flag: item.pinned_flag,
                     file_info: vec![],
                     image_info,
+                    sync_flag: item.sync_flag,
                 };
             } else {
                 return ClipRecordDTO {
@@ -131,6 +137,7 @@ pub async fn get_clip_records(param: QueryParam) -> Vec<ClipRecordDTO> {
                     pinned_flag: item.pinned_flag,
                     file_info: vec![],
                     image_info: None,
+                    sync_flag: item.sync_flag,
                 };
             }
         })
@@ -182,20 +189,20 @@ pub fn get_image_info(relative_path: &str) -> Option<ImageInfo> {
     if relative_path.is_empty() {
         return None;
     }
-    
+
     let base_path = crate::utils::file_dir::get_resources_dir()?;
     let abs_path = base_path.join(relative_path);
-    
+
     if !abs_path.exists() {
         return None;
     }
-    
+
     let metadata = fs::metadata(&abs_path).ok()?;
     let size = metadata.len();
-    
+
     // 可以考虑使用image crate获取图片尺寸，但为了性能考虑暂时不获取
     // let dimensions = image::image_dimensions(&abs_path).ok();
-    
+
     Some(ImageInfo {
         path: relative_path.to_string(),
         size,
@@ -208,26 +215,25 @@ pub fn get_image_info(relative_path: &str) -> Option<ImageInfo> {
 #[tauri::command]
 pub async fn get_image_base64(param: GetImageParam) -> Result<ImageBase64Response, String> {
     let rb: &RBatis = CONTEXT.get::<RBatis>();
-    
+
     // 从数据库获取记录
     let records = ClipRecord::select_by_id(rb, &param.record_id)
         .await
         .map_err(|e| format!("查询记录失败: {}", e))?;
-    
+
     let record = records.first().ok_or("记录不存在")?;
-    
+
     // 验证是否为图片类型
     if record.r#type != "Image" {
         return Err("记录类型不是图片".to_string());
     }
-    
+
     // 获取图片路径
     let image_path = record.content.as_str().ok_or("图片路径无效")?;
-    
+
     // 转换为base64
-    let base64_data = ContentProcessor::process_image_content(image_path)
-        .ok_or("图片转换失败")?;
-    
+    let base64_data = ContentProcessor::process_image_content(image_path).ok_or("图片转换失败")?;
+
     Ok(ImageBase64Response {
         id: param.record_id,
         base64_data,

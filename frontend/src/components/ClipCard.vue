@@ -1,5 +1,5 @@
 <template>
-    <div class="clip-card" :class="{ 'clip-card-hover': !isMobile, 'is-pinned': record.pinned_flag }"
+    <div class="clip-card" :class="[{'clip-card-hover': !isMobile, 'is-pinned': record.pinned_flag}, (cloudSyncEnabled && record.sync_flag !== undefined) ? `sync-flag-${record.sync_flag}` : '']"
         @dblclick="handleCardDoubleClick">
         <div class="card-header">
             <div class="card-left">
@@ -15,6 +15,17 @@
                     </span>
                 </div>
                 <span class="time-text">{{ formatTime(record.created) }}</span>
+            </div>
+            <div class="sync-status" v-if="cloudSyncEnabled && record.sync_flag !== undefined">
+              <span v-if="record.sync_flag === 0" class="sync-unsynced">
+                <i class="iconfont icon-tishi"></i>
+              </span>
+              <span v-else-if="record.sync_flag === 1" class="sync-syncing">
+                <i class="iconfont icon-loading sync-loading"></i>
+              </span>
+              <span v-else-if="record.sync_flag === 2" class="sync-synced">
+                <i class="iconfont icon-duigou"></i>
+              </span>
             </div>
             <div class="card-actions" @click.stop @dblclick.stop>
                 <button class="action-btn pin-btn" :class="{ 'is-pinned': record.pinned_flag }"
@@ -190,6 +201,7 @@ interface ClipRecord {
     pinned_flag?: number;
     file_info?: FileInfo[];
     image_info?: ImageInfo;
+    sync_flag?: 0 | 1 | 2; // 0未同步 1同步中 2已同步
 }
 
 interface ImageInfo {
@@ -208,6 +220,7 @@ interface FileInfo {
 const props = defineProps<{
     record: ClipRecord;
     isMobile: boolean;
+    cloudSyncEnabled: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -456,6 +469,15 @@ const getTypeTitle = computed(() => {
     }
 });
 
+const syncStatusText = computed(() => {
+  switch (props.record.sync_flag) {
+    case 0: return 'unsynced';
+    case 1: return 'syncing';
+    case 2: return 'synced';
+    default: return '';
+  }
+});
+
 const fileList = computed(() => {
     if (props.record.type === 'File') {
         try {
@@ -551,6 +573,49 @@ onMounted(() => {
     background: var(--pinned-bg, #f8fafc);
     border-left: var(--spacing-xs) solid var(--primary-color);
     box-shadow: 0 4px 12px rgba(44, 122, 123, 0.12);
+}
+
+.sync-status {
+    font-size: 12px;
+    color: var(--text-secondary, #a0aec0);
+    font-weight: 500;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.sync-unsynced { color: #f39c12; }
+.sync-syncing { color: #3498db; }
+.sync-synced { color: #2ecc71; }
+
+.sync-loading {
+  display: inline-block;
+  margin-right: 4px;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.clip-card.sync-flag-0 { border-color: #f39c12; }
+.clip-card.sync-flag-1 { 
+  border-color: #3498db; 
+  background: #ecf6fb;
+  animation: pulse-sync 2s ease-in-out infinite;
+}
+.clip-card.sync-flag-2 { border-color: #2ecc71; background: #f0fff0; }
+
+@keyframes pulse-sync {
+  0%, 100% { 
+    background: #ecf6fb;
+    box-shadow: var(--shadow-md);
+  }
+  50% { 
+    background: #d4edda;
+    box-shadow: 0 4px 12px rgba(52, 152, 219, 0.15);
+  }
 }
 
 .card-header {

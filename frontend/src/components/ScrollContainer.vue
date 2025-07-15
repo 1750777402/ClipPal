@@ -4,7 +4,12 @@
       <span class="panel-title">Clip Pal</span>
       <input v-model="search" class="search-input" placeholder="搜索剪贴记录..." />
       <div class="header-icons">
-        <button class="icon-button iconfont icon-weitongbu" title="云同步" type="button"></button>
+        <button
+          :class="['icon-button', 'iconfont', cloudSyncEnabled ? 'icon-yuntongbu' : 'icon-weitongbu']"
+          title="云同步"
+          type="button"
+          @click="handleCloudSyncClick">
+        </button>
         <button class="icon-button iconfont icon-user" title="用户信息" type="button"></button>
         <button class="icon-button iconfont icon-setting settings-button" title="设置" type="button" @click="showSettings = true"></button>
       </div>
@@ -32,14 +37,14 @@
       <!-- 真实数据，透明度渐变 -->
       <div class="real-content" :class="{ 'content-updating': isRefreshing }">
         <ClipCard v-for="item in cards" :key="item.id" :record="item" :is-mobile="responsive.isMobile.value" 
-                  @click="handleCardClick" @pin="handlePin" @delete="handleDel" />
+                  :cloud-sync-enabled="cloudSyncEnabled" @click="handleCardClick" @pin="handlePin" @delete="handleDel" />
       </div>
     </div>
 
     <!-- 正常数据显示 -->
     <div class="clip-list" v-else @scroll.passive="handleScroll" ref="scrollContainer">
       <ClipCard v-for="item in cards" :key="item.id" :record="item" :is-mobile="responsive.isMobile.value" 
-                @click="handleCardClick" @pin="handlePin" @delete="handleDel" />
+                :cloud-sync-enabled="cloudSyncEnabled" @click="handleCardClick" @pin="handlePin" @delete="handleDel" />
 
       <div v-if="isFetchingMore" class="bottom-loading">
         <div class="loading-spinner small"></div>
@@ -56,7 +61,7 @@
 <script setup lang="ts">
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-import { ref, onMounted, onBeforeUnmount, watch, nextTick } from 'vue';
+import { ref, onMounted, onBeforeUnmount, watch, nextTick, computed } from 'vue';
 import SettingsDialog from './SettingsDialog.vue';
 import ClipCard from './ClipCard.vue';
 import { useWindowAdaptive } from '../utils/responsive';
@@ -100,6 +105,7 @@ interface ClipRecord {
   pinned_flag?: number;
   file_info?: FileInfo[];
   image_info?: ImageInfo;
+  sync_flag?: 0 | 1 | 2; // 0未同步 1同步中 2已同步
 }
 
 interface ImageInfo {
@@ -128,6 +134,11 @@ const initEventListeners = async () => {
     });
     await listen('open_settings_winodws', () => {
       showSettings.value = true;
+    });
+    await listen('sync_status_update', (event) => {
+      const { clip_id, sync_flag } = event.payload as { clip_id: string, sync_flag: 0 | 1 | 2 };
+      const card = cards.value.find(c => c.id === clip_id);
+      if (card) card.sync_flag = sync_flag;
     });
   } catch (error) {
     console.error('事件监听失败:', error);
@@ -272,8 +283,34 @@ watch(search, (newValue) => {
 
 const showSettings = ref(false);
 
+const cloudSyncEnabled = ref(false);
+
+// 页面加载时自动加载设置
+const loadCloudSyncSetting = async () => {
+  try {
+    const settings = await invoke('load_settings') as { cloud_sync: number };
+    cloudSyncEnabled.value = settings.cloud_sync === 1;
+  } catch (e) {
+    cloudSyncEnabled.value = false;
+  }
+};
+
+// 顶部云同步按钮点击
+const handleCloudSyncClick = async () => {
+  try {
+    const settings = await invoke('load_settings') as any;
+    const newValue = cloudSyncEnabled.value ? 0 : 1;
+    settings.cloud_sync = newValue;
+    await invoke('save_settings', { settings });
+    cloudSyncEnabled.value = newValue === 1;
+    smartRefresh();
+  } catch (e) {}
+};
+
+// 设置弹窗保存后同步cloudSyncEnabled
 const handleSettingsSave = async (newSettings: any) => {
-  console.log('设置已保存:', newSettings);
+  cloudSyncEnabled.value = newSettings.cloud_sync === 1;
+  smartRefresh();
 };
 
 const handlePin = () => {
@@ -288,6 +325,7 @@ onMounted(() => {
   lastSearchValue.value = search.value;
   fetchClipRecords();
   initEventListeners();
+  loadCloudSyncSetting();
 });
 
 onBeforeUnmount(() => {

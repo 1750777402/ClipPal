@@ -1,4 +1,7 @@
-use crate::{CONTEXT, utils::{file_dir::get_data_dir, path_utils::to_safe_string}};
+use crate::{
+    CONTEXT,
+    utils::{file_dir::get_data_dir, path_utils::to_safe_string},
+};
 use anyhow::{Error, Ok};
 use rbatis::RBatis;
 use serde::{Deserialize, Serialize};
@@ -107,6 +110,13 @@ fn get_expected_schema() -> HashMap<String, TableSchema> {
             r#type: "TEXT".to_string(),
             not_null: false,
             default_value: None,
+            primary_key: false,
+        },
+        ColumnInfo {
+            name: "version".to_string(),
+            r#type: "INTEGER".to_string(),
+            not_null: false,
+            default_value: Some("0".to_string()),
             primary_key: false,
         },
     ];
@@ -299,12 +309,12 @@ async fn check_and_fix_database_schema(rb: &RBatis) -> Result<(), Error> {
 pub async fn init_sqlite() -> Result<RBatis, Error> {
     // 创建sqlite链接
     let rb = RBatis::new();
-    
+
     // 安全地处理数据库路径，确保中文字符正确处理
     let db_path = get_data_dir()
         .ok_or_else(|| anyhow::anyhow!("无法获取数据目录"))?
         .join("clip_record.db");
-    
+
     // 使用工具函数安全地处理路径
     let db_path_str = to_safe_string(&db_path);
 

@@ -11,7 +11,10 @@ use serde_json::Value;
 use tauri::{AppHandle, Emitter};
 use uuid::Uuid;
 
-use crate::{biz::content_search::add_content_to_index, utils::{aes_util::encrypt_content, path_utils::to_safe_string}};
+use crate::{
+    biz::content_search::add_content_to_index,
+    utils::{aes_util::encrypt_content, path_utils::to_safe_string},
+};
 
 use crate::{
     CONTEXT,
@@ -89,6 +92,7 @@ async fn handle_text(rb: &RBatis, content: &str, sort: i32) {
                     os_type: "win".to_string(),
                     sort,
                     pinned_flag: 0,
+                    sync_flag: Some(0), // 默认未同步
                     ..Default::default()
                 };
 
@@ -142,6 +146,7 @@ async fn handle_image(rb: &RBatis, file_data: Option<&Vec<u8>>, sort: i32) {
                 os_type: "win".to_string(),
                 sort,
                 pinned_flag: 0,
+                sync_flag: Some(0), // 默认未同步
                 ..Default::default()
             };
 
@@ -176,6 +181,7 @@ async fn handle_file(rb: &RBatis, file_paths: Option<&Vec<String>>, sort: i32) {
                 os_type: "win".to_string(),
                 sort,
                 pinned_flag: 0,
+                sync_flag: Some(0), // 默认未同步
                 ..Default::default()
             };
 
