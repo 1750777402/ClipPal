@@ -1,5 +1,5 @@
 <template>
-    <div class="clip-card" :class="[{'clip-card-hover': !isMobile, 'is-pinned': record.pinned_flag}, (cloudSyncEnabled && record.sync_flag !== undefined) ? `sync-flag-${record.sync_flag}` : '']"
+    <div class="clip-card" :class="{'clip-card-hover': !isMobile, 'is-pinned': record.pinned_flag}"
         @dblclick="handleCardDoubleClick">
         <div class="card-header">
             <div class="card-left">
@@ -13,19 +13,15 @@
                             </span>
                         </template>
                     </span>
+                    <div v-if="cloudSyncEnabled && record.sync_flag !== undefined" class="sync-dot">
+                        <span v-if="record.sync_flag === 0" class="sync-unsynced" title="未同步"></span>
+                        <span v-else-if="record.sync_flag === 1" class="sync-syncing" title="同步中">
+                            <i class="iconfont icon-loading sync-loading"></i>
+                        </span>
+                        <span v-else-if="record.sync_flag === 2" class="sync-synced" title="已同步"></span>
+                    </div>
                 </div>
                 <span class="time-text">{{ formatTime(record.created) }}</span>
-            </div>
-            <div class="sync-status" v-if="cloudSyncEnabled && record.sync_flag !== undefined">
-              <span v-if="record.sync_flag === 0" class="sync-unsynced">
-                <i class="iconfont icon-tishi"></i>
-              </span>
-              <span v-else-if="record.sync_flag === 1" class="sync-syncing">
-                <i class="iconfont icon-loading sync-loading"></i>
-              </span>
-              <span v-else-if="record.sync_flag === 2" class="sync-synced">
-                <i class="iconfont icon-duigou"></i>
-              </span>
             </div>
             <div class="card-actions" @click.stop @dblclick.stop>
                 <button class="action-btn pin-btn" :class="{ 'is-pinned': record.pinned_flag }"
@@ -616,6 +612,44 @@ onMounted(() => {
     background: #d4edda;
     box-shadow: 0 4px 12px rgba(52, 152, 219, 0.15);
   }
+}
+
+.sync-status-indicator {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10;
+  font-size: 12px;
+}
+
+.sync-unsynced {
+  background: #f39c12;
+  color: white;
+}
+
+.sync-syncing {
+  background: #3498db;
+  color: white;
+}
+
+.sync-synced {
+  background: #2ecc71;
+  color: white;
+}
+
+.sync-loading {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }
 
 .card-header {
@@ -1649,5 +1683,56 @@ onMounted(() => {
   .clip-card {
     border-width: 0.5px;
   }
+}
+
+.sync-dot {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 6px;
+}
+
+.sync-unsynced {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #f39c12;
+}
+
+.sync-syncing {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #3498db;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 8px;
+  color: white;
+  animation: pulse-scale 1s ease-in-out infinite;
+}
+
+@keyframes pulse-scale {
+  0%, 100% { 
+    transform: scale(1);
+  }
+  50% { 
+    transform: scale(1.3);
+  }
+}
+
+.sync-synced {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #2ecc71;
+}
+
+.sync-loading {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }
 </style>
