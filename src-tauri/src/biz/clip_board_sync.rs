@@ -13,7 +13,7 @@ use uuid::Uuid;
 
 use crate::{
     biz::content_search::add_content_to_index,
-    utils::{aes_util::encrypt_content, path_utils::to_safe_string},
+    utils::{aes_util::encrypt_content, path_utils::to_safe_string, device_info::{GLOBAL_OS_TYPE, GLOBAL_DEVICE_ID}},
 };
 
 use crate::{
@@ -89,10 +89,11 @@ async fn handle_text(rb: &RBatis, content: &str, sort: i32) {
                     content: Value::String(encrypted),
                     md5_str: md5_str,
                     created: current_timestamp(),
-                    os_type: "win".to_string(),
+                    os_type: GLOBAL_OS_TYPE.clone(),
                     sort,
                     pinned_flag: 0,
                     sync_flag: Some(0), // 默认未同步
+                    device_id: Some(GLOBAL_DEVICE_ID.clone()),
                     ..Default::default()
                 };
 
@@ -143,10 +144,11 @@ async fn handle_image(rb: &RBatis, file_data: Option<&Vec<u8>>, sort: i32) {
                 content: Value::Null,
                 md5_str,
                 created: current_timestamp(),
-                os_type: "win".to_string(),
+                os_type: GLOBAL_OS_TYPE.clone(),
                 sort,
                 pinned_flag: 0,
                 sync_flag: Some(0), // 默认未同步
+                device_id: Some(GLOBAL_DEVICE_ID.clone()),
                 ..Default::default()
             };
 
@@ -178,10 +180,11 @@ async fn handle_file(rb: &RBatis, file_paths: Option<&Vec<String>>, sort: i32) {
                 content: Value::String(paths.join(":::")),
                 md5_str,
                 created: current_timestamp(),
-                os_type: "win".to_string(),
+                os_type: GLOBAL_OS_TYPE.clone(),
                 sort,
                 pinned_flag: 0,
                 sync_flag: Some(0), // 默认未同步
+                device_id: Some(GLOBAL_DEVICE_ID.clone()),
                 ..Default::default()
             };
 

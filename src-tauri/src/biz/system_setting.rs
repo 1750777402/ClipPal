@@ -12,10 +12,10 @@ use tauri_plugin_autostart::ManagerExt;
 use tauri_plugin_global_shortcut::GlobalShortcutExt;
 
 use crate::{
-    CONTEXT, 
+    CONTEXT,
     errors::{AppError, AppResult, lock_utils::safe_lock},
-    global_shortcut::parse_shortcut, 
-    utils::file_dir::get_config_dir
+    global_shortcut::parse_shortcut,
+    utils::file_dir::get_config_dir,
 };
 
 // 默认超过这个大小的内容，使用布隆过滤器进行搜索   不会进行contains
@@ -23,6 +23,9 @@ pub static DEFAULT_BLOOM_FILTER_TRUST_THRESHOLD: usize = 1 * 1024 * 1024;
 
 // 默认小于这个大小的内容，直接使用contains进行搜索
 pub static DEFAULT_DIRECT_CONTAINS_THRESHOLD: usize = 128 * 1024;
+
+// 定时任务间隔（秒）
+pub static SYNC_INTERVAL_SECONDS: u32 = 30;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Settings {
@@ -39,9 +42,11 @@ pub struct Settings {
     // 是否已完成新手引导 0 未完成 1 已完成
     pub tutorial_completed: u32,
     // 搜索索引最大内容大小（字节）
-    pub bloom_filter_trust_threshold : Option<usize>,
+    pub bloom_filter_trust_threshold: Option<usize>,
     // 直接使用contains搜索的内容大小阈值（字节）
     pub direct_contains_threshold: Option<usize>,
+    // 拉取云端记录的定时任务间隔时间
+    pub cloud_sync_interval: u32,
 }
 
 unsafe impl Send for Settings {}
@@ -53,10 +58,11 @@ impl Default for Settings {
             auto_start: 0,
             shortcut_key: String::from("Ctrl+`"),
             cloud_sync: 0,
-            auto_paste: 1, // 默认开启自动粘贴
+            auto_paste: 1,         // 默认开启自动粘贴
             tutorial_completed: 0, // 默认未完成引导
-            bloom_filter_trust_threshold : Some(DEFAULT_BLOOM_FILTER_TRUST_THRESHOLD), // 默认1MB
+            bloom_filter_trust_threshold: Some(DEFAULT_BLOOM_FILTER_TRUST_THRESHOLD), // 默认1MB
             direct_contains_threshold: Some(DEFAULT_DIRECT_CONTAINS_THRESHOLD), // 默认128KB
+            cloud_sync_interval: SYNC_INTERVAL_SECONDS, // 默认30秒
         }
     }
 }
@@ -158,7 +164,9 @@ pub async fn save_settings(settings: Settings) -> Result<(), String> {
 // 验证设置的有效性
 fn validate_settings(settings: &Settings) -> AppResult<()> {
     if settings.max_records < 50 || settings.max_records > 1000 {
-        return Err(AppError::Config("最大记录条数必须在50-1000之间".to_string()));
+        return Err(AppError::Config(
+            "最大记录条数必须在50-1000之间".to_string(),
+        ));
     }
 
     if settings.shortcut_key.is_empty() {
@@ -201,7 +209,11 @@ async fn update_global_shortcut(shortcut: &str) -> AppResult<()> {
     match app_handle.global_shortcut().on_shortcut(shortcut_obj, {
         let app_handle_clone = app_handle.clone();
         move |_app, shortcut_triggered, event| {
-            log::debug!("快捷键触发: {:?}, 状态: {:?}", shortcut_triggered, event.state());
+            log::debug!(
+                "快捷键触发: {:?}, 状态: {:?}",
+                shortcut_triggered,
+                event.state()
+            );
             if event.state() == tauri_plugin_global_shortcut::ShortcutState::Pressed {
                 use tauri::Manager;
                 if let Some(window) = app_handle_clone.get_webview_window("main") {
@@ -241,7 +253,7 @@ fn set_auto_start(auto_start: bool) -> AppResult<()> {
 fn save_settings_to_file(settings: &Settings) -> AppResult<()> {
     let path = get_settings_file_path()
         .ok_or_else(|| AppError::Config("无法获取配置文件路径".to_string()))?;
-    
+
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
@@ -271,7 +283,11 @@ async fn rollback_settings(applied_settings: &[(&str, bool)]) -> AppResult<()> {
                 if let Err(e) = app_handle.global_shortcut().on_shortcut(shortcut_obj, {
                     let app_handle_clone = app_handle.clone();
                     move |_app, shortcut_triggered, event| {
-                        log::debug!("恢复快捷键触发: {:?}, 状态: {:?}", shortcut_triggered, event.state());
+                        log::debug!(
+                            "恢复快捷键触发: {:?}, 状态: {:?}",
+                            shortcut_triggered,
+                            event.state()
+                        );
                         if event.state() == tauri_plugin_global_shortcut::ShortcutState::Pressed {
                             use tauri::Manager;
                             if let Some(window) = app_handle_clone.get_webview_window("main") {
@@ -293,7 +309,7 @@ async fn rollback_settings(applied_settings: &[(&str, bool)]) -> AppResult<()> {
             _ => {}
         }
     }
-    
+
     Ok(())
 }
 

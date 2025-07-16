@@ -45,6 +45,8 @@ impl_select!(ClipRecord{check_by_type_and_content(content_type:&str, content:&st
 impl_select!(ClipRecord{check_by_type_and_md5(content_type:&str, md5_str:&str) =>"`where type = #{content_type} and md5_str = #{md5_str} limit 1`"});
 // 取出最大的sort数据
 impl_select!(ClipRecord{select_max_sort(user_id: i32) =>"`where user_id = #{user_id} order by sort desc, created desc limit 1`"});
+// 根据sync_flag查询记录
+impl_select!(ClipRecord{select_by_sync_flag(sync_flag: i32) =>"`where sync_flag = #{sync_flag} order by created desc`"});
 
 impl ClipRecord {
     pub async fn update_content(rb: &RBatis, id: &str, content: &String) -> Result<(), Error> {
@@ -55,14 +57,16 @@ impl ClipRecord {
     }
 
     pub async fn update_sort(rb: &RBatis, id: &str, sort: i32) -> Result<(), Error> {
-        let sql = "UPDATE clip_record SET sort = ? WHERE id = ?";
+        // 更新排序的时候，同时也要给版本号自增1
+        let sql = "UPDATE clip_record SET sort = ?, version = IFNULL(version, 0) + 1 WHERE id = ?";
         let tx = rb.acquire_begin().await?;
         let _ = tx.exec(sql, vec![to_value!(sort), to_value!(id)]).await;
         tx.commit().await
     }
 
     pub async fn update_pinned(rb: &RBatis, id: &str, pinned_flag: i32) -> Result<(), Error> {
-        let sql = "UPDATE clip_record SET pinned_flag = ? WHERE id = ?";
+        let sql =
+            "UPDATE clip_record SET pinned_flag = ?, version = IFNULL(version, 0) + 1 WHERE id = ?";
         let tx = rb.acquire_begin().await?;
         if pinned_flag == 1 {
             // 置顶某一条的时候  先把其他的置顶都取消
@@ -71,6 +75,22 @@ impl ClipRecord {
         }
         let _ = tx
             .exec(sql, vec![to_value!(pinned_flag), to_value!(id)])
+            .await;
+        tx.commit().await
+    }
+
+    pub async fn update_sync_flag(rb: &RBatis, id: &str, sync_flag: i32) -> Result<(), Error> {
+        let sql = "UPDATE clip_record SET sync_flag = ?, sync_time = ? WHERE id = ?";
+        let current_time = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as u64;
+        let tx = rb.acquire_begin().await?;
+        let _ = tx
+            .exec(
+                sql,
+                vec![to_value!(sync_flag), to_value!(current_time), to_value!(id)],
+            )
             .await;
         tx.commit().await
     }

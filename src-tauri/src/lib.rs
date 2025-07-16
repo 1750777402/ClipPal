@@ -3,6 +3,7 @@ use std::sync::Arc;
 use crate::{
     biz::{
         clip_record::ClipRecord,
+        cloud_sync_timer::start_cloud_sync_timer,
         content_search::initialize_search_index,
         copy_clip_record::{
             copy_clip_record, copy_clip_record_no_paste, copy_single_file, del_record,
@@ -89,21 +90,28 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
         .plugin(tauri_plugin_http::init())
         .setup(move |app| {
             CONTEXT.set(app.handle().clone());
+
             // 创建托盘区图标
             tray::create_tray(app.handle())?;
+
             // 初始化主窗口
             let _ = window::init_main_window(&app);
+
             // 注册全局快捷键
             let _ = global_shortcut::init_global_shortcut(&app);
+
             // 使用单实例插件确保 Tauri 应用程序在同一时间只运行单个实例
             let _ = single_instance::init_single_instance(&app);
-            // 开启devtools工具
-            // app.app_handle()
-            //     .get_webview_window("main")
-            //     .unwrap()
-            //     .open_devtools();
+
             // 初始化剪贴板监听器
             let _ = clip_board_listener::init_clip_board_listener(&app, m1);
+
+            // 启动云同步定时任务
+            let app_handle = app.handle().clone();
+            let rb = rb_res.clone();
+            tokio::spawn(async move {
+                start_cloud_sync_timer(app_handle, rb).await;
+            });
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
