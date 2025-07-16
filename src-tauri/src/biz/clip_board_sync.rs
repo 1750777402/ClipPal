@@ -13,7 +13,11 @@ use uuid::Uuid;
 
 use crate::{
     biz::content_search::add_content_to_index,
-    utils::{aes_util::encrypt_content, path_utils::to_safe_string, device_info::{GLOBAL_OS_TYPE, GLOBAL_DEVICE_ID}},
+    utils::{
+        aes_util::encrypt_content,
+        device_info::{GLOBAL_DEVICE_ID, GLOBAL_OS_TYPE},
+        path_utils::to_safe_string,
+    },
 };
 
 use crate::{
@@ -63,12 +67,36 @@ async fn get_next_sort(rb: &RBatis) -> i32 {
         .unwrap_or(0)
 }
 
+fn build_clip_record(
+    id: String,
+    user_id: i32,
+    r#type: String,
+    content: Value,
+    md5_str: String,
+    sort: i32,
+) -> ClipRecord {
+    let cur_time = current_timestamp();
+    ClipRecord {
+        id,
+        user_id,
+        r#type,
+        content,
+        md5_str,
+        created: cur_time,
+        os_type: GLOBAL_OS_TYPE.clone(),
+        sort,
+        pinned_flag: 0,
+        sync_flag: Some(0),
+        sync_time: Some(cur_time),
+        device_id: Some(GLOBAL_DEVICE_ID.clone()),
+        version: Some(1),
+    }
+}
+
 async fn handle_text(rb: &RBatis, content: &str, sort: i32) {
     let encrypt_res = encrypt_content(content);
     match encrypt_res {
         Ok(encrypted) => {
-            // 使用md5进行内容重复检查
-            // 加密后的密文不能用于重复检查   因为加密过程使用了随机nonce(随机数种子)   同一个字符串多次加密结果是不一样的
             let md5_str = format!("{:x}", md5::compute(content));
             let existing = ClipRecord::check_by_type_and_md5(
                 rb,
@@ -83,23 +111,17 @@ async fn handle_text(rb: &RBatis, content: &str, sort: i32) {
                     log::error!("更新排序失败: {}", e);
                 }
             } else {
-                let record = ClipRecord {
-                    id: Uuid::new_v4().to_string(),
-                    r#type: ClipType::Text.to_string(),
-                    content: Value::String(encrypted),
-                    md5_str: md5_str,
-                    created: current_timestamp(),
-                    os_type: GLOBAL_OS_TYPE.clone(),
+                let record = build_clip_record(
+                    Uuid::new_v4().to_string(),
+                    0,
+                    ClipType::Text.to_string(),
+                    Value::String(encrypted),
+                    md5_str,
                     sort,
-                    pinned_flag: 0,
-                    sync_flag: Some(0), // 默认未同步
-                    device_id: Some(GLOBAL_DEVICE_ID.clone()),
-                    ..Default::default()
-                };
+                );
 
                 match ClipRecord::insert(rb, &record).await {
                     Ok(_res) => {
-                        // 异步添加原始内容到搜索索引
                         let content_string = content.to_string();
                         let record_id = record.id.clone();
                         tokio::spawn(async move {
@@ -137,20 +159,14 @@ async fn handle_image(rb: &RBatis, file_data: Option<&Vec<u8>>, sort: i32) {
             let _ = ClipRecord::update_sort(rb, &record.id, sort).await;
         } else {
             let id = Uuid::new_v4().to_string();
-
-            let record = ClipRecord {
-                id: id.clone(),
-                r#type: ClipType::Image.to_string(),
-                content: Value::Null,
+            let record = build_clip_record(
+                id.clone(),
+                0,
+                ClipType::Image.to_string(),
+                Value::Null,
                 md5_str,
-                created: current_timestamp(),
-                os_type: GLOBAL_OS_TYPE.clone(),
                 sort,
-                pinned_flag: 0,
-                sync_flag: Some(0), // 默认未同步
-                device_id: Some(GLOBAL_DEVICE_ID.clone()),
-                ..Default::default()
-            };
+            );
 
             if ClipRecord::insert(rb, &record).await.is_ok() {
                 save_img_to_resource(&id, rb, data).await;
@@ -174,23 +190,17 @@ async fn handle_file(rb: &RBatis, file_paths: Option<&Vec<String>>, sort: i32) {
         if let Some(record) = existing.first() {
             let _ = ClipRecord::update_sort(rb, &record.id, sort).await;
         } else {
-            let record = ClipRecord {
-                id: Uuid::new_v4().to_string(),
-                r#type: ClipType::File.to_string(),
-                content: Value::String(paths.join(":::")),
+            let record = build_clip_record(
+                Uuid::new_v4().to_string(),
+                0,
+                ClipType::File.to_string(),
+                Value::String(paths.join(":::")),
                 md5_str,
-                created: current_timestamp(),
-                os_type: GLOBAL_OS_TYPE.clone(),
                 sort,
-                pinned_flag: 0,
-                sync_flag: Some(0), // 默认未同步
-                device_id: Some(GLOBAL_DEVICE_ID.clone()),
-                ..Default::default()
-            };
+            );
 
             match ClipRecord::insert(rb, &record).await {
                 Ok(_res) => {
-                    // 异步添加文件路径到搜索索引
                     let file_paths_string = paths.join(":::");
                     let record_id = record.id.clone();
                     tokio::spawn(async move {
