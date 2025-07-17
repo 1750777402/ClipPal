@@ -1,4 +1,5 @@
 use crate::errors::{AppError, AppResult};
+use crate::utils::config::get_global_content_key;
 use base64::{Engine as _, engine::general_purpose};
 use once_cell::sync::Lazy;
 use serde::Deserialize;
@@ -8,31 +9,20 @@ pub struct AppSecretKey {
     pub content_key: String,
 }
 
-// 混淆后的密钥 - 使用include_str!内嵌到可执行文件中
-const OBFUSCATED_KEY: &str = include_str!("../../config.json");
-
 // 全局静态变量，只读一次配置文件
 static GLOBAL_APP_SECRET_KEY: Lazy<AppSecretKey> = Lazy::new(|| {
-    // 解析内嵌的配置文件
-    match serde_json::from_str::<serde_json::Value>(OBFUSCATED_KEY) {
-        Ok(json) => {
-            if let Some(content_key) = json["app_secret"]["content_key"].as_str() {
-                log::info!("配置文件读取成功: {}", content_key);
-                return AppSecretKey {
-                    content_key: content_key.to_string(),
-                };
+    // 使用配置管理器获取密钥
+    match get_global_content_key() {
+        Ok(content_key) => AppSecretKey {
+            content_key: content_key.to_string(),
+        },
+        Err(e) => {
+            log::warn!("读取配置文件失败: {}", e);
+            // 正常不会走到这里，只是一个兜底
+            AppSecretKey {
+                content_key: "jW8QgaaT7QH5T8bZg4IYOk099gCbU2JzrhC+P+Zy94d=".to_string(),
             }
         }
-        Err(e) => {
-            log::warn!("解析内嵌配置文件失败: {}", e);
-        }
-    }
-
-    // 如果配置文件解析失败，使用默认密钥
-    log::warn!("使用默认密钥");
-    AppSecretKey {
-        // 正常不会走到这里，只是一个兜底
-        content_key: "jW8QgaaT7QH5T8bZg4IYOk099gCbU2JzrhC+P+Zy94d=".to_string(),
     }
 });
 
