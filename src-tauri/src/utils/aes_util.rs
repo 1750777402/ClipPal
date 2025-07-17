@@ -6,7 +6,7 @@ use rand::rngs::OsRng;
 
 use crate::{
     errors::{AppError, AppResult},
-    utils::app_secret_key::load_config,
+    utils::app_secret_key::get_decoded_secret_key,
 };
 
 const KEY_SIZE: usize = 32; // 256-bit
@@ -15,7 +15,7 @@ const NONCE_SIZE: usize = 12;
 /// 内容加密
 pub fn encrypt_content(content: &str) -> AppResult<String> {
     // 加载配置
-    let app_config = load_config()?;
+    let app_config = get_decoded_secret_key()?;
 
     let decode_res = decode_base64_key(&app_config.content_key)
         .map_err(|e| AppError::Crypto(format!("密钥解码失败: {}", e)))?;
@@ -44,7 +44,7 @@ pub fn encrypt_content(content: &str) -> AppResult<String> {
 /// 内容解密
 pub fn decrypt_content(encoded: &str) -> AppResult<String> {
     // 加载配置
-    let app_config = load_config()?;
+    let app_config = get_decoded_secret_key()?;
 
     let decode_res = decode_base64_key(&app_config.content_key)
         .map_err(|e| AppError::Crypto(format!("密钥解码失败: {}", e)))?;

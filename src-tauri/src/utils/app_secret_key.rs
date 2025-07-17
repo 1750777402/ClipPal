@@ -1,21 +1,44 @@
 use crate::errors::{AppError, AppResult};
 use base64::{Engine as _, engine::general_purpose};
+use once_cell::sync::Lazy;
 use serde::Deserialize;
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct AppSecretKey {
     pub content_key: String,
 }
 
-// 混淆后的密钥 - 不是直接的base64，而是经过简单变换的
-const OBFUSCATED_KEY: &str = "jW8QgaaT7QH5T8bZg4IYOk099gCbU2JzrhC+P+Zy94d=";
+// 混淆后的密钥 - 使用include_str!内嵌到可执行文件中
+const OBFUSCATED_KEY: &str = include_str!("../../config.json");
 
-pub fn load_config() -> AppResult<AppSecretKey> {
-    // 解混淆获取真实密钥
-    let content_key = decode_obfuscated_key(OBFUSCATED_KEY)
-        .map_err(|e| AppError::Config(format!("解码密钥失败: {}", e)))?;
+// 全局静态变量，只读一次配置文件
+static GLOBAL_APP_SECRET_KEY: Lazy<AppSecretKey> = Lazy::new(|| {
+    // 解析内嵌的配置文件
+    match serde_json::from_str::<serde_json::Value>(OBFUSCATED_KEY) {
+        Ok(json) => {
+            if let Some(content_key) = json["app_secret"]["content_key"].as_str() {
+                log::info!("配置文件读取成功: {}", content_key);
+                return AppSecretKey {
+                    content_key: content_key.to_string(),
+                };
+            }
+        }
+        Err(e) => {
+            log::warn!("解析内嵌配置文件失败: {}", e);
+        }
+    }
 
-    Ok(AppSecretKey { content_key })
+    // 如果配置文件解析失败，使用默认密钥
+    log::warn!("使用默认密钥");
+    AppSecretKey {
+        // 正常不会走到这里，只是一个兜底
+        content_key: "jW8QgaaT7QH5T8bZg4IYOk099gCbU2JzrhC+P+Zy94d=".to_string(),
+    }
+});
+
+// 获取密钥的统一入口
+pub fn get_app_secret_key() -> AppResult<AppSecretKey> {
+    Ok(GLOBAL_APP_SECRET_KEY.clone())
 }
 
 /// 解混淆密钥 - 简单的字符替换 + base64
@@ -36,6 +59,17 @@ fn decode_obfuscated_key(obfuscated: &str) -> Result<String, String> {
         Ok(_) => Ok(step1),
         Err(e) => Err(format!("Base64解码验证失败: {}", e)),
     }
+}
+
+/// 获取解混淆后的真实密钥
+pub fn get_decoded_secret_key() -> AppResult<AppSecretKey> {
+    let app_secret = get_app_secret_key()?;
+    let decoded_key = decode_obfuscated_key(&app_secret.content_key)
+        .map_err(|e| AppError::Config(format!("解码密钥失败: {}", e)))?;
+
+    Ok(AppSecretKey {
+        content_key: decoded_key,
+    })
 }
 
 /// 混淆密钥的辅助函数（开发时使用，生产时可以删除）
