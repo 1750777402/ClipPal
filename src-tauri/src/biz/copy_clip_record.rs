@@ -14,7 +14,10 @@ use crate::{
         content_search::remove_ids_from_index, system_setting::Settings,
     },
     errors::lock_utils::safe_lock,
-    utils::{aes_util::decrypt_content, path_utils::{str_to_safe_string, generate_file_not_found_error}},
+    utils::{
+        aes_util::decrypt_content,
+        path_utils::{generate_file_not_found_error, str_to_safe_string},
+    },
     window::{WindowHideFlag, WindowHideGuard},
 };
 
@@ -212,7 +215,7 @@ pub async fn set_pinned(param: PinnedClipRecord) -> Result<String, String> {
 pub async fn del_record(param: CopyClipRecord) -> Result<String, String> {
     let rb: &RBatis = CONTEXT.get::<RBatis>();
     let ids = vec![param.record_id];
-    let res = ClipRecord::del_by_ids(rb, &ids).await;
+    let res = ClipRecord::update_del_by_ids(rb, &ids).await;
     if let Ok(_) = res {
         // 异步从搜索索引中移除记录
         tokio::spawn(async move {
@@ -256,16 +259,21 @@ pub async fn image_save_as(param: CopyClipRecord) -> Result<String, String> {
                 .save_file(move |file_path| {
                     // guard_clone在闭包内，作用域结束时自动drop，恢复窗口可隐藏
                     let _guard = guard_clone;
-                                            if let Some(select_path) = file_path {
-                            let select_path = select_path.as_path();
-                            if let Some(select_path) = select_path {
-                                if let Err(e) = std::fs::copy(&abs_path_clone, &select_path) {
-                                    let source_path = abs_path_clone.to_string_lossy();
-                                    let dest_path = select_path.to_string_lossy();
-                                    log::error!("复制图片失败: {}, 源文件: {}, 目标文件: {}", e, source_path, dest_path);
-                                }
+                    if let Some(select_path) = file_path {
+                        let select_path = select_path.as_path();
+                        if let Some(select_path) = select_path {
+                            if let Err(e) = std::fs::copy(&abs_path_clone, &select_path) {
+                                let source_path = abs_path_clone.to_string_lossy();
+                                let dest_path = select_path.to_string_lossy();
+                                log::error!(
+                                    "复制图片失败: {}, 源文件: {}, 目标文件: {}",
+                                    e,
+                                    source_path,
+                                    dest_path
+                                );
                             }
                         }
+                    }
                 });
             Ok("图片已成功保存".to_string())
         }

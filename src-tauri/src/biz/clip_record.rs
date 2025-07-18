@@ -30,6 +30,8 @@ pub struct ClipRecord {
     pub device_id: Option<String>,
     // 云同步版本号
     pub version: Option<i32>,
+    // 是否逻辑删除
+    pub del_flag: Option<i32>,
 }
 
 crud!(ClipRecord {}, "clip_record");
@@ -79,8 +81,15 @@ impl ClipRecord {
         tx.commit().await
     }
 
-    pub async fn update_sync_flag(rb: &RBatis, id: &str, sync_flag: i32) -> Result<(), Error> {
-        let sql = "UPDATE clip_record SET sync_flag = ?, sync_time = ? WHERE id = ?";
+    pub async fn update_sync_flag(
+        rb: &RBatis,
+        ids: &Vec<String>,
+        sync_flag: i32,
+    ) -> Result<(), Error> {
+        let sql = format!(
+            "UPDATE clip_record SET sync_flag = ?, sync_time = ? WHERE id in ({})",
+            ids.iter().map(|_| "?").collect::<Vec<_>>().join(",")
+        );
         let current_time = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
@@ -88,8 +97,12 @@ impl ClipRecord {
         let tx = rb.acquire_begin().await?;
         let _ = tx
             .exec(
-                sql,
-                vec![to_value!(sync_flag), to_value!(current_time), to_value!(id)],
+                &sql,
+                vec![
+                    to_value!(sync_flag),
+                    to_value!(current_time),
+                    to_value!(ids),
+                ],
             )
             .await;
         tx.commit().await
@@ -103,6 +116,19 @@ impl ClipRecord {
             Ok(count) => return count,
             Err(_) => return 0,
         }
+    }
+
+    /// 逻辑删除
+    pub async fn update_del_by_ids(rb: &RBatis, ids: &Vec<String>) -> Result<(), Error> {
+        let sql = format!(
+            "UPDATE clip_record SET del_flag = 1 WHERE id IN ({})",
+            ids.iter().map(|_| "?").collect::<Vec<_>>().join(",")
+        );
+        let tx = rb.acquire_begin().await?;
+        // 转换ids为Vec<Value>
+        let params = ids.into_iter().map(|id| to_value!(id)).collect::<Vec<_>>();
+        let _ = tx.exec(&sql, params).await?;
+        tx.commit().await
     }
 
     pub async fn del_by_ids(rb: &RBatis, ids: &Vec<String>) -> Result<(), Error> {

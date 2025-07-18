@@ -90,6 +90,7 @@ fn build_clip_record(
         sync_time: Some(cur_time),
         device_id: Some(GLOBAL_DEVICE_ID.clone()),
         version: Some(1),
+        del_flag: Some(0),
     }
 }
 

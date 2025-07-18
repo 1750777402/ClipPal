@@ -1,7 +1,10 @@
 use log;
 use rbatis::RBatis;
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::Mutex;
+use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Emitter};
 use tokio::time::{Duration, interval};
 
@@ -10,7 +13,23 @@ use crate::{
     CONTEXT,
     biz::{clip_record::ClipRecord, system_setting::Settings},
     errors::lock_utils::safe_lock,
+    utils::http_client::{ApiResponse, HttpClient, HttpError},
 };
+
+/// 云同步API响应结构
+#[derive(Debug, Serialize, Deserialize)]
+struct CloudSyncResponse {
+    success: bool,
+    message: String,
+    data: Option<serde_json::Value>,
+}
+
+/// 云同步请求结构
+#[derive(Debug, Serialize, Deserialize)]
+struct CloudSyncRequest {
+    clips: Vec<ClipRecord>,
+    timestamp: u64,
+}
 
 pub struct CloudSyncTimer {
     app_handle: AppHandle,
@@ -66,7 +85,26 @@ impl CloudSyncTimer {
     /// 执行同步任务
     pub async fn execute_sync_task(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         log::info!("开始执行云同步定时任务...");
+        let unsynced_record = self.get_unsynced_records().await?;
+        if unsynced_record.is_empty() {
+            log::info!("没有未同步的记录，跳过同步任务");
+            return Ok(());
+        }
+        // 有需要同步的记录时，发起http请求服务端
 
+        // 服务端返回成功后，更新记录状态
+        let ids = unsynced_record
+            .iter()
+            .map(|record| record.id.clone())
+            .collect();
+        let update_res = self.update_sync_status(&ids, 1).await;
+        match update_res {
+            Ok(_) => {
+                // 批量通知前端
+                self.notify_frontend_sync_status_batch(&ids, 1).await?;
+            }
+            Err(e) => log::error!("更新同步状态失败: {}", e),
+        }
         Ok(())
     }
 
@@ -87,8 +125,9 @@ impl CloudSyncTimer {
         &self,
         record: &ClipRecord,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let ids = &vec![record.id.clone()];
         // 1. 先将记录状态设置为同步中
-        self.update_sync_status(&record.id, 1).await?;
+        self.update_sync_status(ids, 1).await?;
 
         // 2. 通知前端更新状态
         self.notify_frontend_sync_status(&record.id, 1).await?;
@@ -97,13 +136,13 @@ impl CloudSyncTimer {
         match self.perform_http_sync(record).await {
             Ok(_) => {
                 // 同步成功，更新状态为已同步
-                self.update_sync_status(&record.id, 2).await?;
+                self.update_sync_status(ids, 2).await?;
                 self.notify_frontend_sync_status(&record.id, 2).await?;
                 log::info!("记录 {} 同步成功", record.id);
             }
             Err(e) => {
                 // 同步失败，回滚状态为未同步
-                self.update_sync_status(&record.id, 0).await?;
+                self.update_sync_status(ids, 0).await?;
                 self.notify_frontend_sync_status(&record.id, 0).await?;
                 return Err(e);
             }
@@ -115,15 +154,31 @@ impl CloudSyncTimer {
     /// 更新记录的同步状态
     async fn update_sync_status(
         &self,
-        record_id: &str,
+        record_ids: &Vec<String>,
         sync_flag: i32,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        ClipRecord::update_sync_flag(&self.rb, record_id, sync_flag)
+        ClipRecord::update_sync_flag(&self.rb, &record_ids, sync_flag)
             .await
             .map_err(|e| format!("更新同步状态失败: {}", e).into())
     }
 
-    /// 通知前端同步状态变化
+    /// 批量通知前端同步状态变化
+    async fn notify_frontend_sync_status_batch(
+        &self,
+        record_ids: &Vec<String>,
+        sync_flag: i32,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let payload = serde_json::json!({
+            "clip_ids": record_ids,
+            "sync_flag": sync_flag
+        });
+
+        self.app_handle
+            .emit("sync_status_update_batch", payload)
+            .map_err(|e| format!("批量通知前端失败: {}", e).into())
+    }
+
+    /// 通知前端同步状态变化（单个，保留兼容性）
     async fn notify_frontend_sync_status(
         &self,
         record_id: &str,
@@ -139,30 +194,51 @@ impl CloudSyncTimer {
             .map_err(|e| format!("通知前端失败: {}", e).into())
     }
 
-    /// 执行HTTP同步操作（这里需要你实现具体的同步逻辑）
+    /// 执行HTTP同步操作
     async fn perform_http_sync(
         &self,
         record: &ClipRecord,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        // TODO: 实现具体的HTTP请求逻辑
-        // 例如：
-        // let client = reqwest::Client::new();
-        // let response = client.post("https://your-sync-api.com/sync")
-        //     .json(&record)
-        //     .send()
-        //     .await?;
-        //
-        // if !response.status().is_success() {
-        //     return Err("同步请求失败".into());
-        // }
+        // 创建HTTP客户端
+        let client = HttpClient::new();
 
-        // 模拟同步操作（临时实现）
-        log::info!("正在同步记录: {} (类型: {})", record.id, record.r#type);
-        tokio::time::sleep(Duration::from_secs(2)).await;
+        // 准备同步请求数据
+        let sync_request = CloudSyncRequest {
+            clips: vec![record.clone()],
+            timestamp: SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map(|duration| duration.as_millis() as u64)
+                .unwrap_or_else(|e| {
+                    log::warn!("获取系统时间失败，使用默认值: {}", e);
+                    0
+                }),
+        };
 
-        // 模拟同步成功
-        log::info!("记录 {} 同步完成", record.id);
-        Ok(())
+        // 设置API认证头（这里需要从配置中获取）
+        let mut headers = HashMap::new();
+        headers.insert(
+            "Authorization".to_string(),
+            "Bearer your-api-key".to_string(),
+        );
+        headers.insert("Content-Type".to_string(), "application/json".to_string());
+
+        // 发起同步请求
+        let api_url = "https://your-sync-api.com/sync"; // 这里需要从配置中获取
+        let response: ApiResponse<CloudSyncResponse> = client
+            .request_with_headers::<CloudSyncRequest, CloudSyncResponse>(
+                "POST",
+                api_url,
+                Some(&sync_request),
+                Some(headers),
+            )
+            .await?;
+        if response.code == 200 {
+            log::info!("记录 {} 同步成功", record.id);
+            Ok(())
+        } else {
+            log::error!("同步请求失败，状态码: {}", response.code);
+            Err(format!("同步请求失败，状态码: {}", response.code).into())
+        }
     }
 }
 

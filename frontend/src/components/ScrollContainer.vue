@@ -135,10 +135,20 @@ const initEventListeners = async () => {
     await listen('open_settings_winodws', () => {
       showSettings.value = true;
     });
+    // 单个同步状态更新
     await listen('sync_status_update', (event) => {
       const { clip_id, sync_flag } = event.payload as { clip_id: string, sync_flag: 0 | 1 | 2 };
       const card = cards.value.find(c => c.id === clip_id);
       if (card) card.sync_flag = sync_flag;
+    });
+    // 批量同步状态更新
+    await listen('sync_status_update_batch', (event) => {
+      const { clip_ids, sync_flag } = event.payload as { clip_ids: string[], sync_flag: 0 | 1 | 2 };
+      // 批量更新卡片状态
+      clip_ids.forEach(clip_id => {
+        const card = cards.value.find(c => c.id === clip_id);
+        if (card) card.sync_flag = sync_flag;
+      });
     });
   } catch (error) {
     console.error('事件监听失败:', error);
