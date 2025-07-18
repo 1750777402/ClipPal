@@ -9,6 +9,7 @@ use tauri::{AppHandle, Emitter};
 use tokio::time::{Duration, interval};
 
 use crate::biz::system_setting::SYNC_INTERVAL_SECONDS;
+use crate::utils::config::get_cloud_sync_domain;
 use crate::{
     CONTEXT,
     biz::{clip_record::ClipRecord, system_setting::Settings},
@@ -223,11 +224,12 @@ impl CloudSyncTimer {
         headers.insert("Content-Type".to_string(), "application/json".to_string());
 
         // 发起同步请求
-        let api_url = "https://your-sync-api.com/sync"; // 这里需要从配置中获取
+        let api_domain =
+            get_cloud_sync_domain().map_err(|e| format!("获取云同步请求域名失败: {}", e))?;
         let response: ApiResponse<CloudSyncResponse> = client
             .request_with_headers::<CloudSyncRequest, CloudSyncResponse>(
                 "POST",
-                api_url,
+                (api_domain.to_string() + "/api/sync").as_str(),
                 Some(&sync_request),
                 Some(headers),
             )

@@ -2,5 +2,9 @@
     "app_secret": {
         "_comment": "这是一个注释字段，不会生效. content_key是加密的密匙,这里只是举个例子,如果自己打包部署时可以使用其他密匙",
         "content_key": "jW8QgaaT7QH5T8bZg4IYOk099gCbU2JzrhC+P+Zy94d="
+    },
+    "cloud_sync": {
+        "_comment": "云同步相关配置",
+        "domain": "https://127.0.0.1"
     }
 }
