@@ -14,7 +14,7 @@ use crate::{
     CONTEXT,
     biz::{clip_record::ClipRecord, system_setting::Settings},
     errors::lock_utils::safe_lock,
-    utils::http_client::{ApiResponse, HttpClient, HttpError},
+    utils::http_client::{ApiResponse, HttpClient},
 };
 
 /// 云同步API响应结构
@@ -91,13 +91,13 @@ impl CloudSyncTimer {
             log::info!("没有未同步的记录，跳过同步任务");
             return Ok(());
         }
-        // 有需要同步的记录时，发起http请求服务端
-
-        // 服务端返回成功后，更新记录状态
         let ids = unsynced_record
             .iter()
             .map(|record| record.id.clone())
             .collect();
+        // 有需要同步的记录时，发起http请求服务端
+        self.perform_http_sync(unsynced_record).await?;
+        // 服务端返回成功后，更新记录状态
         let update_res = self.update_sync_status(&ids, 1).await;
         match update_res {
             Ok(_) => {
@@ -133,8 +133,8 @@ impl CloudSyncTimer {
         // 2. 通知前端更新状态
         self.notify_frontend_sync_status(&record.id, 1).await?;
 
-        // 3. 执行实际的同步操作（这里需要你实现具体的HTTP请求逻辑）
-        match self.perform_http_sync(record).await {
+        // 3. 执行实际的同步操作
+        match self.perform_http_sync(vec![record.clone()]).await {
             Ok(_) => {
                 // 同步成功，更新状态为已同步
                 self.update_sync_status(ids, 2).await?;
@@ -179,7 +179,7 @@ impl CloudSyncTimer {
             .map_err(|e| format!("批量通知前端失败: {}", e).into())
     }
 
-    /// 通知前端同步状态变化（单个，保留兼容性）
+    /// 通知前端同步状态变化
     async fn notify_frontend_sync_status(
         &self,
         record_id: &str,
@@ -198,14 +198,14 @@ impl CloudSyncTimer {
     /// 执行HTTP同步操作
     async fn perform_http_sync(
         &self,
-        record: &ClipRecord,
+        records: Vec<ClipRecord>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         // 创建HTTP客户端
         let client = HttpClient::new();
 
         // 准备同步请求数据
         let sync_request = CloudSyncRequest {
-            clips: vec![record.clone()],
+            clips: records,
             timestamp: SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .map(|duration| duration.as_millis() as u64)
@@ -235,7 +235,6 @@ impl CloudSyncTimer {
             )
             .await?;
         if response.code == 200 {
-            log::info!("记录 {} 同步成功", record.id);
             Ok(())
         } else {
             log::error!("同步请求失败，状态码: {}", response.code);

@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use tauri_plugin_http::{
@@ -12,6 +14,15 @@ pub struct ApiResponse<T> {
     pub message: String,
     pub data: Option<T>,
     pub timestamp: i64,
+}
+
+/// 原始HTTP响应结构体（用于任意返回格式）
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RawResponse<T> {
+    pub status: u16,
+    pub headers: HashMap<String, String>,
+    pub data: T,
+    pub url: String,
 }
 
 /// HTTP请求配置
@@ -93,7 +104,7 @@ impl HttpClient {
         self
     }
 
-    /// 发起GET请求
+    /// 发起GET请求（返回ApiResponse格式）
     pub async fn get<T>(&self, url: &str) -> Result<ApiResponse<T>, HttpError>
     where
         T: for<'de> Deserialize<'de>,
@@ -101,7 +112,7 @@ impl HttpClient {
         self.request::<(), T>("GET", url, None, None).await
     }
 
-    /// 发起带查询参数的GET请求
+    /// 发起带查询参数的GET请求（返回ApiResponse格式）
     pub async fn get_with_params<T>(
         &self,
         url: &str,
@@ -115,7 +126,7 @@ impl HttpClient {
             .await
     }
 
-    /// 发起POST请求
+    /// 发起POST请求（返回ApiResponse格式）
     pub async fn post<T, U>(&self, url: &str, data: Option<&T>) -> Result<ApiResponse<U>, HttpError>
     where
         T: Serialize,
@@ -124,7 +135,7 @@ impl HttpClient {
         self.request("POST", url, data, None).await
     }
 
-    /// 发起带JSON数据的POST请求
+    /// 发起带JSON数据的POST请求（返回ApiResponse格式）
     pub async fn post_json<T, U>(&self, url: &str, data: &T) -> Result<ApiResponse<U>, HttpError>
     where
         T: Serialize,
@@ -136,7 +147,7 @@ impl HttpClient {
             .await
     }
 
-    /// 发起带表单数据的POST请求
+    /// 发起带表单数据的POST请求（返回ApiResponse格式）
     pub async fn post_form<T, U>(
         &self,
         url: &str,
@@ -154,7 +165,7 @@ impl HttpClient {
             .await
     }
 
-    /// 发起带自定义请求头的请求
+    /// 发起带自定义请求头的请求（返回ApiResponse格式）
     pub async fn request_with_headers<T, U>(
         &self,
         method: &str,
@@ -173,7 +184,97 @@ impl HttpClient {
         self.request(method, url, data, Some(all_headers)).await
     }
 
-    /// 核心请求方法
+    // ========== 通用HTTP请求方法（返回任意格式） ==========
+
+    /// 发起GET请求（返回原始响应格式）
+    pub async fn get_raw<T>(&self, url: &str) -> Result<RawResponse<T>, HttpError>
+    where
+        T: for<'de> Deserialize<'de>,
+    {
+        self.request_raw::<(), T>("GET", url, None, None).await
+    }
+
+    /// 发起带查询参数的GET请求（返回原始响应格式）
+    pub async fn get_with_params_raw<T>(
+        &self,
+        url: &str,
+        params: &HashMap<String, String>,
+    ) -> Result<RawResponse<T>, HttpError>
+    where
+        T: for<'de> Deserialize<'de>,
+    {
+        let url_with_params = self.build_url_with_params(url, params)?;
+        self.request_raw::<(), T>("GET", &url_with_params, None, None)
+            .await
+    }
+
+    /// 发起POST请求（返回原始响应格式）
+    pub async fn post_raw<T, U>(
+        &self,
+        url: &str,
+        data: Option<&T>,
+    ) -> Result<RawResponse<U>, HttpError>
+    where
+        T: Serialize,
+        U: for<'de> Deserialize<'de>,
+    {
+        self.request_raw("POST", url, data, None).await
+    }
+
+    /// 发起带JSON数据的POST请求（返回原始响应格式）
+    pub async fn post_json_raw<T, U>(
+        &self,
+        url: &str,
+        data: &T,
+    ) -> Result<RawResponse<U>, HttpError>
+    where
+        T: Serialize,
+        U: for<'de> Deserialize<'de>,
+    {
+        let mut headers = HashMap::new();
+        headers.insert("Content-Type".to_string(), "application/json".to_string());
+        self.request_with_headers_raw("POST", url, Some(data), Some(headers))
+            .await
+    }
+
+    /// 发起带表单数据的POST请求（返回原始响应格式）
+    pub async fn post_form_raw<T, U>(
+        &self,
+        url: &str,
+        data: &HashMap<String, String>,
+    ) -> Result<RawResponse<U>, HttpError>
+    where
+        U: for<'de> Deserialize<'de>,
+    {
+        let mut headers = HashMap::new();
+        headers.insert(
+            "Content-Type".to_string(),
+            "application/x-www-form-urlencoded".to_string(),
+        );
+        self.request_with_headers_raw("POST", url, Some(data), Some(headers))
+            .await
+    }
+
+    /// 发起带自定义请求头的请求（返回原始响应格式）
+    pub async fn request_with_headers_raw<T, U>(
+        &self,
+        method: &str,
+        url: &str,
+        data: Option<&T>,
+        headers: Option<HashMap<String, String>>,
+    ) -> Result<RawResponse<U>, HttpError>
+    where
+        T: Serialize,
+        U: for<'de> Deserialize<'de>,
+    {
+        let mut all_headers = self.config.headers.clone().unwrap_or_default();
+        if let Some(custom_headers) = headers {
+            all_headers.extend(custom_headers);
+        }
+        self.request_raw(method, url, data, Some(all_headers)).await
+    }
+
+    /// 核心请求方法（返回ApiResponse格式）
     async fn request<T, U>(
         &self,
         method: &str,
@@ -184,6 +285,86 @@ impl HttpClient {
     where
         T: Serialize,
         U: for<'de> Deserialize<'de>,
+    {
+        let response_text = self.execute_request(method, url, data, headers).await?;
+
+        // 直接反序列化为ApiResponse<U>
+        let api_response: ApiResponse<U> = serde_json::from_str(&response_text).map_err(|e| {
+            HttpError::DeserializationFailed(format!("反序列化ApiResponse失败: {}", e))
+        })?;
+
+        Ok(api_response)
+    }
+
+    /// 核心请求方法（返回原始响应格式）
+    async fn request_raw<T, U>(
+        &self,
+        method: &str,
+        url: &str,
+        data: Option<&T>,
+        headers: Option<HashMap<String, String>>,
+    ) -> Result<RawResponse<U>, HttpError>
+    where
+        T: Serialize,
+        U: for<'de> Deserialize<'de>,
+    {
+        let (status, response_url, response_headers, response_text) = self
+            .execute_request_with_response(method, url, data, headers)
+            .await?;
+
+        // 读取响应头
+        let mut headers_map = HashMap::new();
+        for (key, value) in response_headers.iter() {
+            if let Ok(value_str) = value.to_str() {
+                headers_map.insert(key.as_str().to_string(), value_str.to_string());
+            }
+        }
+
+        // 反序列化响应数据
+        let response_data = if response_text.is_empty() {
+            serde_json::from_str("null").map_err(|e| {
+                HttpError::DeserializationFailed(format!("反序列化空响应失败: {}", e))
+            })?
+        } else {
+            serde_json::from_str(&response_text)
+                .map_err(|e| HttpError::DeserializationFailed(format!("反序列化响应失败: {}", e)))?
+        };
+
+        Ok(RawResponse {
+            status,
+            headers: headers_map,
+            data: response_data,
+            url: response_url,
+        })
+    }
+
+    /// 执行HTTP请求并返回响应文本（公共方法）
+    async fn execute_request<T>(
+        &self,
+        method: &str,
+        url: &str,
+        data: Option<&T>,
+        headers: Option<HashMap<String, String>>,
+    ) -> Result<String, HttpError>
+    where
+        T: Serialize,
+    {
+        let (_, _, _, response_text) = self
+            .execute_request_with_response(method, url, data, headers)
+            .await?;
+        Ok(response_text)
+    }
+
+    /// 执行HTTP请求并返回响应信息（公共方法）
+    async fn execute_request_with_response<T>(
+        &self,
+        method: &str,
+        url: &str,
+        data: Option<&T>,
+        headers: Option<HashMap<String, String>>,
+    ) -> Result<(u16, String, reqwest::header::HeaderMap, String), HttpError>
+    where
+        T: Serialize,
     {
         // 验证URL
         let _parsed_url = reqwest::Url::parse(url)
@@ -265,16 +446,16 @@ impl HttpClient {
             .await
             .map_err(|e| HttpError::NetworkError(format!("网络请求失败: {}", e)))?;
 
+        let status = response.status().as_u16();
+        let response_url = response.url().to_string();
+        let response_headers = response.headers().clone();
+
         let response_text = response
             .text()
             .await
             .map_err(|e| HttpError::NetworkError(format!("读取响应失败: {}", e)))?;
 
-        // 统一反序列化为ApiResponse<U>
-        let api_response: ApiResponse<U> = serde_json::from_str(&response_text)
-            .map_err(|e| HttpError::DeserializationFailed(format!("反序列化响应失败: {}", e)))?;
-
-        Ok(api_response)
+        Ok((status, response_url, response_headers, response_text))
     }
 
     /// 构建带查询参数的URL
@@ -294,7 +475,7 @@ impl HttpClient {
     }
 }
 
-/// 便捷的HTTP请求函数
+/// 返回ApiResponse格式的HTTP请求函数
 pub async fn get<T>(url: &str) -> Result<ApiResponse<T>, HttpError>
 where
     T: for<'de> Deserialize<'de>,
@@ -308,4 +489,20 @@ where
     U: for<'de> Deserialize<'de>,
 {
     HttpClient::new().post_json(url, data).await
+}
+
+/// 便捷的HTTP请求函数（返回原始响应格式）
+pub async fn get_raw<T>(url: &str) -> Result<RawResponse<T>, HttpError>
+where
+    T: for<'de> Deserialize<'de>,
+{
+    HttpClient::new().get_raw(url).await
+}
+
+pub async fn post_raw<T, U>(url: &str, data: &T) -> Result<RawResponse<U>, HttpError>
+where
+    T: Serialize,
+    U: for<'de> Deserialize<'de>,
+{
+    HttpClient::new().post_json_raw(url, data).await
 }
