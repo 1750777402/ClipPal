@@ -27,6 +27,43 @@ fn get_expected_schema() -> HashMap<String, TableSchema> {
     let mut schema = HashMap::new();
 
     // clip_record 表的期望结构
+    get_clip_pal_record_schema(&mut schema);
+
+    // sync_time 表的期望结构
+    get_sync_time_record_schema(&mut schema);
+
+    schema
+}
+
+fn get_sync_time_record_schema(schema: &mut HashMap<String, TableSchema>) {
+    let clip_record_columns = vec![
+        ColumnInfo {
+            name: "id".to_string(),
+            r#type: "TEXT".to_string(),
+            not_null: true,
+            default_value: None,
+            primary_key: true,
+        },
+        ColumnInfo {
+            name: "last_time".to_string(),
+            r#type: "INTEGER".to_string(),
+            not_null: true,
+            default_value: None,
+            primary_key: false,
+        },
+    ];
+
+    schema.insert(
+        "sync_time".to_string(),
+        TableSchema {
+            name: "clip_record".to_string(),
+            columns: clip_record_columns,
+        },
+    );
+}
+
+fn get_clip_pal_record_schema(schema: &mut HashMap<String, TableSchema>) {
+    // clip_record 表的期望结构
     let clip_record_columns = vec![
         ColumnInfo {
             name: "id".to_string(),
@@ -135,8 +172,6 @@ fn get_expected_schema() -> HashMap<String, TableSchema> {
             columns: clip_record_columns,
         },
     );
-
-    schema
 }
 
 #[derive(Debug, Deserialize)]

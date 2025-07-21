@@ -8,6 +8,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Emitter};
 use tokio::time::{Duration, interval};
 
+use crate::biz::sync_time::SyncTime;
+use crate::biz::sync_time::TABLE_KEY;
 use crate::biz::system_setting::SYNC_INTERVAL_SECONDS;
 use crate::utils::config::get_cloud_sync_domain;
 use crate::{
@@ -206,13 +208,7 @@ impl CloudSyncTimer {
         // 准备同步请求数据
         let sync_request = CloudSyncRequest {
             clips: records,
-            timestamp: SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .map(|duration| duration.as_millis() as u64)
-                .unwrap_or_else(|e| {
-                    log::warn!("获取系统时间失败，使用默认值: {}", e);
-                    0
-                }),
+            timestamp: SyncTime::select_last_time(&self.rb).await,
         };
 
         // 设置API认证头（这里需要从配置中获取）
