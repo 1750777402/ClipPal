@@ -5,6 +5,6 @@
     },
     "cloud_sync": {
         "_comment": "云同步相关配置",
-        "domain": "https://127.0.0.1:8080"
+        "domain": "http://127.0.0.1:8081"
     }
 }

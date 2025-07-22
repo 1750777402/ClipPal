@@ -215,7 +215,7 @@ impl CloudSyncTimer {
         let mut headers = HashMap::new();
         headers.insert(
             "Authorization".to_string(),
-            "Bearer your-api-key".to_string(),
+            "Bearer eyJhbGciOiJIUzUxMiJ9.eyJyb2xlIjoiVVNFUiIsInR5cGUiOiJhY2Nlc3MiLCJ1c2VySWQiOjEsInN1YiI6ImFkbWluIiwiaXNzIjoiY2xpcC1wYWwtY2xvdWQiLCJpYXQiOjE3NTMxNjc1MDksImV4cCI6MTc1MzI1MzkwOX0.TxzSv6aVyIV4_cRfYr5tN3AUjp_sMhCsgUDf38XJy67hqNRcRfTYWX68sdUT0UwHakr5Octs73tPwC-c_u2AuQ".to_string(),
         );
         headers.insert("Content-Type".to_string(), "application/json".to_string());
 
@@ -225,7 +225,7 @@ impl CloudSyncTimer {
         let response: ApiResponse<CloudSyncResponse> = client
             .request_with_headers::<CloudSyncRequest, CloudSyncResponse>(
                 "POST",
-                (api_domain.to_string() + "/api/sync").as_str(),
+                (api_domain.to_string() + "/cliPal-sync/sync").as_str(),
                 Some(&sync_request),
                 Some(headers),
             )
