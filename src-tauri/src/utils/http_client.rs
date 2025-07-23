@@ -366,17 +366,37 @@ impl HttpClient {
     where
         T: Serialize,
     {
+        // 打印请求信息（debug级别）
+        log::debug!("=== HTTP请求开始 ===");
+        log::debug!("请求方法: {}", method);
+        log::debug!("请求URL: {}", url);
+        
         // 验证URL
         let _parsed_url = reqwest::Url::parse(url)
-            .map_err(|e| HttpError::InvalidUrl(format!("无效的URL: {}", e)))?;
+            .map_err(|e| {
+                let error_msg = format!("无效的URL: {}", e);
+                log::error!("URL验证失败: {}", error_msg);
+                HttpError::InvalidUrl(error_msg)
+            })?;
 
         // 构建请求体
         let body = if let Some(data) = data {
             serde_json::to_string(data)
-                .map_err(|e| HttpError::SerializationFailed(e.to_string()))?
+                .map_err(|e| {
+                    let error_msg = format!("序列化请求数据失败: {}", e);
+                    log::error!("请求数据序列化失败: {}", error_msg);
+                    HttpError::SerializationFailed(error_msg)
+                })?
         } else {
             String::new()
         };
+
+        // 打印请求体信息（debug级别）
+        if !body.is_empty() {
+            log::debug!("请求体: {}", body);
+        } else {
+            log::debug!("请求体: 空");
+        }
 
         // 构建请求头
         let mut header_map = HeaderMap::new();
@@ -386,25 +406,41 @@ impl HttpClient {
             header_map.insert(
                 "User-Agent",
                 HeaderValue::from_str(user_agent)
-                    .map_err(|e| HttpError::RequestFailed(format!("无效的User-Agent: {}", e)))?,
+                    .map_err(|e| {
+                        let error_msg = format!("无效的User-Agent: {}", e);
+                        log::error!("User-Agent设置失败: {}", error_msg);
+                        HttpError::RequestFailed(error_msg)
+                    })?,
             );
+            log::debug!("User-Agent: {}", user_agent);
         }
 
         // 设置Content-Type
         if !body.is_empty() && method != "GET" {
             header_map.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+            log::debug!("Content-Type: application/json");
         }
 
         // 设置自定义请求头
         if let Some(custom_headers) = headers {
-            for (key, value) in custom_headers {
+            log::debug!("自定义请求头:");
+            for (key, value) in &custom_headers {
                 let header_name = HeaderName::from_lowercase(key.to_lowercase().as_bytes())
-                    .map_err(|e| HttpError::RequestFailed(format!("无效的请求头名称: {}", e)))?;
+                    .map_err(|e| {
+                        let error_msg = format!("无效的请求头名称: {}", e);
+                        log::error!("请求头名称无效: {}", error_msg);
+                        HttpError::RequestFailed(error_msg)
+                    })?;
                 header_map.insert(
                     header_name,
-                    HeaderValue::from_str(&value)
-                        .map_err(|e| HttpError::RequestFailed(format!("无效的请求头值: {}", e)))?,
+                    HeaderValue::from_str(value)
+                        .map_err(|e| {
+                            let error_msg = format!("无效的请求头值: {}", e);
+                            log::error!("请求头值无效: {}", error_msg);
+                            HttpError::RequestFailed(error_msg)
+                        })?,
                 );
+                log::debug!("  {}: {}", key, value);
             }
         }
 
@@ -414,12 +450,17 @@ impl HttpClient {
         // 设置超时
         if let Some(timeout) = self.config.timeout {
             options = options.timeout(std::time::Duration::from_secs(timeout));
+            log::debug!("请求超时设置: {}秒", timeout);
         }
 
         // 发起请求
         let client = options
             .build()
-            .map_err(|e| HttpError::RequestFailed(format!("创建HTTP客户端失败: {}", e)))?;
+            .map_err(|e| {
+                let error_msg = format!("创建HTTP客户端失败: {}", e);
+                log::error!("HTTP客户端创建失败: {}", error_msg);
+                HttpError::RequestFailed(error_msg)
+            })?;
 
         let request_builder = match method.to_uppercase().as_str() {
             "GET" => client.get(url),
@@ -428,32 +469,99 @@ impl HttpClient {
             "DELETE" => client.delete(url),
             "PATCH" => client.patch(url).body(body),
             _ => {
-                return Err(HttpError::RequestFailed(format!(
-                    "不支持的HTTP方法: {}",
-                    method
-                )));
+                let error_msg = format!("不支持的HTTP方法: {}", method);
+                log::error!("不支持的HTTP方法: {}", error_msg);
+                return Err(HttpError::RequestFailed(error_msg));
             }
         };
 
         let request = request_builder
             .headers(header_map)
             .build()
-            .map_err(|e| HttpError::RequestFailed(format!("构建请求失败: {}", e)))?;
+            .map_err(|e| {
+                let error_msg = format!("构建请求失败: {}", e);
+                log::error!("请求构建失败: {}", error_msg);
+                HttpError::RequestFailed(error_msg)
+            })?;
+
+        log::debug!("=== 开始执行HTTP请求 ===");
 
         // 执行请求
         let response = client
             .execute(request)
             .await
-            .map_err(|e| HttpError::NetworkError(format!("网络请求失败: {}", e)))?;
+            .map_err(|e| {
+                let error_msg = format!("网络请求失败: {}", e);
+                log::error!("网络请求执行失败: {}", error_msg);
+                log::error!("错误详情: {:?}", e);
+                HttpError::NetworkError(error_msg)
+            })?;
 
         let status = response.status().as_u16();
         let response_url = response.url().to_string();
         let response_headers = response.headers().clone();
 
+        log::debug!("=== HTTP响应信息 ===");
+        log::debug!("响应状态码: {}", status);
+        log::debug!("响应URL: {}", response_url);
+        log::debug!("响应头数量: {}", response_headers.len());
+
+        // 打印响应头信息（debug级别）
+        for (name, value) in response_headers.iter() {
+            if let Ok(value_str) = value.to_str() {
+                log::debug!("响应头 {}: {}", name, value_str);
+            }
+        }
+
         let response_text = response
             .text()
             .await
-            .map_err(|e| HttpError::NetworkError(format!("读取响应失败: {}", e)))?;
+            .map_err(|e| {
+                let error_msg = format!("读取响应失败: {}", e);
+                log::error!("响应内容读取失败: {}", error_msg);
+                log::error!("错误详情: {:?}", e);
+                HttpError::NetworkError(error_msg)
+            })?;
+
+        // 根据状态码决定日志级别
+        match status {
+            200..=299 => {
+                // 成功状态码 (2xx)
+                log::debug!("=== HTTP请求成功 ===");
+                log::debug!("状态码: {} (成功)", status);
+                log::debug!("响应内容长度: {} 字符", response_text.len());
+                // 如果响应内容太长，只打印前500个字符
+                if response_text.len() > 500 {
+                    log::debug!("响应内容预览: {}...", &response_text[..500]);
+                } else {
+                    log::debug!("响应内容: {}", response_text);
+                }
+            }
+            300..=399 => {
+                // 重定向状态码 (3xx)
+                log::debug!("=== HTTP请求重定向 ===");
+                log::debug!("状态码: {} (重定向)", status);
+                log::debug!("响应内容: {}", response_text);
+            }
+            400..=499 => {
+                // 客户端错误状态码 (4xx)
+                log::error!("=== HTTP请求失败 (客户端错误) ===");
+                log::error!("状态码: {} (客户端错误)", status);
+                log::error!("响应内容: {}", response_text);
+            }
+            500..=599 => {
+                // 服务器错误状态码 (5xx)
+                log::error!("=== HTTP请求失败 (服务器错误) ===");
+                log::error!("状态码: {} (服务器错误)", status);
+                log::error!("响应内容: {}", response_text);
+            }
+            _ => {
+                // 其他未知状态码
+                log::warn!("=== HTTP请求未知状态 ===");
+                log::warn!("状态码: {} (未知)", status);
+                log::warn!("响应内容: {}", response_text);
+            }
+        }
 
         Ok((status, response_url, response_headers, response_text))
     }
