@@ -5,3 +5,4 @@ pub mod file_dir;
 pub mod path_utils;
 pub mod config;
 pub mod http_client;
+pub mod secure_store;

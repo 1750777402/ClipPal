@@ -53,9 +53,10 @@ log = { workspace = true }
 log4rs = { workspace = true }
 thiserror = { workspace = true }
 # Bloom filter 用于高效搜索
-bloomfilter = "1.0.12"
+bloomfilter = { workspace = true }
 # 文本处理和分词
-regex = "1.10.2"
+regex = { workspace = true }
+bincode = { workspace = true }
 
 # Windows API for auto-paste functionality
 [target.'cfg(windows)'.dependencies]

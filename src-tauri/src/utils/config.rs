@@ -12,7 +12,7 @@ pub struct AppConfig {
 /// 应用密钥配置
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct AppSecret {
-    pub content_key: String,
+    pub secret_key: String,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -53,9 +53,9 @@ pub fn get_global_secret() -> AppResult<&'static AppSecret> {
 }
 
 /// 获取全局缓存的内容密钥
-pub fn get_global_content_key() -> AppResult<&'static str> {
+pub fn get_global_secret_key() -> AppResult<&'static str> {
     let secret = get_global_secret()?;
-    Ok(&secret.content_key)
+    Ok(&secret.secret_key)
 }
 
 /// 获取全局缓存的云同步配置

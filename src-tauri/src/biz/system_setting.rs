@@ -258,8 +258,9 @@ fn save_settings_to_file(settings: &Settings) -> AppResult<()> {
         fs::create_dir_all(parent)?;
     }
 
-    let json = serde_json::to_string_pretty(settings)?;
-    fs::write(path, json)?;
+    let json = serde_json::to_string_pretty(settings)
+        .map_err(|e| AppError::Serde(e.to_string()))?;
+    fs::write(path, json).map_err(AppError::Io)?;
 
     Ok(())
 }

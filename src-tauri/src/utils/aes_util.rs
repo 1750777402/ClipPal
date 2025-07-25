@@ -17,7 +17,7 @@ pub fn encrypt_content(content: &str) -> AppResult<String> {
     // 加载配置
     let app_config = get_decoded_secret_key()?;
 
-    let decode_res = decode_base64_key(&app_config.content_key)
+    let decode_res = decode_base64_key(&app_config.secret_key)
         .map_err(|e| AppError::Crypto(format!("密钥解码失败: {}", e)))?;
 
     let cipher = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(&decode_res));
@@ -46,7 +46,7 @@ pub fn decrypt_content(encoded: &str) -> AppResult<String> {
     // 加载配置
     let app_config = get_decoded_secret_key()?;
 
-    let decode_res = decode_base64_key(&app_config.content_key)
+    let decode_res = decode_base64_key(&app_config.secret_key)
         .map_err(|e| AppError::Crypto(format!("密钥解码失败: {}", e)))?;
 
     let data = general_purpose::STANDARD

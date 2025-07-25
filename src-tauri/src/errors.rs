@@ -11,7 +11,7 @@ pub enum AppError {
     Io(#[from] std::io::Error),
     
     #[error("序列化错误: {0}")]
-    Serde(#[from] serde_json::Error),
+    Serde(String),
     
     #[error("配置错误: {0}")]
     Config(String),
