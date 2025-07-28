@@ -1,38 +1,19 @@
 use log;
 use rbatis::RBatis;
-use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::Mutex;
-use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Emitter};
 use tokio::time::{Duration, interval};
 
+use crate::api::cloud_sync_api::sync_clipboard;
+use crate::api::cloud_sync_api::CloudSyncRequest;
 use crate::biz::sync_time::SyncTime;
-use crate::biz::sync_time::TABLE_KEY;
 use crate::biz::system_setting::SYNC_INTERVAL_SECONDS;
-use crate::utils::config::get_cloud_sync_domain;
 use crate::{
     CONTEXT,
     biz::{clip_record::ClipRecord, system_setting::Settings},
     errors::lock_utils::safe_lock,
-    utils::http_client::{ApiResponse, HttpClient},
 };
-
-/// 云同步API响应结构
-#[derive(Debug, Serialize, Deserialize)]
-struct CloudSyncResponse {
-    success: bool,
-    message: String,
-    data: Option<serde_json::Value>,
-}
-
-/// 云同步请求结构
-#[derive(Debug, Serialize, Deserialize)]
-struct CloudSyncRequest {
-    clips: Vec<ClipRecord>,
-    timestamp: u64,
-}
 
 pub struct CloudSyncTimer {
     app_handle: AppHandle,
@@ -88,6 +69,7 @@ impl CloudSyncTimer {
     /// 执行同步任务
     pub async fn execute_sync_task(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         log::info!("开始执行云同步定时任务...");
+        // 获取所有未同步的数据记录
         let unsynced_record = self.get_unsynced_records().await?;
         if unsynced_record.is_empty() {
             log::info!("没有未同步的记录，跳过同步任务");
@@ -202,8 +184,6 @@ impl CloudSyncTimer {
         &self,
         records: Vec<ClipRecord>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        // 创建HTTP客户端
-        let client = HttpClient::new();
 
         // 准备同步请求数据
         let sync_request = CloudSyncRequest {
@@ -211,31 +191,9 @@ impl CloudSyncTimer {
             timestamp: SyncTime::select_last_time(&self.rb).await,
         };
 
-        // 设置API认证头（这里需要从配置中获取）
-        let mut headers = HashMap::new();
-        headers.insert(
-            "Authorization".to_string(),
-            "Bearer eyJhbGciOiJIUzUxMiJ9.eyJyb2xlIjoiVVNFUiIsInR5cGUiOiJhY2Nlc3MiLCJ1c2VySWQiOjEsInN1YiI6ImFkbWluIiwiaXNzIjoiY2xpcC1wYWwtY2xvdWQiLCJpYXQiOjE3NTMxNjc1MDksImV4cCI6MTc1MzI1MzkwOX0.TxzSv6aVyIV4_cRfYr5tN3AUjp_sMhCsgUDf38XJy67hqNRcRfTYWX68sdUT0UwHakr5Octs73tPwC-c_u2AuQ".to_string(),
-        );
-        headers.insert("Content-Type".to_string(), "application/json".to_string());
+        let _response = sync_clipboard(&sync_request).await?;
 
-        // 发起同步请求
-        let api_domain =
-            get_cloud_sync_domain().map_err(|e| format!("获取云同步请求域名失败: {}", e))?;
-        let response: ApiResponse<CloudSyncResponse> = client
-            .request_with_headers::<CloudSyncRequest, CloudSyncResponse>(
-                "POST",
-                (api_domain.to_string() + "/cliPal-sync/sync").as_str(),
-                Some(&sync_request),
-                Some(headers),
-            )
-            .await?;
-        if response.code == 200 {
-            Ok(())
-        } else {
-            log::error!("同步请求失败，状态码: {}", response.code);
-            Err(format!("同步请求失败，状态码: {}", response.code).into())
-        }
+        Ok(())
     }
 }
 

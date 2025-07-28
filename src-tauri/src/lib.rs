@@ -32,6 +32,7 @@ mod sqlite_storage;
 mod tray;
 mod utils;
 mod window;
+mod api;
 
 // 全局上下文存储
 pub static CONTEXT: TypeMap![Send + Sync] = <TypeMap![Send + Sync]>::new();
