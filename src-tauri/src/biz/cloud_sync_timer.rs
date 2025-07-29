@@ -5,8 +5,9 @@ use std::sync::Mutex;
 use tauri::{AppHandle, Emitter};
 use tokio::time::{Duration, interval};
 
-use crate::api::cloud_sync_api::sync_clipboard;
 use crate::api::cloud_sync_api::CloudSyncRequest;
+use crate::api::cloud_sync_api::sync_clipboard;
+use crate::api::cloud_sync_api::sync_server_time;
 use crate::biz::sync_time::SyncTime;
 use crate::biz::system_setting::SYNC_INTERVAL_SECONDS;
 use crate::{
@@ -69,6 +70,13 @@ impl CloudSyncTimer {
     /// 执行同步任务
     pub async fn execute_sync_task(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         log::info!("开始执行云同步定时任务...");
+
+        // 本地上次同步时间的时间戳
+        let last_sync_time = SyncTime::select_last_time(&self.rb).await;
+
+        // 获取服务器时间戳  以这个时间作为同步的基准时间版本
+        let server_time = sync_server_time().await?.unwrap_or(0);
+
         // 获取所有未同步的数据记录
         let unsynced_record = self.get_unsynced_records().await?;
         if unsynced_record.is_empty() {
@@ -80,7 +88,8 @@ impl CloudSyncTimer {
             .map(|record| record.id.clone())
             .collect();
         // 有需要同步的记录时，发起http请求服务端
-        self.perform_http_sync(unsynced_record).await?;
+        self.perform_http_sync(unsynced_record, server_time, last_sync_time)
+            .await?;
         // 服务端返回成功后，更新记录状态
         let update_res = self.update_sync_status(&ids, 1).await;
         match update_res {
@@ -103,37 +112,6 @@ impl CloudSyncTimer {
             .map_err(|e| format!("查询未同步记录失败: {}", e))?;
 
         Ok(records)
-    }
-
-    /// 同步单条记录
-    async fn sync_single_record(
-        &self,
-        record: &ClipRecord,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let ids = &vec![record.id.clone()];
-        // 1. 先将记录状态设置为同步中
-        self.update_sync_status(ids, 1).await?;
-
-        // 2. 通知前端更新状态
-        self.notify_frontend_sync_status(&record.id, 1).await?;
-
-        // 3. 执行实际的同步操作
-        match self.perform_http_sync(vec![record.clone()]).await {
-            Ok(_) => {
-                // 同步成功，更新状态为已同步
-                self.update_sync_status(ids, 2).await?;
-                self.notify_frontend_sync_status(&record.id, 2).await?;
-                log::info!("记录 {} 同步成功", record.id);
-            }
-            Err(e) => {
-                // 同步失败，回滚状态为未同步
-                self.update_sync_status(ids, 0).await?;
-                self.notify_frontend_sync_status(&record.id, 0).await?;
-                return Err(e);
-            }
-        }
-
-        Ok(())
     }
 
     /// 更新记录的同步状态
@@ -183,16 +161,27 @@ impl CloudSyncTimer {
     async fn perform_http_sync(
         &self,
         records: Vec<ClipRecord>,
+        server_timestamp: u64,
+        last_sync_time: u64,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-
         // 准备同步请求数据
         let sync_request = CloudSyncRequest {
             clips: records,
-            timestamp: SyncTime::select_last_time(&self.rb).await,
+            timestamp: server_timestamp,    // 服务器时间戳
+            last_sync_time: last_sync_time, // 本地上次同步时服务端返回的时间戳
         };
 
-        let _response = sync_clipboard(&sync_request).await?;
-
+        let response = sync_clipboard(&sync_request).await?;
+        if let Some(cloud_sync_res) = response {
+            // 服务器返回的同步时间 这个时间戳需要更新到本地做记录，下次同步需要带上这个时间戳作为版本号
+            let new_server_time = cloud_sync_res.timestamp;
+            SyncTime::update_last_time(&self.rb, new_server_time).await?;
+            if let Some(clips) = cloud_sync_res.clips {
+                // 如果服务端返回了数据，说明云端有新数据，就需要更新本地记录
+            }
+        } else {
+            log::warn!("云同步请求未返回数据");
+        }
         Ok(())
     }
 }
