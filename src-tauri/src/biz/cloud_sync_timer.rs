@@ -68,6 +68,7 @@ impl CloudSyncTimer {
     }
 
     /// 执行同步任务
+    /// 这个同步任务主要是在用户有未同步数据并且没有加入向云端同步的队列时，主动向云端进行同步，同时拉取云端新的数据到本地
     pub async fn execute_sync_task(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         log::info!("开始执行云同步定时任务...");
 
@@ -111,6 +112,7 @@ impl CloudSyncTimer {
                         .await?;
                         if check_res.is_empty() {
                             // 本地没有这条记录  那么就新增一条，新增时需要注意按照时间戳排序
+                            ClipRecord::insert_by_created_sort(&self.rb, clip).await?
                         }
                     }
                 }
