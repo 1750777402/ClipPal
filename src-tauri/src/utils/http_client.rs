@@ -290,7 +290,10 @@ impl HttpClient {
 
         // 直接反序列化为ApiResponse<U>
         let api_response: ApiResponse<U> = serde_json::from_str(&response_text).map_err(|e| {
-            HttpError::DeserializationFailed(format!("反序列化ApiResponse失败: {}", e))
+            HttpError::DeserializationFailed(format!(
+                "反序列化ApiResponse失败，请求url：{}，返回结果：{}: {}",
+                url, response_text, e
+            ))
         })?;
 
         Ok(api_response)
@@ -370,23 +373,21 @@ impl HttpClient {
         log::debug!("=== HTTP请求开始 ===");
         log::debug!("请求方法: {}", method);
         log::debug!("请求URL: {}", url);
-        
+
         // 验证URL
-        let _parsed_url = reqwest::Url::parse(url)
-            .map_err(|e| {
-                let error_msg = format!("无效的URL: {}", e);
-                log::error!("URL验证失败: {}", error_msg);
-                HttpError::InvalidUrl(error_msg)
-            })?;
+        let _parsed_url = reqwest::Url::parse(url).map_err(|e| {
+            let error_msg = format!("无效的URL: {}", e);
+            log::error!("URL验证失败: {}", error_msg);
+            HttpError::InvalidUrl(error_msg)
+        })?;
 
         // 构建请求体
         let body = if let Some(data) = data {
-            serde_json::to_string(data)
-                .map_err(|e| {
-                    let error_msg = format!("序列化请求数据失败: {}", e);
-                    log::error!("请求数据序列化失败: {}", error_msg);
-                    HttpError::SerializationFailed(error_msg)
-                })?
+            serde_json::to_string(data).map_err(|e| {
+                let error_msg = format!("序列化请求数据失败: {}", e);
+                log::error!("请求数据序列化失败: {}", error_msg);
+                HttpError::SerializationFailed(error_msg)
+            })?
         } else {
             String::new()
         };
@@ -405,12 +406,11 @@ impl HttpClient {
         if let Some(user_agent) = &self.config.user_agent {
             header_map.insert(
                 "User-Agent",
-                HeaderValue::from_str(user_agent)
-                    .map_err(|e| {
-                        let error_msg = format!("无效的User-Agent: {}", e);
-                        log::error!("User-Agent设置失败: {}", error_msg);
-                        HttpError::RequestFailed(error_msg)
-                    })?,
+                HeaderValue::from_str(user_agent).map_err(|e| {
+                    let error_msg = format!("无效的User-Agent: {}", e);
+                    log::error!("User-Agent设置失败: {}", error_msg);
+                    HttpError::RequestFailed(error_msg)
+                })?,
             );
             log::debug!("User-Agent: {}", user_agent);
         }
@@ -433,12 +433,11 @@ impl HttpClient {
                     })?;
                 header_map.insert(
                     header_name,
-                    HeaderValue::from_str(value)
-                        .map_err(|e| {
-                            let error_msg = format!("无效的请求头值: {}", e);
-                            log::error!("请求头值无效: {}", error_msg);
-                            HttpError::RequestFailed(error_msg)
-                        })?,
+                    HeaderValue::from_str(value).map_err(|e| {
+                        let error_msg = format!("无效的请求头值: {}", e);
+                        log::error!("请求头值无效: {}", error_msg);
+                        HttpError::RequestFailed(error_msg)
+                    })?,
                 );
                 log::debug!("  {}: {}", key, value);
             }
@@ -454,13 +453,11 @@ impl HttpClient {
         }
 
         // 发起请求
-        let client = options
-            .build()
-            .map_err(|e| {
-                let error_msg = format!("创建HTTP客户端失败: {}", e);
-                log::error!("HTTP客户端创建失败: {}", error_msg);
-                HttpError::RequestFailed(error_msg)
-            })?;
+        let client = options.build().map_err(|e| {
+            let error_msg = format!("创建HTTP客户端失败: {}", e);
+            log::error!("HTTP客户端创建失败: {}", error_msg);
+            HttpError::RequestFailed(error_msg)
+        })?;
 
         let request_builder = match method.to_uppercase().as_str() {
             "GET" => client.get(url),
@@ -475,27 +472,21 @@ impl HttpClient {
             }
         };
 
-        let request = request_builder
-            .headers(header_map)
-            .build()
-            .map_err(|e| {
-                let error_msg = format!("构建请求失败: {}", e);
-                log::error!("请求构建失败: {}", error_msg);
-                HttpError::RequestFailed(error_msg)
-            })?;
+        let request = request_builder.headers(header_map).build().map_err(|e| {
+            let error_msg = format!("构建请求失败: {}", e);
+            log::error!("请求构建失败: {}", error_msg);
+            HttpError::RequestFailed(error_msg)
+        })?;
 
         log::debug!("=== 开始执行HTTP请求 ===");
 
         // 执行请求
-        let response = client
-            .execute(request)
-            .await
-            .map_err(|e| {
-                let error_msg = format!("网络请求失败: {}", e);
-                log::error!("网络请求执行失败: {}", error_msg);
-                log::error!("错误详情: {:?}", e);
-                HttpError::NetworkError(error_msg)
-            })?;
+        let response = client.execute(request).await.map_err(|e| {
+            let error_msg = format!("网络请求失败: {}", e);
+            log::error!("网络请求执行失败: {}", error_msg);
+            log::error!("错误详情: {:?}", e);
+            HttpError::NetworkError(error_msg)
+        })?;
 
         let status = response.status().as_u16();
         let response_url = response.url().to_string();
@@ -513,15 +504,12 @@ impl HttpClient {
             }
         }
 
-        let response_text = response
-            .text()
-            .await
-            .map_err(|e| {
-                let error_msg = format!("读取响应失败: {}", e);
-                log::error!("响应内容读取失败: {}", error_msg);
-                log::error!("错误详情: {:?}", e);
-                HttpError::NetworkError(error_msg)
-            })?;
+        let response_text = response.text().await.map_err(|e| {
+            let error_msg = format!("读取响应失败: {}", e);
+            log::error!("响应内容读取失败: {}", error_msg);
+            log::error!("错误详情: {:?}", e);
+            HttpError::NetworkError(error_msg)
+        })?;
 
         // 根据状态码决定日志级别
         match status {

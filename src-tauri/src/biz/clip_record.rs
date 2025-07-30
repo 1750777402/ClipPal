@@ -196,7 +196,7 @@ impl ClipRecord {
             version: record.version,
             del_flag: record.del_flag,
         };
-        if (next_record.is_empty()) {
+        if next_record.is_empty() {
             // 获取最新的排序值
             obj.sort = ClipRecord::get_next_sort(rb).await;
             ClipRecord::insert(&tx, &obj).await?;

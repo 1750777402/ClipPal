@@ -41,7 +41,8 @@ where
 {
     let api_domain = get_api_domain()?;
     let url = format!("{}/{}", api_domain, path.trim_start_matches('/'));
-    let token = get_jwt_token();
+    // let token = get_jwt_token();
+    let token = "eyJhbGciOiJIUzUxMiJ9.eyJyb2xlIjoiVVNFUiIsInR5cGUiOiJhY2Nlc3MiLCJ1c2VySWQiOjEsInN1YiI6ImFkbWluIiwiaXNzIjoiY2xpcC1wYWwtY2xvdWQiLCJpYXQiOjE3NTM4Njc5NzIsImV4cCI6MTc1Mzk1NDM3Mn0.Qm3yZ20CVhfTr-52fz550V8uoOvnFbLhkdwblQTsH5SSBAIZU_4VYL-VYWjBh-oLeIyydC70f_kr2mi43PyXxA";
     let headers = get_common_headers(&token);
     let client = HttpClient::new();
     let resp: ApiResponse<T> = client

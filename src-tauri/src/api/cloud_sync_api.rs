@@ -26,7 +26,7 @@ pub struct CloudSyncRequest {
 pub async fn sync_clipboard(
     request: &CloudSyncRequest,
 ) -> Result<Option<CloudSyncResponse>, HttpError> {
-    api_post("POST", "cliPal-sync/sync", Some(request)).await
+    api_post("POST", "cliPal-sync/sync/complete", Some(request)).await
 }
 
 // -------------------------------------------获取服务器时间--------------------------------------------------------------
