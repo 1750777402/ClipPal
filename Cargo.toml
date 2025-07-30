@@ -24,7 +24,7 @@ module_name_repetitions = "allow"
 
 [workspace.dependencies]
 anyhow = "1.0" 
-async-channel = "2.3.1" 
+async-channel = "2.5.0" 
 async-trait = "0.1" 
 aes-gcm = "0.10"        # AES-256-GCM 加解密
 rand = "0.9"

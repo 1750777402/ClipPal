@@ -88,8 +88,36 @@ impl CloudSyncTimer {
             .map(|record| record.id.clone())
             .collect();
         // 有需要同步的记录时，发起http请求服务端
-        self.perform_http_sync(unsynced_record, server_time, last_sync_time)
-            .await?;
+        let sync_request = CloudSyncRequest {
+            clips: unsynced_record,
+            timestamp: server_time,         // 服务器时间戳
+            last_sync_time: last_sync_time, // 本地上次同步时服务端返回的时间戳
+        };
+
+        let response = sync_clipboard(&sync_request).await?;
+        if let Some(cloud_sync_res) = response {
+            // 服务器返回的同步时间 这个时间戳需要更新到本地做记录，下次同步需要带上这个时间戳作为版本号
+            let new_server_time = cloud_sync_res.timestamp;
+            SyncTime::update_last_time(&self.rb, new_server_time).await?;
+            if let Some(clips) = cloud_sync_res.clips {
+                // 如果服务端返回了数据，说明云端有新数据，就需要更新本地记录
+                if !clips.is_empty() {
+                    for clip in clips {
+                        let check_res = ClipRecord::check_by_type_and_md5(
+                            &self.rb,
+                            &clip.r#type,
+                            &clip.md5_str,
+                        )
+                        .await?;
+                        if check_res.is_empty() {
+                            // 本地没有这条记录  那么就新增一条，新增时需要注意按照时间戳排序
+                        }
+                    }
+                }
+            }
+        } else {
+            log::warn!("云同步请求未返回数据");
+        }
         // 服务端返回成功后，更新记录状态
         let update_res = self.update_sync_status(&ids, 1).await;
         match update_res {
@@ -155,34 +183,6 @@ impl CloudSyncTimer {
         self.app_handle
             .emit("sync_status_update", payload)
             .map_err(|e| format!("通知前端失败: {}", e).into())
-    }
-
-    /// 执行HTTP同步操作
-    async fn perform_http_sync(
-        &self,
-        records: Vec<ClipRecord>,
-        server_timestamp: u64,
-        last_sync_time: u64,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        // 准备同步请求数据
-        let sync_request = CloudSyncRequest {
-            clips: records,
-            timestamp: server_timestamp,    // 服务器时间戳
-            last_sync_time: last_sync_time, // 本地上次同步时服务端返回的时间戳
-        };
-
-        let response = sync_clipboard(&sync_request).await?;
-        if let Some(cloud_sync_res) = response {
-            // 服务器返回的同步时间 这个时间戳需要更新到本地做记录，下次同步需要带上这个时间戳作为版本号
-            let new_server_time = cloud_sync_res.timestamp;
-            SyncTime::update_last_time(&self.rb, new_server_time).await?;
-            if let Some(clips) = cloud_sync_res.clips {
-                // 如果服务端返回了数据，说明云端有新数据，就需要更新本地记录
-            }
-        } else {
-            log::warn!("云同步请求未返回数据");
-        }
-        Ok(())
     }
 }
 

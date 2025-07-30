@@ -2,6 +2,7 @@ use rbatis::{Error, RBatis, crud, impl_select};
 use rbs::to_value;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use uuid::Uuid;
 
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
 pub struct ClipRecord {
@@ -49,6 +50,8 @@ impl_select!(ClipRecord{check_by_type_and_md5(content_type:&str, md5_str:&str) =
 impl_select!(ClipRecord{select_max_sort(user_id: i32) =>"`where user_id = #{user_id} order by sort desc, created desc limit 1`"});
 // 根据sync_flag查询记录
 impl_select!(ClipRecord{select_by_sync_flag(sync_flag: i32) =>"`where sync_flag = #{sync_flag} order by created desc`"});
+// 根据created时间戳查询下一条记录
+impl_select!(ClipRecord{select_order_by_created(created: u64) =>"`where created >= #{created} order by created desc limit 1`"});
 
 impl ClipRecord {
     pub async fn update_content(rb: &RBatis, id: &str, content: &String) -> Result<(), Error> {
@@ -56,6 +59,14 @@ impl ClipRecord {
         let tx = rb.acquire_begin().await?;
         let _ = tx.exec(sql, vec![to_value!(content), to_value!(id)]).await;
         tx.commit().await
+    }
+
+    pub async fn get_next_sort(rb: &RBatis) -> i32 {
+        ClipRecord::select_max_sort(rb, 0)
+            .await
+            .ok()
+            .and_then(|records| records.get(0).map(|r| r.sort + 1))
+            .unwrap_or(0)
     }
 
     pub async fn update_sort(rb: &RBatis, id: &str, sort: i32) -> Result<(), Error> {
@@ -164,5 +175,38 @@ impl ClipRecord {
         let limit_sql = format!("{} LIMIT ? OFFSET ?", sql);
         let res: Vec<ClipRecord> = rb.query_decode(limit_sql.as_str(), params).await?;
         Ok(res)
+    }
+
+    pub async fn insert_by_created_sort(rb: &RBatis, record: ClipRecord) -> Result<(), Error> {
+        let tx = rb.acquire_begin().await?;
+        let next_record = ClipRecord::select_order_by_created(rb, record.created).await?;
+        let mut obj = ClipRecord {
+            id: Uuid::new_v4().to_string(),
+            user_id: record.user_id,
+            r#type: record.r#type,
+            content: record.content,
+            md5_str: record.md5_str,
+            created: record.created,
+            os_type: record.os_type,
+            sort: 0,
+            pinned_flag: 0,
+            sync_flag: record.sync_flag,
+            sync_time: record.sync_time,
+            device_id: record.device_id,
+            version: record.version,
+            del_flag: record.del_flag,
+        };
+        if (next_record.is_empty()) {
+            // 获取最新的排序值
+            obj.sort = ClipRecord::get_next_sort(rb).await;
+            ClipRecord::insert(&tx, &obj).await?;
+        } else {
+            let sql = "UPDATE clip_record SET sort = IFNULL(sort, 0) + 1 WHERE created >= ?";
+            tx.exec(sql, vec![to_value!(next_record[0].created)])
+                .await?;
+            obj.sort = next_record[0].sort;
+            ClipRecord::insert(&tx, &obj).await?;
+        }
+        tx.commit().await
     }
 }

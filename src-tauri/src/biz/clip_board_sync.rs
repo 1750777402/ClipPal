@@ -33,7 +33,7 @@ pub struct ClipboardEventTigger;
 impl ClipBoardEventListener<ClipboardEvent> for ClipboardEventTigger {
     async fn handle_event(&self, event: &ClipboardEvent) {
         let rb: &RBatis = CONTEXT.get::<RBatis>();
-        let next_sort = get_next_sort(rb).await;
+        let next_sort = ClipRecord::get_next_sort(rb).await;
 
         match event.r#type {
             ClipType::Text => handle_text(rb, &event.content, next_sort).await,
@@ -57,14 +57,6 @@ fn current_timestamp() -> u64 {
             log::warn!("获取系统时间失败，使用默认值: {}", e);
             0
         })
-}
-
-async fn get_next_sort(rb: &RBatis) -> i32 {
-    ClipRecord::select_max_sort(rb, 0)
-        .await
-        .ok()
-        .and_then(|records| records.get(0).map(|r| r.sort + 1))
-        .unwrap_or(0)
 }
 
 fn build_clip_record(

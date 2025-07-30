@@ -1,13 +1,13 @@
+use crate::errors::{AppError, AppResult};
+use crate::utils::aes_util::{decrypt_content, encrypt_content};
+use crate::utils::file_dir::get_data_dir;
+use base64::Engine;
+use base64::engine::general_purpose::STANDARD;
 use once_cell::sync::Lazy;
-use std::sync::RwLock;
+use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
-use serde::{Serialize, Deserialize};
-use crate::errors::{AppError, AppResult};
-use crate::utils::file_dir::get_data_dir;
-use crate::utils::aes_util::{encrypt_content, decrypt_content};
-use base64::engine::general_purpose::STANDARD;
-use base64::Engine;
+use std::sync::RwLock;
 
 const STORE_FILE: &str = "clipPal_store.dat";
 
@@ -25,11 +25,17 @@ pub struct SecureStore {
 impl SecureStore {
     pub fn new() -> AppResult<Self> {
         let dir = get_data_dir().ok_or(AppError::Config("无法获取配置目录".to_string()))?;
-        Ok(Self { dir, data: SecureData::default(), loaded: false })
+        Ok(Self {
+            dir,
+            data: SecureData::default(),
+            loaded: false,
+        })
     }
 
     fn load_from_file(&mut self) -> AppResult<()> {
-        if self.loaded { return Ok(()); }
+        if self.loaded {
+            return Ok(());
+        }
         let file_path = self.dir.join(STORE_FILE);
         if !file_path.exists() {
             self.loaded = true;
@@ -37,18 +43,18 @@ impl SecureStore {
         }
         let encrypted = fs::read_to_string(&file_path).map_err(AppError::Io)?;
         let decrypted = decrypt_content(&encrypted)?;
-        let decoded = STANDARD.decode(&decrypted)
+        let decoded = STANDARD
+            .decode(&decrypted)
             .map_err(|e| AppError::Crypto(format!("Base64解码失败: {}", e)))?;
-        self.data = bincode::deserialize(&decoded)
-            .map_err(|e| AppError::Serde(e.to_string()))?;
+        self.data = bincode::deserialize(&decoded).map_err(|e| AppError::Serde(e.to_string()))?;
         self.loaded = true;
         Ok(())
     }
 
     fn save_to_file(&self) -> AppResult<()> {
         let file_path = self.dir.join(STORE_FILE);
-        let serialized = bincode::serialize(&self.data)
-            .map_err(|e| AppError::Serde(e.to_string()))?;
+        let serialized =
+            bincode::serialize(&self.data).map_err(|e| AppError::Serde(e.to_string()))?;
         let encoded = STANDARD.encode(&serialized);
         let encrypted = encrypt_content(&encoded)?;
         fs::write(&file_path, &encrypted).map_err(AppError::Io)?;
@@ -79,23 +85,23 @@ impl SecureStore {
 
     /// 获取jwt_token
     pub fn get_jwt_token(&mut self) -> AppResult<Option<String>> {
-        if !self.loaded { self.load()?; }
+        if !self.loaded {
+            self.load()?;
+        }
         Ok(self.data.jwt_token.clone())
     }
     /// 设置jwt_token并自动保存
     pub fn set_jwt_token(&mut self, token: String) -> AppResult<()> {
-        if !self.loaded { self.load()?; }
+        if !self.loaded {
+            self.load()?;
+        }
         self.data.jwt_token = Some(token);
         self.save()
     }
 }
 
-pub static SECURE_STORE: Lazy<RwLock<SecureStore>> = Lazy::new(|| {
-    RwLock::new(SecureStore::new().expect("SecureStore初始化失败"))
-});
+pub static SECURE_STORE: Lazy<RwLock<SecureStore>> =
+    Lazy::new(|| RwLock::new(SecureStore::new().expect("SecureStore初始化失败")));
 
 // 写入 jwt_token
 // SECURE_STORE.write().unwrap().set_jwt_token("your_jwt_token".to_string())?;
-
-// 读取 jwt_token
-// let token = SECURE_STORE.write().unwrap().get_jwt_token()?;
