@@ -43,7 +43,7 @@ impl SyncTime {
         match res {
             Ok(sync_time) => {
                 if sync_time.is_empty() {
-                    SyncTime::insert_last_time(rb, 0);
+                    let _ = SyncTime::insert_last_time(rb, 0).await;
                     0
                 } else {
                     sync_time[0].last_time

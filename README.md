@@ -69,8 +69,8 @@ Clip-Pal 是一个跨平台的剪贴板管理工具，支持文本、图片、�
 ## 依赖
 - [Tauri](https://tauri.app/)（桌面端框架）
 - [rbatis](https://github.com/rbatis/rbatis)（Rust ORM）
-- [rbdc-sqlite](https://github.com/rbatis/rbdc-sqlite)（SQLite 驱动）
 - [serde/serde_json](https://serde.rs/)（序列化）
+- [clipboard-rs](https://github.com/ChurchTao/clipboard-rs)（粘贴板监听）
 - 其他详见 `Cargo.toml`
 
 ## 版本记录

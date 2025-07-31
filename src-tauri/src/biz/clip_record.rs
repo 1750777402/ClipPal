@@ -23,7 +23,7 @@ pub struct ClipRecord {
     pub sort: i32,
     // 是否置顶
     pub pinned_flag: i32,
-    // 是否已同步云端  0:未同步，1:已同步
+    // 是否已同步云端  0:未同步，1:同步中，2:已同步
     pub sync_flag: Option<i32>,
     // 同步时间
     pub sync_time: Option<u64>,
@@ -96,26 +96,18 @@ impl ClipRecord {
         rb: &RBatis,
         ids: &Vec<String>,
         sync_flag: i32,
+        sync_time: u64,
     ) -> Result<(), Error> {
         let sql = format!(
             "UPDATE clip_record SET sync_flag = ?, sync_time = ? WHERE id in ({})",
             ids.iter().map(|_| "?").collect::<Vec<_>>().join(",")
         );
-        let current_time = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_millis() as u64;
+        let mut args = vec![to_value!(sync_flag), to_value!(sync_time)];
+        for id in ids {
+            args.push(to_value!(id));
+        }
         let tx = rb.acquire_begin().await?;
-        let _ = tx
-            .exec(
-                &sql,
-                vec![
-                    to_value!(sync_flag),
-                    to_value!(current_time),
-                    to_value!(ids),
-                ],
-            )
-            .await;
+        tx.exec(&sql, args).await?;
         tx.commit().await
     }
 

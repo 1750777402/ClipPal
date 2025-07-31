@@ -1,39 +1,42 @@
-use thiserror::Error;
 use std::sync::PoisonError;
+use thiserror::Error;
 
 /// 应用程序统一错误类型
 #[derive(Error, Debug)]
 pub enum AppError {
     #[error("数据库错误: {0}")]
     Database(#[from] rbatis::Error),
-    
+
     #[error("IO错误: {0}")]
     Io(#[from] std::io::Error),
-    
+
     #[error("序列化错误: {0}")]
     Serde(String),
-    
+
     #[error("配置错误: {0}")]
     Config(String),
-    
+
     #[error("窗口操作错误: {0}")]
     Window(String),
-    
+
     #[error("剪贴板操作错误: {0}")]
     Clipboard(String),
-    
+
+    #[error("云同步错误: {0}")]
+    ClipSync(String),
+
     #[error("加密解密错误: {0}")]
     Crypto(String),
-    
+
     #[error("锁争用错误: {0}")]
     Lock(String),
-    
+
     #[error("全局快捷键错误: {0}")]
     GlobalShortcut(String),
-    
+
     #[error("系统托盘错误: {0}")]
     Tray(String),
-    
+
     #[error("通用错误: {0}")]
     General(String),
 }
@@ -58,29 +61,30 @@ pub type AppResult<T> = Result<T, AppError>;
 /// 安全的锁操作辅助函数
 pub mod lock_utils {
     use super::{AppError, AppResult};
-    use std::sync::{Mutex, RwLock, MutexGuard, RwLockReadGuard, RwLockWriteGuard};
-    
+    use std::sync::{Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
+
     /// 安全获取Mutex锁，带超时
     pub fn safe_lock<T>(mutex: &Mutex<T>) -> AppResult<MutexGuard<T>> {
-        mutex.lock()
+        mutex
+            .lock()
             .map_err(|e| AppError::Lock(format!("无法获取锁: {}", e)))
     }
-    
+
     /// 安全获取RwLock读锁
     #[allow(dead_code)]
     pub fn safe_read_lock<T>(rwlock: &RwLock<T>) -> AppResult<RwLockReadGuard<T>> {
-        rwlock.read()
+        rwlock
+            .read()
             .map_err(|e| AppError::Lock(format!("无法获取读锁: {}", e)))
     }
-    
+
     /// 安全获取RwLock写锁
     #[allow(dead_code)]
     pub fn safe_write_lock<T>(rwlock: &RwLock<T>) -> AppResult<RwLockWriteGuard<T>> {
-        rwlock.write()
+        rwlock
+            .write()
             .map_err(|e| AppError::Lock(format!("无法获取写锁: {}", e)))
     }
-    
-
 }
 
 /// 错误日志记录宏
@@ -98,4 +102,4 @@ macro_rules! ok_or_err {
     ($option:expr, $err_msg:expr) => {
         $option.ok_or_else(|| AppError::General($err_msg.to_string()))
     };
-} 
+}

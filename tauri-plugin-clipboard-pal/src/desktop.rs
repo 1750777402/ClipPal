@@ -10,12 +10,13 @@ use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex};
 
 pub fn init() -> crate::Result<ClipboardPal> {
-    let clipboard_context = ClipboardRsContext::new()
-        .map_err(|e| crate::Error::Io(std::io::Error::new(
+    let clipboard_context = ClipboardRsContext::new().map_err(|e| {
+        crate::Error::Io(std::io::Error::new(
             std::io::ErrorKind::Other,
-            format!("Failed to create clipboard context: {}", e)
-        )))?;
-    
+            format!("Failed to create clipboard context: {}", e),
+        ))
+    })?;
+
     Ok(ClipboardPal {
         clipboard: Arc::new(Mutex::new(clipboard_context)),
         watcher_shutdown: Arc::default(),
@@ -133,7 +134,9 @@ impl ClipboardPal {
         let mut watcher = ClipboardWatcherContext::new()
             .map_err(|e| format!("Failed to create clipboard watcher: {}", e))?;
         let watcher_shutdown = watcher.add_handler(clipboard).get_shutdown_channel();
-        let mut watcher_shutdown_state = self.watcher_shutdown.lock()
+        let mut watcher_shutdown_state = self
+            .watcher_shutdown
+            .lock()
             .map_err(|e| format!("Failed to acquire lock: {}", e))?;
         if (*watcher_shutdown_state).is_some() {
             return Ok(());
@@ -146,7 +149,9 @@ impl ClipboardPal {
     }
 
     pub fn stop_monitor(&self) -> Result<(), String> {
-        let mut watcher_shutdown_state = self.watcher_shutdown.lock()
+        let mut watcher_shutdown_state = self
+            .watcher_shutdown
+            .lock()
             .map_err(|e| format!("Failed to acquire lock: {}", e))?;
         if let Some(watcher_shutdown) = (*watcher_shutdown_state).take() {
             watcher_shutdown.stop();
@@ -156,7 +161,8 @@ impl ClipboardPal {
     }
 
     pub fn is_monitor_running(&self) -> bool {
-        self.watcher_shutdown.lock()
+        self.watcher_shutdown
+            .lock()
             .map(|guard| guard.is_some())
             .unwrap_or(false)
     }
@@ -185,8 +191,9 @@ impl ClipboardHandler for ClipboardMonitor {
                 return;
             }
         };
-        
-        // 先判断是不是图片   这里的图片特指PNG，其实主要是针对截图软件的截图功能，截图软件截取的图片是没有形成真实文件的，只有图片二进制数据
+
+        // 先判断是不是图片   不管clipboard_context.get_image()得到的是什么类型的图片，统一使用image.to_png()转为png格式
+        // 其实大多数情况是针对截图软件的截图功能，截图软件截取的图片是没有形成实际的图片文件的，只有图片二进制数据
         if clipboard_context.has(ContentFormat::Image) {
             let img_context = clipboard_context.get_image().map_err(|err| err.to_string());
             if let Ok(image) = img_context {

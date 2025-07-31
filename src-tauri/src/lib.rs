@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use crate::{
     biz::{
+        clip_async_queue::{AsyncQueue, consume_clip_record_queue},
         clip_record::ClipRecord,
         cloud_sync_timer::start_cloud_sync_timer,
         content_search::initialize_search_index,
@@ -21,6 +22,7 @@ use log::LevelFilter;
 use state::TypeMap;
 use tauri_plugin_autostart::MacosLauncher;
 
+mod api;
 mod auto_paste;
 mod biz;
 mod clip_board_listener;
@@ -32,7 +34,6 @@ mod sqlite_storage;
 mod tray;
 mod utils;
 mod window;
-mod api;
 
 // 全局上下文存储
 pub static CONTEXT: TypeMap![Send + Sync] = <TypeMap![Send + Sync]>::new();
@@ -142,6 +143,11 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
             }
             // 程序启动完成后续事件处理
             tauri::RunEvent::Ready { .. } => {
+                // 创建一个内存队列
+                let queue: AsyncQueue<ClipRecord> = AsyncQueue::new(1000);
+                CONTEXT.set(queue.clone());
+                // 启动队列消费
+                consume_clip_record_queue(queue);
                 // 开启粘贴板内容监听器
                 manager.start_event_loop();
             }

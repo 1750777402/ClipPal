@@ -305,10 +305,9 @@ async fn execute_migrations(rb: &RBatis, migrations: Vec<String>) -> Result<(), 
 /// 创建索引
 async fn create_indexes(rb: &RBatis) -> Result<(), Error> {
     let index_sqls = vec![
-        "CREATE INDEX IF NOT EXISTS idx_clip_record_md5_str ON clip_record(md5_str)",
+        "CREATE UNIQUE IF NOT EXISTS idx_clip_record_md5_str_type ON clip_record(md5_str, type)",
         "CREATE INDEX IF NOT EXISTS idx_clip_record_created ON clip_record(created)",
         "CREATE INDEX IF NOT EXISTS idx_clip_record_sort ON clip_record(sort)",
-        "CREATE INDEX IF NOT EXISTS idx_clip_record_pinned ON clip_record(pinned_flag)",
     ];
 
     for sql in index_sqls {

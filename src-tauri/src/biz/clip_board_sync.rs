@@ -12,7 +12,8 @@ use tauri::{AppHandle, Emitter};
 use uuid::Uuid;
 
 use crate::{
-    biz::content_search::add_content_to_index,
+    biz::{clip_async_queue::AsyncQueue, content_search::add_content_to_index},
+    errors::AppError,
     utils::{
         aes_util::encrypt_content,
         device_info::{GLOBAL_DEVICE_ID, GLOBAL_OS_TYPE},
@@ -35,17 +36,33 @@ impl ClipBoardEventListener<ClipboardEvent> for ClipboardEventTigger {
         let rb: &RBatis = CONTEXT.get::<RBatis>();
         let next_sort = ClipRecord::get_next_sort(rb).await;
 
-        match event.r#type {
+        let record_result = match event.r#type {
             ClipType::Text => handle_text(rb, &event.content, next_sort).await,
             ClipType::Image => handle_image(rb, event.file.as_ref(), next_sort).await,
             ClipType::File => handle_file(rb, event.file_path_vec.as_ref(), next_sort).await,
-            _ => {}
+            _ => Ok(None),
+        };
+
+        // 处理错误情况
+        if let Err(e) = &record_result {
+            log::error!("处理剪贴板事件失败: {:?}", e);
         }
 
         clip_record_clean().await;
-        // 通知前端粘贴板变更
-        let app_handle = CONTEXT.get::<AppHandle>();
-        let _ = app_handle.emit("clip_record_change", ());
+
+        if let Ok(Some(item)) = record_result {
+            // 通知前端粘贴板变更
+            let app_handle = CONTEXT.get::<AppHandle>();
+            let _ = app_handle.emit("clip_record_change", ());
+            // 如果有新增记录，发送到异步队列
+            let async_queue = CONTEXT.get::<AsyncQueue<ClipRecord>>();
+            if !async_queue.is_full() {
+                let send_res = async_queue.send_add(item.clone()).await;
+                if let Err(e) = send_res {
+                    log::error!("异步队列发送失败，粘贴内容：{:?}, 异常:{}", item, e);
+                }
+            }
+        }
     }
 }
 
@@ -86,7 +103,11 @@ fn build_clip_record(
     }
 }
 
-async fn handle_text(rb: &RBatis, content: &str, sort: i32) {
+async fn handle_text(
+    rb: &RBatis,
+    content: &str,
+    sort: i32,
+) -> Result<Option<ClipRecord>, AppError> {
     let encrypt_res = encrypt_content(content);
     match encrypt_res {
         Ok(encrypted) => {
@@ -96,13 +117,14 @@ async fn handle_text(rb: &RBatis, content: &str, sort: i32) {
                 ClipType::Text.to_string().as_str(),
                 md5_str.as_str(),
             )
-            .await
-            .unwrap_or_default();
+            .await?;
 
             if let Some(record) = existing.first() {
                 if let Err(e) = ClipRecord::update_sort(rb, &record.id, sort).await {
                     log::error!("更新排序失败: {}", e);
+                    return Err(AppError::Database(e));
                 }
+                Ok(None)
             } else {
                 let record = build_clip_record(
                     Uuid::new_v4().to_string(),
@@ -125,8 +147,12 @@ async fn handle_text(rb: &RBatis, content: &str, sort: i32) {
                                 log::error!("搜索索引更新失败: {}", e);
                             }
                         });
+                        Ok(Some(record))
                     }
-                    Err(e) => log::error!("插入文本记录失败: {}", e),
+                    Err(e) => {
+                        log::error!("插入文本记录失败: {}", e);
+                        Err(AppError::Database(e))
+                    }
                 }
             }
         }
@@ -136,20 +162,28 @@ async fn handle_text(rb: &RBatis, content: &str, sort: i32) {
                 "失败的文本内容前50个字符: {:?}",
                 &content[..content.len().min(50)]
             );
+            Err(AppError::Clipboard(format!("文本内容加密失败: {:?}", e)))
         }
     }
 }
 
-async fn handle_image(rb: &RBatis, file_data: Option<&Vec<u8>>, sort: i32) {
+async fn handle_image(
+    rb: &RBatis,
+    file_data: Option<&Vec<u8>>,
+    sort: i32,
+) -> Result<Option<ClipRecord>, AppError> {
     if let Some(data) = file_data {
         let md5_str = format!("{:x}", md5::compute(data));
         let existing =
             ClipRecord::check_by_type_and_md5(rb, ClipType::Image.to_string().as_str(), &md5_str)
-                .await
-                .unwrap_or_default();
+                .await?;
 
         if let Some(record) = existing.first() {
-            let _ = ClipRecord::update_sort(rb, &record.id, sort).await;
+            if let Err(e) = ClipRecord::update_sort(rb, &record.id, sort).await {
+                log::error!("更新图片排序失败: {}", e);
+                return Err(AppError::Database(e));
+            }
+            Ok(None)
         } else {
             let id = Uuid::new_v4().to_string();
             let record = build_clip_record(
@@ -161,14 +195,27 @@ async fn handle_image(rb: &RBatis, file_data: Option<&Vec<u8>>, sort: i32) {
                 sort,
             );
 
-            if ClipRecord::insert(rb, &record).await.is_ok() {
-                save_img_to_resource(&id, rb, data).await;
+            match ClipRecord::insert(rb, &record).await {
+                Ok(_) => {
+                    save_img_to_resource(&id, rb, data).await;
+                    Ok(Some(record))
+                }
+                Err(e) => {
+                    log::error!("插入图片记录失败: {}", e);
+                    Err(AppError::Database(e))
+                }
             }
         }
+    } else {
+        Ok(None)
     }
 }
 
-async fn handle_file(rb: &RBatis, file_paths: Option<&Vec<String>>, sort: i32) {
+async fn handle_file(
+    rb: &RBatis,
+    file_paths: Option<&Vec<String>>,
+    sort: i32,
+) -> Result<Option<ClipRecord>, AppError> {
     if let Some(paths) = file_paths {
         let mut sorted_paths = paths.clone();
         sorted_paths.sort();
@@ -177,11 +224,14 @@ async fn handle_file(rb: &RBatis, file_paths: Option<&Vec<String>>, sort: i32) {
 
         let existing =
             ClipRecord::check_by_type_and_md5(rb, ClipType::File.to_string().as_str(), &md5_str)
-                .await
-                .unwrap_or_default();
+                .await?;
 
         if let Some(record) = existing.first() {
-            let _ = ClipRecord::update_sort(rb, &record.id, sort).await;
+            if let Err(e) = ClipRecord::update_sort(rb, &record.id, sort).await {
+                log::error!("更新文件排序失败: {}", e);
+                return Err(AppError::Database(e));
+            }
+            Ok(None)
         } else {
             let record = build_clip_record(
                 Uuid::new_v4().to_string(),
@@ -204,10 +254,16 @@ async fn handle_file(rb: &RBatis, file_paths: Option<&Vec<String>>, sort: i32) {
                             log::error!("搜索索引更新失败: {}", e);
                         }
                     });
+                    Ok(Some(record))
                 }
-                Err(e) => log::error!("insert file error: {}", e),
+                Err(e) => {
+                    log::error!("插入文件记录失败: {}", e);
+                    Err(AppError::Database(e))
+                }
             }
         }
+    } else {
+        Ok(None)
     }
 }
 

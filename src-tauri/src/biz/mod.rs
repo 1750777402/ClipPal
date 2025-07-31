@@ -8,3 +8,4 @@ pub mod copy_clip_record;
 pub mod query_clip_record;
 pub mod sync_time;
 pub mod system_setting;
+pub mod clip_async_queue;
