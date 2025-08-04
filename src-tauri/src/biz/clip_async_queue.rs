@@ -1,9 +1,11 @@
+#![allow(dead_code)]
+
 use async_channel::{Receiver, Sender, TryRecvError, bounded};
 use std::fmt::Debug;
 use std::sync::Arc;
 use tokio::task;
 
-use crate::api::cloud_sync_api::sync_single_clip_record;
+use crate::api::cloud_sync_api::{SingleCloudSyncParam, sync_single_clip_record};
 use crate::biz::clip_record::ClipRecord;
 
 #[derive(Clone, Debug)]
@@ -77,10 +79,33 @@ pub fn consume_clip_record_queue(queue: AsyncQueue<ClipRecord>) {
             match queue.recv().await {
                 Ok(QueueEvent::Add(item)) => {
                     // 处理添加逻辑
-                    let res = sync_single_clip_record(&item).await;
+                    let param = SingleCloudSyncParam {
+                        r#type: 1,
+                        clip: item.clone(),
+                    };
+                    let res = sync_single_clip_record(&param).await;
+                    if let Err(e) = res {
+                        log::error!(
+                            "同步新增单个剪贴板记录失败，粘贴记录：{}，错误：{}",
+                            item.id,
+                            e
+                        );
+                    }
                 }
                 Ok(QueueEvent::Delete(item)) => {
                     // 处理删除逻辑
+                    let param = SingleCloudSyncParam {
+                        r#type: 2,
+                        clip: item.clone(),
+                    };
+                    let res = sync_single_clip_record(&param).await;
+                    if let Err(e) = res {
+                        log::error!(
+                            "同步删除单个剪贴板记录失败，粘贴记录：{}，错误：{}",
+                            item.id,
+                            e
+                        );
+                    }
                 }
                 Err(e) => {
                     log::error!("接收async_queue消息错误: {}", e);

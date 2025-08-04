@@ -96,8 +96,14 @@ pub struct SingleCloudSyncResponse {
     pub clips: Option<Vec<ClipRecordParam>>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SingleCloudSyncParam {
+    pub r#type: i32,
+    pub clip: ClipRecord,
+}
+
 pub async fn sync_single_clip_record(
-    record: &ClipRecord,
+    record: &SingleCloudSyncParam,
 ) -> Result<Option<SingleCloudSyncResponse>, HttpError> {
     api_post("POST", "cliPal-sync/sync/single", Some(record)).await
 }

@@ -143,7 +143,7 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
             }
             // 程序启动完成后续事件处理
             tauri::RunEvent::Ready { .. } => {
-                // 创建一个内存队列
+                // 创建一个内存队列  用来处理粘贴板记录的同步操作记录
                 let queue: AsyncQueue<ClipRecord> = AsyncQueue::new(1000);
                 CONTEXT.set(queue.clone());
                 // 启动队列消费

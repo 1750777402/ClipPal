@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use crate::errors::{AppError, AppResult};
 use crate::utils::aes_util::{decrypt_content, encrypt_content};
 use crate::utils::file_dir::get_data_dir;
