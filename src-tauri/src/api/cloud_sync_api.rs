@@ -93,7 +93,6 @@ pub async fn sync_server_time() -> Result<Option<u64>, HttpError> {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SingleCloudSyncResponse {
     pub timestamp: u64,
-    pub clips: Option<Vec<ClipRecordParam>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

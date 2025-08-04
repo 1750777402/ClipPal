@@ -3,7 +3,7 @@ use std::{
     fs,
     marker::{Send, Sync},
     path::PathBuf,
-    sync::{Arc, Mutex},
+    sync::{Arc, RwLock},
 };
 
 use serde::{Deserialize, Serialize};
@@ -13,7 +13,7 @@ use tauri_plugin_global_shortcut::GlobalShortcutExt;
 
 use crate::{
     CONTEXT,
-    errors::{AppError, AppResult, lock_utils::safe_lock},
+    errors::{AppError, AppResult, lock_utils::{safe_read_lock, safe_write_lock}},
     global_shortcut::parse_shortcut,
     utils::file_dir::get_config_dir,
 };
@@ -51,6 +51,7 @@ pub struct Settings {
 
 unsafe impl Send for Settings {}
 unsafe impl Sync for Settings {}
+
 impl Default for Settings {
     fn default() -> Self {
         Self {
@@ -70,8 +71,8 @@ impl Default for Settings {
 /// 初始化系统设置
 pub fn init_settings() {
     let settings = load_settings();
-    // 把系统配置存储到上下文中
-    CONTEXT.set(Arc::new(Mutex::new(settings.clone())));
+    // 把系统配置存储到上下文中，使用 RwLock 允许并发读取
+    CONTEXT.set(Arc::new(RwLock::new(settings.clone())));
 }
 
 pub fn get_settings_file_path() -> Option<PathBuf> {
@@ -105,8 +106,8 @@ pub async fn save_settings(settings: Settings) -> Result<(), String> {
 
     // 2. 获取当前设置并立即释放锁
     let current_settings = {
-        let lock = CONTEXT.get::<Arc<Mutex<Settings>>>().clone();
-        let current = safe_lock(&lock).map_err(|e| e.to_string())?;
+        let lock = CONTEXT.get::<Arc<RwLock<Settings>>>().clone();
+        let current = safe_read_lock(&lock).map_err(|e| e.to_string())?;
         current.clone()
     };
 
@@ -153,8 +154,8 @@ pub async fn save_settings(settings: Settings) -> Result<(), String> {
 
     // 4. 更新上下文中的设置
     {
-        let lock = CONTEXT.get::<Arc<Mutex<Settings>>>().clone();
-        let mut current = safe_lock(&lock).map_err(|e| e.to_string())?;
+        let lock = CONTEXT.get::<Arc<RwLock<Settings>>>().clone();
+        let mut current = safe_write_lock(&lock).map_err(|e| e.to_string())?;
         *current = settings;
     }
 
@@ -258,8 +259,8 @@ fn save_settings_to_file(settings: &Settings) -> AppResult<()> {
         fs::create_dir_all(parent)?;
     }
 
-    let json = serde_json::to_string_pretty(settings)
-        .map_err(|e| AppError::Serde(e.to_string()))?;
+    let json =
+        serde_json::to_string_pretty(settings).map_err(|e| AppError::Serde(e.to_string()))?;
     fs::write(path, json).map_err(AppError::Io)?;
 
     Ok(())
@@ -271,8 +272,8 @@ async fn rollback_settings(applied_settings: &[(&str, bool)]) -> AppResult<()> {
 
     // 在 await 点之前获取当前设置
     let current_settings = {
-        let lock = CONTEXT.get::<Arc<Mutex<Settings>>>().clone();
-        let current = safe_lock(&lock)?;
+        let lock = CONTEXT.get::<Arc<RwLock<Settings>>>().clone();
+        let current = safe_read_lock(&lock)?;
         current.clone()
     };
 
@@ -324,8 +325,8 @@ pub async fn validate_shortcut(shortcut: String) -> Result<bool, String> {
 
     // 2. 获取当前设置的快捷键
     let current_shortcut = {
-        let lock = CONTEXT.get::<Arc<Mutex<Settings>>>().clone();
-        let result = match safe_lock(&lock) {
+        let lock = CONTEXT.get::<Arc<RwLock<Settings>>>().clone();
+        let result = match safe_read_lock(&lock) {
             Ok(current) => current.shortcut_key.clone(),
             Err(_) => String::new(),
         };
@@ -349,4 +350,13 @@ pub async fn validate_shortcut(shortcut: String) -> Result<bool, String> {
     // 5. 格式验证通过，返回true
     // 实际的冲突检测将在注册时进行
     Ok(true)
+}
+
+/// 检查是否开启了云同步功能
+pub async fn check_cloud_sync_enabled() -> bool {
+    let settings_lock = CONTEXT.get::<Arc<RwLock<Settings>>>();
+    if let Ok(settings) = safe_read_lock(&settings_lock) {
+        return settings.cloud_sync == 1;
+    }
+    false
 }

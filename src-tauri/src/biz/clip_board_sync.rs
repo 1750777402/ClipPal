@@ -12,7 +12,10 @@ use tauri::{AppHandle, Emitter};
 use uuid::Uuid;
 
 use crate::{
-    biz::{clip_async_queue::AsyncQueue, content_search::add_content_to_index},
+    biz::{
+        clip_async_queue::AsyncQueue, content_search::add_content_to_index,
+        system_setting::check_cloud_sync_enabled,
+    },
     errors::AppError,
     utils::{
         aes_util::encrypt_content,
@@ -54,12 +57,15 @@ impl ClipBoardEventListener<ClipboardEvent> for ClipboardEventTigger {
             // 通知前端粘贴板变更
             let app_handle = CONTEXT.get::<AppHandle>();
             let _ = app_handle.emit("clip_record_change", ());
-            // 如果有新增记录，发送到异步队列
-            let async_queue = CONTEXT.get::<AsyncQueue<ClipRecord>>();
-            if !async_queue.is_full() {
-                let send_res = async_queue.send_add(item.clone()).await;
-                if let Err(e) = send_res {
-                    log::error!("异步队列发送失败，粘贴内容：{:?}, 异常:{}", item, e);
+
+            // 如果有新增记录，发送到异步队列   前提是开启了云同步开关
+            if check_cloud_sync_enabled().await {
+                let async_queue = CONTEXT.get::<AsyncQueue<ClipRecord>>();
+                if !async_queue.is_full() {
+                    let send_res = async_queue.send_add(item.clone()).await;
+                    if let Err(e) = send_res {
+                        log::error!("异步队列发送失败，粘贴内容：{:?}, 异常:{}", item, e);
+                    }
                 }
             }
         }

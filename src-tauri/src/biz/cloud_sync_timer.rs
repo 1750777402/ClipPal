@@ -1,21 +1,19 @@
 use log;
 use rbatis::RBatis;
-use std::sync::Arc;
-use std::sync::Mutex;
+use std::sync::{Arc, RwLock};
 use tauri::{AppHandle, Emitter};
 use tokio::time::Duration;
 
-use crate::api::cloud_sync_api::CloudSyncRequest;
-use crate::api::cloud_sync_api::sync_clipboard;
-use crate::api::cloud_sync_api::sync_server_time;
+use crate::api::cloud_sync_api::{CloudSyncRequest, sync_clipboard, sync_server_time};
 use crate::biz::sync_time::SyncTime;
-use crate::biz::system_setting::SYNC_INTERVAL_SECONDS;
-use crate::errors::AppError;
-use crate::errors::AppResult;
+use crate::biz::system_setting::{SYNC_INTERVAL_SECONDS, check_cloud_sync_enabled};
+use crate::errors::{AppError, AppResult, lock_utils::safe_read_lock};
 use crate::{
     CONTEXT,
-    biz::{clip_record::ClipRecord, system_setting::Settings},
-    errors::lock_utils::safe_lock,
+    biz::{
+        clip_record::ClipRecord,
+        system_setting::Settings,
+    },
 };
 
 pub struct CloudSyncTimer {
@@ -31,8 +29,8 @@ impl CloudSyncTimer {
     /// 启动云同步定时任务
     pub async fn start(&self) {
         let cloud_sync_interval = {
-            let settings_lock = CONTEXT.get::<Arc<Mutex<Settings>>>();
-            match safe_lock(&settings_lock) {
+            let settings_lock = CONTEXT.get::<Arc<RwLock<Settings>>>();
+            match safe_read_lock(&settings_lock) {
                 Ok(settings) => settings.cloud_sync_interval,
                 Err(e) => {
                     log::warn!("无法获取设置: {}", e);
@@ -43,7 +41,7 @@ impl CloudSyncTimer {
         log::info!("云同步定时任务已启动，间隔: {}秒", cloud_sync_interval);
         loop {
             // 检查云同步是否开启
-            if !self.is_cloud_sync_enabled().await {
+            if check_cloud_sync_enabled().await {
                 log::debug!("云同步未开启，跳过定时任务");
                 tokio::time::sleep(Duration::from_secs(cloud_sync_interval as u64)).await;
                 continue;
@@ -59,15 +57,6 @@ impl CloudSyncTimer {
                 }
             }
         }
-    }
-
-    /// 检查云同步是否开启
-    async fn is_cloud_sync_enabled(&self) -> bool {
-        let settings_lock = CONTEXT.get::<Arc<Mutex<Settings>>>();
-        if let Ok(settings) = safe_lock(&settings_lock) {
-            return settings.cloud_sync == 1;
-        }
-        false
     }
 
     /// 执行同步任务

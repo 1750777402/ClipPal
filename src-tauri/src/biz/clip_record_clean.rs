@@ -1,4 +1,4 @@
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, RwLock};
 
 use clipboard_listener::ClipType;
 use rbatis::RBatis;
@@ -8,7 +8,7 @@ use crate::{
     biz::{
         clip_record::ClipRecord, system_setting::Settings, content_search::remove_ids_from_index,
     },
-    errors::lock_utils::safe_lock,
+    errors::lock_utils::safe_read_lock,
     utils::{file_dir::get_resources_dir, path_utils::to_safe_string},
 };
 
@@ -16,8 +16,8 @@ pub async fn clip_record_clean() {
     let rb: &RBatis = CONTEXT.get::<RBatis>();
     let count = ClipRecord::count(rb).await;
     let system_settings = {
-        let lock = CONTEXT.get::<Arc<Mutex<Settings>>>().clone();
-        let result = match safe_lock(&lock) {
+        let lock = CONTEXT.get::<Arc<RwLock<Settings>>>().clone();
+        let result = match safe_read_lock(&lock) {
             Ok(current) => current.clone(),
             Err(e) => {
                 log::error!("获取系统设置锁失败: {}", e);

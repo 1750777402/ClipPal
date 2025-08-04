@@ -71,7 +71,6 @@ pub mod lock_utils {
     }
 
     /// 安全获取RwLock读锁
-    #[allow(dead_code)]
     pub fn safe_read_lock<T>(rwlock: &RwLock<T>) -> AppResult<RwLockReadGuard<T>> {
         rwlock
             .read()
@@ -79,7 +78,6 @@ pub mod lock_utils {
     }
 
     /// 安全获取RwLock写锁
-    #[allow(dead_code)]
     pub fn safe_write_lock<T>(rwlock: &RwLock<T>) -> AppResult<RwLockWriteGuard<T>> {
         rwlock
             .write()

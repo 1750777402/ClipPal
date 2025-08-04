@@ -1,10 +1,12 @@
 #![allow(dead_code)]
 
 use async_channel::{Receiver, Sender, TryRecvError, bounded};
+use rbatis::RBatis;
 use std::fmt::Debug;
 use std::sync::Arc;
 use tokio::task;
 
+use crate::CONTEXT;
 use crate::api::cloud_sync_api::{SingleCloudSyncParam, sync_single_clip_record};
 use crate::biz::clip_record::ClipRecord;
 
@@ -83,14 +85,7 @@ pub fn consume_clip_record_queue(queue: AsyncQueue<ClipRecord>) {
                         r#type: 1,
                         clip: item.clone(),
                     };
-                    let res = sync_single_clip_record(&param).await;
-                    if let Err(e) = res {
-                        log::error!(
-                            "同步新增单个剪贴板记录失败，粘贴记录：{}，错误：{}",
-                            item.id,
-                            e
-                        );
-                    }
+                    handle_sync_after(param).await;
                 }
                 Ok(QueueEvent::Delete(item)) => {
                     // 处理删除逻辑
@@ -98,14 +93,7 @@ pub fn consume_clip_record_queue(queue: AsyncQueue<ClipRecord>) {
                         r#type: 2,
                         clip: item.clone(),
                     };
-                    let res = sync_single_clip_record(&param).await;
-                    if let Err(e) = res {
-                        log::error!(
-                            "同步删除单个剪贴板记录失败，粘贴记录：{}，错误：{}",
-                            item.id,
-                            e
-                        );
-                    }
+                    handle_sync_after(param).await;
                 }
                 Err(e) => {
                     log::error!("接收async_queue消息错误: {}", e);
@@ -113,4 +101,22 @@ pub fn consume_clip_record_queue(queue: AsyncQueue<ClipRecord>) {
             }
         }
     });
+}
+
+async fn handle_sync_after(param: SingleCloudSyncParam) {
+    let res = sync_single_clip_record(&param).await;
+    match res {
+        Ok(response) => {
+            if let Some(success) = response {
+                let rb: &RBatis = CONTEXT.get::<RBatis>();
+                let _ =
+                    ClipRecord::update_sync_flag(rb, &vec![param.clip.id], 2, success.timestamp);
+            }
+        }
+        Err(e) => log::error!(
+            "同步单个剪贴板记录失败，粘贴记录：{}，错误：{}",
+            param.clip.id,
+            e
+        ),
+    }
 }

@@ -1,23 +1,21 @@
 use crate::auto_paste;
-use crate::errors::lock_utils::safe_lock;
-use tauri::App;
+use crate::errors::lock_utils::safe_read_lock;
+use crate::{CONTEXT, biz::system_setting::Settings};
+use std::sync::{Arc, RwLock};
+use tauri::{App, Manager};
+use tauri_plugin_global_shortcut::GlobalShortcutExt;
 
 pub fn init_global_shortcut(app: &App) -> tauri::Result<()> {
     #[cfg(desktop)]
     {
-        use crate::{CONTEXT, biz::system_setting::Settings};
-        use tauri_plugin_global_shortcut::GlobalShortcutExt;
-
         // 首先注册插件
         app.handle()
             .plugin(tauri_plugin_global_shortcut::Builder::new().build())?;
 
         // 从设置中获取快捷键
         let settings = {
-            use std::sync::{Arc, Mutex};
-
-            let lock = CONTEXT.get::<Arc<Mutex<Settings>>>().clone();
-            let result = match safe_lock(&lock) {
+            let lock = CONTEXT.get::<Arc<RwLock<Settings>>>().clone();
+            let result = match safe_read_lock(&lock) {
                 Ok(current) => current.clone(),
                 Err(e) => {
                     log::error!("获取设置锁失败: {}", e);
@@ -40,7 +38,6 @@ pub fn init_global_shortcut(app: &App) -> tauri::Result<()> {
                         // 在显示粘贴板窗口之前，先保存当前获得焦点的窗口
                         auto_paste::save_foreground_window();
 
-                        use tauri::Manager;
                         if let Some(window) = app_handle.get_webview_window("main") {
                             let _ = window.show();
                             let _ = window.set_focus();

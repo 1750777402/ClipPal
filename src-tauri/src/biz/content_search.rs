@@ -2,14 +2,14 @@ use crate::biz::clip_record::ClipRecord;
 use crate::biz::system_setting::{
     DEFAULT_BLOOM_FILTER_TRUST_THRESHOLD, DEFAULT_DIRECT_CONTAINS_THRESHOLD,
 };
-use crate::{CONTEXT, biz::system_setting::Settings, errors::lock_utils::safe_lock};
+use crate::{CONTEXT, biz::system_setting::Settings, errors::lock_utils::safe_read_lock};
 use anyhow::Result;
 use bloomfilter::Bloom;
 use dashmap::DashMap;
 use once_cell::sync::Lazy;
 use regex::Regex;
 use std::collections::HashSet;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, RwLock};
 
 /// 搜索索引配置
 const BLOOM_FILTER_ITEMS: usize = 1000; // 每个记录预期的词汇数量
@@ -142,8 +142,8 @@ impl RecordSearchData {
     fn smart_search(&self, query: &str) -> bool {
         // 获取配置
         let (bloom_trust_threshold, direct_contains_threshold) = {
-            let lock = CONTEXT.get::<Arc<Mutex<Settings>>>().clone();
-            let guard = safe_lock(&lock);
+            let lock = CONTEXT.get::<Arc<RwLock<Settings>>>().clone();
+            let guard = safe_read_lock(&lock);
             match guard {
                 Ok(settings) => {
                     let bloom_threshold = settings

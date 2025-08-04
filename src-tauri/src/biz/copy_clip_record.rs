@@ -2,7 +2,7 @@ use clipboard_listener::ClipType;
 
 use rbatis::RBatis;
 use serde::{Deserialize, Serialize};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, RwLock};
 use tauri::{AppHandle, Manager};
 use tauri_plugin_clipboard_pal::desktop::ClipboardPal;
 use tauri_plugin_dialog::DialogExt;
@@ -13,7 +13,7 @@ use crate::{
         clip_record::ClipRecord, content_processor::ContentProcessor,
         content_search::remove_ids_from_index, system_setting::Settings,
     },
-    errors::lock_utils::safe_lock,
+    errors::lock_utils::safe_read_lock,
     utils::{
         aes_util::decrypt_content,
         path_utils::{generate_file_not_found_error, str_to_safe_string},
@@ -96,8 +96,8 @@ pub async fn copy_clip_record(param: CopyClipRecord) -> Result<String, String> {
 
     // 检查是否启用自动粘贴功能
     let auto_paste_enabled = {
-        let settings_lock = CONTEXT.get::<Arc<Mutex<Settings>>>();
-        match safe_lock(&settings_lock) {
+        let settings_lock = CONTEXT.get::<Arc<RwLock<Settings>>>();
+        match safe_read_lock(&settings_lock) {
             Ok(settings) => settings.auto_paste == 1,
             Err(e) => {
                 log::warn!("无法获取设置: {}", e);
