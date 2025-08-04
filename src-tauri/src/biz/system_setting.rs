@@ -73,6 +73,22 @@ pub fn init_settings() {
     let settings = load_settings();
     // 把系统配置存储到上下文中，使用 RwLock 允许并发读取
     CONTEXT.set(Arc::new(RwLock::new(settings.clone())));
+    
+    // 如果配置文件不存在，使用已加载的设置创建默认配置文件
+    create_default_config_if_not_exists(&settings);
+}
+
+/// 如果配置文件不存在，创建默认配置文件
+fn create_default_config_if_not_exists(settings: &Settings) {
+    if let Some(path) = get_settings_file_path() {
+        if !path.exists() {
+            if let Err(e) = save_settings_to_file(settings) {
+                log::warn!("创建默认配置文件失败: {}", e);
+            } else {
+                log::info!("已创建默认配置文件");
+            }
+        }
+    }
 }
 
 pub fn get_settings_file_path() -> Option<PathBuf> {
@@ -86,17 +102,16 @@ pub fn get_settings_file_path() -> Option<PathBuf> {
 
 #[tauri::command]
 pub fn load_settings() -> Settings {
-    let mut settings = Settings::default();
     if let Some(path) = get_settings_file_path() {
         if path.exists() {
             let data = fs::read_to_string(&path).unwrap_or_default();
-            settings = serde_json::from_str(&data).unwrap_or_default()
-        } else {
-            let settings = Settings::default();
-            let _ = save_settings(settings.clone());
+            if let Ok(settings) = serde_json::from_str(&data) {
+                return settings;
+            }
         }
     }
-    settings
+    // 如果文件不存在或解析失败，返回默认设置
+    Settings::default()
 }
 
 #[tauri::command]
