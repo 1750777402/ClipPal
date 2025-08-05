@@ -58,33 +58,6 @@ impl<T> From<PoisonError<T>> for AppError {
 /// 应用程序结果类型
 pub type AppResult<T> = Result<T, AppError>;
 
-/// 安全的锁操作辅助函数
-pub mod lock_utils {
-    use super::{AppError, AppResult};
-    use std::sync::{Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
-
-    /// 安全获取Mutex锁，带超时
-    pub fn safe_lock<T>(mutex: &Mutex<T>) -> AppResult<MutexGuard<T>> {
-        mutex
-            .lock()
-            .map_err(|e| AppError::Lock(format!("无法获取锁: {}", e)))
-    }
-
-    /// 安全获取RwLock读锁
-    pub fn safe_read_lock<T>(rwlock: &RwLock<T>) -> AppResult<RwLockReadGuard<T>> {
-        rwlock
-            .read()
-            .map_err(|e| AppError::Lock(format!("无法获取读锁: {}", e)))
-    }
-
-    /// 安全获取RwLock写锁
-    pub fn safe_write_lock<T>(rwlock: &RwLock<T>) -> AppResult<RwLockWriteGuard<T>> {
-        rwlock
-            .write()
-            .map_err(|e| AppError::Lock(format!("无法获取写锁: {}", e)))
-    }
-}
-
 /// 错误日志记录宏
 #[macro_export]
 macro_rules! log_error {

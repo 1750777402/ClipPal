@@ -14,6 +14,7 @@ use crate::{
         system_setting::{init_settings, load_settings, save_settings, validate_shortcut},
     },
     log_config::init_logging,
+    utils::lock_utils::create_global_sync_lock,
 };
 
 use biz::clip_board_sync::ClipboardEventTigger;
@@ -143,6 +144,10 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
             }
             // 程序启动完成后续事件处理
             tauri::RunEvent::Ready { .. } => {
+                // 创建全局同步锁
+                let sync_lock = create_global_sync_lock();
+                CONTEXT.set(sync_lock.clone());
+
                 // 创建一个内存队列  用来处理粘贴板记录的同步操作记录
                 let queue: AsyncQueue<ClipRecord> = AsyncQueue::new(1000);
                 CONTEXT.set(queue.clone());

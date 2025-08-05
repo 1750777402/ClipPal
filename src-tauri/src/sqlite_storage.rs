@@ -304,15 +304,35 @@ async fn execute_migrations(rb: &RBatis, migrations: Vec<String>) -> Result<(), 
 
 /// 创建索引
 async fn create_indexes(rb: &RBatis) -> Result<(), Error> {
-    let index_sqls = vec![
-        "CREATE UNIQUE IF NOT EXISTS idx_clip_record_md5_str_type ON clip_record(md5_str, type)",
-        "CREATE INDEX IF NOT EXISTS idx_clip_record_created ON clip_record(created)",
-        "CREATE INDEX IF NOT EXISTS idx_clip_record_sort ON clip_record(sort)",
-    ];
+    let conn = rb.acquire().await?;
 
-    for sql in index_sqls {
-        rb.acquire().await?.exec(sql, vec![]).await?;
+    // 查询索引是否存在
+    let existing: Option<(String,)> = rb
+        .query_decode(
+            "SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_clip_record_md5_str_type'",
+            vec![],
+        )
+        .await?;
+    log::info!("索引idx_clip_record_md5_str_type查询结果: {:?}", existing);
+    if existing.is_none() {
+        conn.exec(
+            "CREATE UNIQUE INDEX idx_clip_record_md5_str_type ON clip_record(md5_str, type)",
+            vec![],
+        )
+        .await?;
     }
+
+    // 创建普通索引
+    conn.exec(
+        "CREATE INDEX IF NOT EXISTS idx_clip_record_created ON clip_record(created)",
+        vec![],
+    )
+    .await?;
+    conn.exec(
+        "CREATE INDEX IF NOT EXISTS idx_clip_record_sort ON clip_record(sort)",
+        vec![],
+    )
+    .await?;
 
     Ok(())
 }

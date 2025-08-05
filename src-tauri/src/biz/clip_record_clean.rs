@@ -6,10 +6,12 @@ use rbatis::RBatis;
 use crate::{
     CONTEXT,
     biz::{
-        clip_record::ClipRecord, system_setting::Settings, content_search::remove_ids_from_index,
+        clip_record::ClipRecord, content_search::remove_ids_from_index, system_setting::Settings,
     },
-    errors::lock_utils::safe_read_lock,
-    utils::{file_dir::get_resources_dir, path_utils::to_safe_string},
+    utils::{
+        file_dir::get_resources_dir, lock_utils::lock_utils::safe_read_lock,
+        path_utils::to_safe_string,
+    },
 };
 
 pub async fn clip_record_clean() {

@@ -2,7 +2,8 @@ use crate::biz::clip_record::ClipRecord;
 use crate::biz::system_setting::{
     DEFAULT_BLOOM_FILTER_TRUST_THRESHOLD, DEFAULT_DIRECT_CONTAINS_THRESHOLD,
 };
-use crate::{CONTEXT, biz::system_setting::Settings, errors::lock_utils::safe_read_lock};
+use crate::utils::lock_utils::lock_utils::safe_read_lock;
+use crate::{CONTEXT, biz::system_setting::Settings};
 use anyhow::Result;
 use bloomfilter::Bloom;
 use dashmap::DashMap;

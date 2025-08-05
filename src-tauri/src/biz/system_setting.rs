@@ -13,9 +13,12 @@ use tauri_plugin_global_shortcut::GlobalShortcutExt;
 
 use crate::{
     CONTEXT,
-    errors::{AppError, AppResult, lock_utils::{safe_read_lock, safe_write_lock}},
+    errors::{AppError, AppResult},
     global_shortcut::parse_shortcut,
-    utils::file_dir::get_config_dir,
+    utils::{
+        file_dir::get_config_dir,
+        lock_utils::lock_utils::{safe_read_lock, safe_write_lock},
+    },
 };
 
 // 默认超过这个大小的内容，使用布隆过滤器进行搜索   不会进行contains
@@ -73,7 +76,7 @@ pub fn init_settings() {
     let settings = load_settings();
     // 把系统配置存储到上下文中，使用 RwLock 允许并发读取
     CONTEXT.set(Arc::new(RwLock::new(settings.clone())));
-    
+
     // 如果配置文件不存在，使用已加载的设置创建默认配置文件
     create_default_config_if_not_exists(&settings);
 }

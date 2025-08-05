@@ -1,5 +1,4 @@
 use crate::auto_paste;
-use crate::errors::lock_utils::safe_read_lock;
 use crate::{CONTEXT, biz::system_setting::Settings};
 use std::sync::{Arc, RwLock};
 use tauri::{App, Manager};
@@ -14,6 +13,8 @@ pub fn init_global_shortcut(app: &App) -> tauri::Result<()> {
 
         // 从设置中获取快捷键
         let settings = {
+            use crate::utils::lock_utils::lock_utils::safe_read_lock;
+
             let lock = CONTEXT.get::<Arc<RwLock<Settings>>>().clone();
             let result = match safe_read_lock(&lock) {
                 Ok(current) => current.clone(),
