@@ -306,15 +306,15 @@ async fn execute_migrations(rb: &RBatis, migrations: Vec<String>) -> Result<(), 
 async fn create_indexes(rb: &RBatis) -> Result<(), Error> {
     let conn = rb.acquire().await?;
 
-    // 查询索引是否存在
-    let existing: Option<(String,)> = rb
-        .query_decode(
+    // 手动查询索引是否存在
+    let result = conn
+        .query(
             "SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_clip_record_md5_str_type'",
             vec![],
         )
         .await?;
-    log::info!("索引idx_clip_record_md5_str_type查询结果: {:?}", existing);
-    if existing.is_none() {
+
+    if result.is_empty() {
         conn.exec(
             "CREATE UNIQUE INDEX idx_clip_record_md5_str_type ON clip_record(md5_str, type)",
             vec![],

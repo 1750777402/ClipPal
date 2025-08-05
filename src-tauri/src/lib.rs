@@ -17,7 +17,7 @@ use crate::{
     utils::lock_utils::create_global_sync_lock,
 };
 
-use biz::clip_board_sync::ClipboardEventTigger;
+use biz::clip_record_sync::ClipboardEventTigger;
 use clipboard_listener::{ClipboardEvent, EventManager};
 use log::LevelFilter;
 use state::TypeMap;

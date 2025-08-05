@@ -42,15 +42,18 @@ impl CloudSyncTimer {
         let sync_lock: &GlobalSyncLock = CONTEXT.get::<GlobalSyncLock>();
         loop {
             // 检查云同步是否开启
-            if check_cloud_sync_enabled().await {
+            if !check_cloud_sync_enabled().await {
                 log::debug!("云同步未开启，跳过定时任务");
                 sleep(Duration::from_secs(cloud_sync_interval as u64)).await;
                 continue;
             }
 
             // 尝试获取锁，执行同步任务
-            if let Some(_guard) = sync_lock.try_lock() {
-                if let Err(e) = self.execute_sync_task().await {
+            if let Some(guard) = sync_lock.try_lock() {
+                let result = self.execute_sync_task().await;
+                drop(guard); // 显式释放锁
+
+                if let Err(e) = result {
                     log::error!("云同步定时任务执行失败: {}", e);
                 }
                 // 执行完后等待

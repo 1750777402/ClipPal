@@ -1,4 +1,4 @@
-pub mod clip_board_sync;
+pub mod clip_record_sync;
 pub mod clip_record;
 pub mod clip_record_clean;
 pub mod cloud_sync_timer;

@@ -1,6 +1,7 @@
+#![allow(dead_code)]
+
 use async_channel::{Receiver, Sender, TryRecvError, bounded};
 use rbatis::RBatis;
-use std::fmt::Debug;
 use std::sync::Arc;
 use tokio::task;
 use tokio::time::{Duration, sleep};
@@ -72,33 +73,43 @@ pub fn consume_clip_record_queue(queue: AsyncQueue<ClipRecord>) {
         let sync_lock: &GlobalSyncLock = CONTEXT.get::<GlobalSyncLock>();
 
         loop {
-            // 优先尝试获取锁
+            // 先尝试拿锁，拿不到就等待一会儿再重试
             if let Some(_guard) = sync_lock.try_lock() {
-                log::debug!("获取到同步锁，准备从队列接收数据...");
+                log::debug!("获取到同步锁，开始处理队列数据...");
 
-                match queue.recv().await {
-                    Ok(QueueEvent::Add(item)) => {
-                        let param = SingleCloudSyncParam {
-                            r#type: 1,
-                            clip: item.clone(),
-                        };
-                        handle_sync_inner(param).await;
-                    }
-                    Ok(QueueEvent::Delete(item)) => {
-                        let param = SingleCloudSyncParam {
-                            r#type: 2,
-                            clip: item.clone(),
-                        };
-                        handle_sync_inner(param).await;
-                    }
-                    Err(e) => {
-                        log::error!("接收async_queue消息错误: {}", e);
+                // 循环接收并处理队列数据
+                loop {
+                    match queue.try_recv() {
+                        Ok(event) => {
+                            // 处理数据
+                            let param = match event {
+                                QueueEvent::Add(item) => SingleCloudSyncParam {
+                                    r#type: 1,
+                                    clip: item.clone(),
+                                },
+                                QueueEvent::Delete(item) => SingleCloudSyncParam {
+                                    r#type: 2,
+                                    clip: item.clone(),
+                                },
+                            };
+                            handle_sync_inner(param).await;
+                        }
+                        Err(TryRecvError::Empty) => {
+                            // 队列空了，跳出内层循环，释放锁
+                            log::debug!("队列已空，释放锁，等待下一轮处理");
+                            break;
+                        }
+                        Err(e) => {
+                            log::error!("接收队列消息错误: {}", e);
+                            break;
+                        }
                     }
                 }
             } else {
-                log::debug!("当前有同步任务在进行，等待中...");
-                sleep(Duration::from_millis(100)).await;
+                // 锁被占用，短暂休眠避免忙等
+                log::debug!("同步锁被占用，等待后重试...");
             }
+            sleep(Duration::from_millis(500)).await;
         }
     });
 }
