@@ -51,7 +51,10 @@ impl ClipBoardEventListener<ClipboardEvent> for ClipboardEventTigger {
             log::error!("处理剪贴板事件失败: {:?}", e);
         }
 
-        clip_record_clean().await;
+        tokio::spawn(async move {
+            // 清理过期数据
+            clip_record_clean().await;
+        });
 
         if let Ok(Some(item)) = record_result {
             // 通知前端粘贴板变更

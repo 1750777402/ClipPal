@@ -134,6 +134,23 @@ impl ClipRecord {
         tx.commit().await
     }
 
+    pub async fn sync_del_by_ids(
+        rb: &RBatis,
+        ids: &Vec<String>,
+        sync_time: u64,
+    ) -> Result<(), Error> {
+        let sql = format!(
+            "UPDATE clip_record SET del_flag = 1, sync_time = ? WHERE id IN ({})",
+            ids.iter().map(|_| "?").collect::<Vec<_>>().join(",")
+        );
+        let tx = rb.acquire_begin().await?;
+        // 转换ids为Vec<Value>
+        let mut params = ids.into_iter().map(|id| to_value!(id)).collect::<Vec<_>>();
+        params.insert(0, to_value!(sync_time));
+        let _ = tx.exec(&sql, params).await?;
+        tx.commit().await
+    }
+
     pub async fn del_by_ids(rb: &RBatis, ids: &Vec<String>) -> Result<(), Error> {
         let sql = format!(
             "DELETE FROM clip_record WHERE id IN ({})",

@@ -3,12 +3,14 @@
 use async_channel::{Receiver, Sender, TryRecvError, bounded};
 use rbatis::RBatis;
 use std::sync::Arc;
+use tauri::{AppHandle, Emitter};
 use tokio::task;
 use tokio::time::{Duration, sleep};
 
 use crate::CONTEXT;
 use crate::api::cloud_sync_api::{SingleCloudSyncParam, sync_single_clip_record};
 use crate::biz::clip_record::ClipRecord;
+use crate::errors::AppError;
 use crate::utils::lock_utils::GlobalSyncLock;
 
 #[derive(Clone, Debug)]
@@ -116,12 +118,25 @@ pub fn consume_clip_record_queue(queue: AsyncQueue<ClipRecord>) {
 
 async fn handle_sync_inner(param: SingleCloudSyncParam) {
     let res = sync_single_clip_record(&param).await;
+    log::info!(
+        "同步单个剪贴板记录，粘贴记录：{}，结果：{:?}",
+        param.clip.md5_str,
+        res
+    );
     match res {
         Ok(response) => {
             if let Some(success) = response {
+                let ids = vec![param.clip.id];
                 let rb: &RBatis = CONTEXT.get::<RBatis>();
-                let _ =
-                    ClipRecord::update_sync_flag(rb, &vec![param.clip.id], 2, success.timestamp);
+                let _ = ClipRecord::update_sync_flag(rb, &ids, 2, success.timestamp);
+                let payload = serde_json::json!({
+                    "clip_ids": ids,
+                    "sync_flag": 2
+                });
+                let app_handle = CONTEXT.get::<AppHandle>();
+                let _ = app_handle
+                    .emit("sync_status_update_batch", payload)
+                    .map_err(|e| AppError::General(format!("批量通知前端失败: {}", e)));
             }
         }
         Err(e) => log::error!(

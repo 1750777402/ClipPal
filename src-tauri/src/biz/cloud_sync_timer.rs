@@ -68,7 +68,7 @@ impl CloudSyncTimer {
 
     /// 执行同步任务
     pub async fn execute_sync_task(&self) -> AppResult<()> {
-        log::info!("开始执行云同步定时任务...");
+        log::debug!("开始执行云同步定时任务...");
 
         let last_sync_time = SyncTime::select_last_time(&self.rb).await;
 
@@ -98,6 +98,11 @@ impl CloudSyncTimer {
             SyncTime::update_last_time(&self.rb, new_server_time).await?;
 
             if let Some(clips) = cloud_sync_res.clips {
+                log::info!(
+                    "云同步定时任务执行完成... 本次上传数据量: {}，拉取数据量：{}",
+                    unsynced_record.len(),
+                    clips.len()
+                );
                 for clip in clips {
                     let check_res = ClipRecord::check_by_type_and_md5(
                         &self.rb,
@@ -107,7 +112,19 @@ impl CloudSyncTimer {
                     .await?;
 
                     if check_res.is_empty() {
-                        ClipRecord::insert_by_created_sort(&self.rb, clip.to_clip_record()).await?;
+                        if clip.del_flag.unwrap_or_default() == 1 {
+                            // 如果是删除操作，直接删除记录
+                            ClipRecord::sync_del_by_ids(
+                                &self.rb,
+                                &vec![clip.id.unwrap_or_default()],
+                                new_server_time,
+                            )
+                            .await?;
+                        } else {
+                            // 插入新记录
+                            ClipRecord::insert_by_created_sort(&self.rb, clip.to_clip_record())
+                                .await?;
+                        }
                     }
                 }
             }
@@ -117,10 +134,6 @@ impl CloudSyncTimer {
             Ok(())
         } else {
             log::warn!("云同步请求未返回数据");
-            log::info!(
-                "云同步定时任务执行完成... 本次同步数据量: {}",
-                unsynced_record.len()
-            );
             Err(AppError::ClipSync("云同步异常".to_string()))
         }
     }
