@@ -11,10 +11,11 @@ use serde_json::Value;
 use tauri::{AppHandle, Emitter};
 use uuid::Uuid;
 
+use crate::{CONTEXT, biz::clip_record::ClipRecord, utils::file_dir::get_resources_dir};
 use crate::{
     biz::{
-        clip_async_queue::AsyncQueue, content_search::add_content_to_index,
-        system_setting::check_cloud_sync_enabled,
+        clip_async_queue::AsyncQueue, clip_record_clean::try_clean_clip_record,
+        content_search::add_content_to_index, system_setting::check_cloud_sync_enabled,
     },
     errors::AppError,
     utils::{
@@ -22,12 +23,6 @@ use crate::{
         device_info::{GLOBAL_DEVICE_ID, GLOBAL_OS_TYPE},
         path_utils::to_safe_string,
     },
-};
-
-use crate::{
-    CONTEXT,
-    biz::{clip_record::ClipRecord, clip_record_clean::clip_record_clean},
-    utils::file_dir::get_resources_dir,
 };
 
 #[derive(Debug, Clone)]
@@ -53,7 +48,7 @@ impl ClipBoardEventListener<ClipboardEvent> for ClipboardEventTigger {
 
         tokio::spawn(async move {
             // 清理过期数据
-            clip_record_clean().await;
+            try_clean_clip_record().await;
         });
 
         if let Ok(Some(item)) = record_result {

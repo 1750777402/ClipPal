@@ -1,7 +1,7 @@
-use std::sync::{Arc, RwLock};
-
-use clipboard_listener::ClipType;
-use rbatis::RBatis;
+use std::sync::{
+    Arc, RwLock,
+    atomic::{AtomicBool, Ordering},
+};
 
 use crate::{
     CONTEXT,
@@ -13,8 +13,35 @@ use crate::{
         path_utils::to_safe_string,
     },
 };
+use clipboard_listener::ClipType;
+use once_cell::sync::Lazy;
+use rbatis::RBatis;
 
-pub async fn clip_record_clean() {
+static IS_CLEANING: Lazy<AtomicBool> = Lazy::new(|| AtomicBool::new(false));
+
+// AtomicBool状态保护器
+struct CleaningGuard;
+
+impl Drop for CleaningGuard {
+    fn drop(&mut self) {
+        IS_CLEANING.store(false, Ordering::SeqCst);
+    }
+}
+
+pub async fn try_clean_clip_record() {
+    // 如果已有清理在运行，直接跳过
+    if IS_CLEANING.swap(true, Ordering::SeqCst) {
+        return;
+    }
+
+    // 创建自动清理状态的 Guard
+    let _guard = CleaningGuard;
+
+    // 执行清理逻辑
+    clip_record_clean().await;
+}
+
+async fn clip_record_clean() {
     let rb: &RBatis = CONTEXT.get::<RBatis>();
     let count = ClipRecord::count(rb).await;
     let system_settings = {

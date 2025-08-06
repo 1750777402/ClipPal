@@ -10,8 +10,11 @@ use tauri_plugin_dialog::DialogExt;
 use crate::{
     CONTEXT, auto_paste,
     biz::{
-        clip_record::ClipRecord, content_processor::ContentProcessor,
-        content_search::remove_ids_from_index, system_setting::Settings,
+        clip_async_queue::AsyncQueue,
+        clip_record::ClipRecord,
+        content_processor::ContentProcessor,
+        content_search::remove_ids_from_index,
+        system_setting::{Settings, check_cloud_sync_enabled},
     },
     utils::{
         aes_util::decrypt_content,
@@ -211,20 +214,44 @@ pub async fn set_pinned(param: PinnedClipRecord) -> Result<String, String> {
     Ok(String::new())
 }
 
+/// 删除一条记录
 #[tauri::command]
 pub async fn del_record(param: CopyClipRecord) -> Result<String, String> {
     let rb: &RBatis = CONTEXT.get::<RBatis>();
-    let ids = vec![param.record_id];
-    let res = ClipRecord::update_del_by_ids(rb, &ids).await;
-    if let Ok(_) = res {
-        // 异步从搜索索引中移除记录
-        tokio::spawn(async move {
-            if let Err(e) = remove_ids_from_index(&ids).await {
-                log::error!("从搜索索引删除记录失败: {}", e);
+    let ids = vec![param.record_id.clone()];
+
+    let record_result = ClipRecord::select_by_id(rb, &param.record_id).await;
+    match record_result {
+        Ok(records) => {
+            if !records.is_empty() {
+                let res = ClipRecord::update_del_by_ids(rb, &ids).await;
+                if let Ok(_) = res {
+                    // 如果有删除记录，发送到异步队列   前提是开启了云同步开关
+                    if check_cloud_sync_enabled().await {
+                        let async_queue = CONTEXT.get::<AsyncQueue<ClipRecord>>();
+                        if !async_queue.is_full() {
+                            let send_res = async_queue.send_delete(records[0].clone()).await;
+                            if let Err(e) = send_res {
+                                log::error!(
+                                    "异步队列发送失败，删除的粘贴内容：{:?}, 异常:{}",
+                                    records[0],
+                                    e
+                                );
+                            }
+                        }
+                    }
+                    // 异步从搜索索引中移除记录
+                    tokio::spawn(async move {
+                        if let Err(e) = remove_ids_from_index(&ids).await {
+                            log::error!("从搜索索引删除记录失败: {}", e);
+                        }
+                    });
+                }
             }
-        });
-    }
-    Ok(String::new())
+            return Ok(String::new());
+        }
+        Err(_) => return Err("未找到该记录".to_string()),
+    };
 }
 
 #[tauri::command]
