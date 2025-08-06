@@ -3,9 +3,11 @@ use rbatis::RBatis;
 use std::sync::{Arc, RwLock};
 use tauri::{AppHandle, Emitter};
 use tokio::time::{Duration, sleep};
+use uuid::Uuid;
 
 use crate::api::cloud_sync_api::{CloudSyncRequest, sync_clipboard, sync_server_time};
 use crate::biz::clip_record_clean::try_clean_clip_record;
+use crate::biz::content_search::add_content_to_index;
 use crate::biz::sync_time::SyncTime;
 use crate::biz::system_setting::{SYNC_INTERVAL_SECONDS, check_cloud_sync_enabled};
 use crate::errors::{AppError, AppResult};
@@ -96,8 +98,6 @@ impl CloudSyncTimer {
 
         if let Some(cloud_sync_res) = response {
             let new_server_time = cloud_sync_res.timestamp;
-            SyncTime::update_last_time(&self.rb, new_server_time).await?;
-
             if let Some(clips) = cloud_sync_res.clips {
                 log::info!(
                     "云同步定时任务执行完成... 本次上传数据量: {}，拉取数据量：{}",
@@ -105,6 +105,7 @@ impl CloudSyncTimer {
                     clips.len()
                 );
                 for clip in clips {
+                    // 遍历每一条记录  查看是不是在本地已经存在了
                     let check_res = ClipRecord::check_by_type_and_md5(
                         &self.rb,
                         &clip.r#type.clone().unwrap_or_default(),
@@ -113,18 +114,45 @@ impl CloudSyncTimer {
                     .await?;
 
                     if check_res.is_empty() {
+                        // 如果本地没有这条记录  那么就插入新记录
+                        let new_id = Uuid::new_v4().to_string();
+                        let content = clip.content.clone();
+                        let obj = ClipRecord {
+                            id: new_id.clone(),
+                            user_id: clip.user_id.unwrap_or_default(),
+                            r#type: clip.r#type.unwrap_or_default(),
+                            content: clip.content,
+                            md5_str: clip.md5_str.unwrap_or_default(),
+                            created: clip.created.unwrap_or_default(),
+                            os_type: clip.os_type.unwrap_or_default(),
+                            sort: 0,
+                            pinned_flag: 0,
+                            sync_flag: Some(2), // 设置为已同步
+                            sync_time: clip.sync_time,
+                            device_id: clip.device_id,
+                            version: clip.version,
+                            del_flag: clip.del_flag,
+                        };
+                        let _ = ClipRecord::insert_by_created_sort(&self.rb, obj).await?;
+                        // 插入成功后，更新搜索索引
+                        tokio::spawn(async move {
+                            if let Err(e) =
+                                add_content_to_index(&new_id, content.as_str().unwrap_or_default())
+                                    .await
+                            {
+                                log::error!("搜索索引更新失败: {}", e);
+                            }
+                        });
+                    } else {
+                        // 如果本地有这条记录，那么查看是不是云端同步的是被删除的，如果是那么本地也逻辑删除
                         if clip.del_flag.unwrap_or_default() == 1 {
-                            // 如果是删除操作，直接删除记录
+                            // 如果是删除操作，逻辑删除记录
                             ClipRecord::sync_del_by_ids(
                                 &self.rb,
                                 &vec![clip.id.unwrap_or_default()],
                                 new_server_time,
                             )
                             .await?;
-                        } else {
-                            // 插入新记录
-                            ClipRecord::insert_by_created_sort(&self.rb, clip.to_clip_record())
-                                .await?;
                         }
                     }
                 }
@@ -136,6 +164,9 @@ impl CloudSyncTimer {
             tokio::spawn(async {
                 try_clean_clip_record().await;
             });
+
+            // 在最后的位置更新本次同步的服务器时间版本号   防止上面哪一步出现异常导致数据没同步成功
+            SyncTime::update_last_time(&self.rb, new_server_time).await?;
             Ok(())
         } else {
             log::warn!("云同步请求未返回数据");

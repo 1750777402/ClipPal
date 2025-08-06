@@ -31,7 +31,7 @@ pub struct ClipRecord {
     pub device_id: Option<String>,
     // 云同步版本号
     pub version: Option<i32>,
-    // 是否逻辑删除
+    // 是否逻辑删除 0:未删除 1:已删除
     pub del_flag: Option<i32>,
 }
 
@@ -41,7 +41,7 @@ impl_select!(ClipRecord{select_by_pinned_flag(pinned_flag: i32) =>"`where pinned
 impl_select!(ClipRecord{select_order_by() =>"`order by sort desc, created desc`"});
 impl_select!(ClipRecord{select_where_order_by_limit(content: &str, limit:i32, offset:i32) =>"` where content like #{content} order by pinned_flag desc, sort desc, created desc limit #{limit} offset #{offset}`"});
 //  根据limit和offset 查询   获取limit条数据(-1表示全部)   跳过前offset条数据
-impl_select!(ClipRecord{select_order_by_limit(limit:i32, offset:i32) =>"`order by pinned_flag desc, sort desc, created desc limit #{limit} offset #{offset}`"});
+impl_select!(ClipRecord{select_order_by_limit(limit:i32, offset:i32) =>"` where del_flag = 0 order by pinned_flag desc, sort desc, created desc limit #{limit} offset #{offset}`"});
 // 根据type和content 查看是否有重复的    有的话取出一个
 impl_select!(ClipRecord{check_by_type_and_content(content_type:&str, content:&str) =>"`where type = #{content_type} and content = #{content} limit 1`"});
 // 根据type和content 查看是否有重复的    有的话取出一个
@@ -52,6 +52,8 @@ impl_select!(ClipRecord{select_max_sort(user_id: i32) =>"`where user_id = #{user
 impl_select!(ClipRecord{select_by_sync_flag(sync_flag: i32) =>"`where sync_flag = #{sync_flag} order by created desc`"});
 // 根据created时间戳查询下一条记录
 impl_select!(ClipRecord{select_order_by_created(created: u64) =>"`where created >= #{created} order by created desc limit 1`"});
+// 查询已经逻辑删除并且已同步的数据
+impl_select!(ClipRecord{select_invalid() =>"`where sync_flag = 2 and del_flag = 1`"});
 
 impl ClipRecord {
     pub async fn update_content(rb: &RBatis, id: &str, content: &String) -> Result<(), Error> {
@@ -121,6 +123,33 @@ impl ClipRecord {
         }
     }
 
+    /// 获取已逻辑删除且已同步的数据数量
+    pub async fn count_invalid(rb: &RBatis) -> i64 {
+        let count_res: Result<i64, rbs::Error> = rb
+            .query_decode(
+                "SELECT COUNT(*) FROM clip_record where del_flag = 1 and sync_flag = 2",
+                vec![],
+            )
+            .await;
+        match count_res {
+            Ok(count) => return count,
+            Err(_) => return 0,
+        }
+    }
+
+    pub async fn count_effective(rb: &RBatis) -> i64 {
+        let count_res: Result<i64, rbs::Error> = rb
+            .query_decode(
+                "SELECT COUNT(*) FROM clip_record where del_flag = 0",
+                vec![],
+            )
+            .await;
+        match count_res {
+            Ok(count) => return count,
+            Err(_) => return 0,
+        }
+    }
+
     /// 逻辑删除
     pub async fn update_del_by_ids(rb: &RBatis, ids: &Vec<String>) -> Result<(), Error> {
         let sql = format!(
@@ -134,13 +163,14 @@ impl ClipRecord {
         tx.commit().await
     }
 
+    /// 标记数据为云端已删除的数据  本地数据也需要逻辑删除并且标记为已同步
     pub async fn sync_del_by_ids(
         rb: &RBatis,
         ids: &Vec<String>,
         sync_time: u64,
     ) -> Result<(), Error> {
         let sql = format!(
-            "UPDATE clip_record SET del_flag = 1, sync_time = ? WHERE id IN ({})",
+            "UPDATE clip_record SET del_flag = 1, sync_flag = 2, sync_time = ? WHERE id IN ({})",
             ids.iter().map(|_| "?").collect::<Vec<_>>().join(",")
         );
         let tx = rb.acquire_begin().await?;
@@ -163,6 +193,19 @@ impl ClipRecord {
         tx.commit().await
     }
 
+    /// 逻辑删除数据并标记为未同步
+    pub async fn tombstone_by_ids(rb: &RBatis, ids: &Vec<String>) -> Result<(), Error> {
+        let sql = format!(
+            "UPDATE clip_record set sync_flag = 0, del_flag = 1 WHERE id IN ({})",
+            ids.iter().map(|_| "?").collect::<Vec<_>>().join(",")
+        );
+        let tx = rb.acquire_begin().await?;
+        // 转换ids为Vec<Value>
+        let params = ids.into_iter().map(|id| to_value!(id)).collect::<Vec<_>>();
+        let _ = tx.exec(&sql, params).await?;
+        tx.commit().await
+    }
+
     pub async fn select_by_ids(
         rb: &RBatis,
         ids: &Vec<String>,
@@ -174,7 +217,7 @@ impl ClipRecord {
         }
 
         let sql = format!(
-            "SELECT * FROM clip_record WHERE id IN ({}) ORDER BY pinned_flag DESC, sort DESC, created DESC",
+            "SELECT * FROM clip_record WHERE id IN ({}) and del_flag = 0 ORDER BY pinned_flag DESC, sort DESC, created DESC",
             ids.iter().map(|_| "?").collect::<Vec<_>>().join(",")
         );
         // 转换ids为Vec<Value>
@@ -186,35 +229,19 @@ impl ClipRecord {
         Ok(res)
     }
 
-    pub async fn insert_by_created_sort(rb: &RBatis, record: ClipRecord) -> Result<(), Error> {
+    pub async fn insert_by_created_sort(rb: &RBatis, mut record: ClipRecord) -> Result<(), Error> {
         let tx = rb.acquire_begin().await?;
         let next_record = ClipRecord::select_order_by_created(rb, record.created).await?;
-        let mut obj = ClipRecord {
-            id: Uuid::new_v4().to_string(),
-            user_id: record.user_id,
-            r#type: record.r#type,
-            content: record.content,
-            md5_str: record.md5_str,
-            created: record.created,
-            os_type: record.os_type,
-            sort: 0,
-            pinned_flag: 0,
-            sync_flag: record.sync_flag,
-            sync_time: record.sync_time,
-            device_id: record.device_id,
-            version: record.version,
-            del_flag: record.del_flag,
-        };
         if next_record.is_empty() {
             // 获取最新的排序值
-            obj.sort = ClipRecord::get_next_sort(rb).await;
-            ClipRecord::insert(&tx, &obj).await?;
+            record.sort = ClipRecord::get_next_sort(rb).await;
+            ClipRecord::insert(&tx, &record).await?;
         } else {
             let sql = "UPDATE clip_record SET sort = IFNULL(sort, 0) + 1 WHERE created >= ?";
             tx.exec(sql, vec![to_value!(next_record[0].created)])
                 .await?;
-            obj.sort = next_record[0].sort;
-            ClipRecord::insert(&tx, &obj).await?;
+            record.sort = next_record[0].sort;
+            ClipRecord::insert(&tx, &record).await?;
         }
         tx.commit().await
     }
