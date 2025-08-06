@@ -46,27 +46,6 @@ pub struct ClipRecordParam {
     pub del_flag: Option<i32>,
 }
 
-impl ClipRecordParam {
-    pub fn to_clip_record(&self) -> ClipRecord {
-        ClipRecord {
-            id: self.id.clone().unwrap_or_default(),
-            r#type: self.r#type.clone().unwrap_or_default(),
-            content: self.content.clone(),
-            md5_str: self.md5_str.clone().unwrap_or_default(),
-            created: self.created.unwrap_or(0),
-            user_id: self.user_id.unwrap_or(0),
-            os_type: self.os_type.clone().unwrap_or_default(),
-            sort: self.sort.unwrap_or(0),
-            pinned_flag: self.pinned_flag.unwrap_or(0),
-            sync_flag: self.sync_flag,
-            sync_time: self.sync_time,
-            device_id: self.device_id.clone(),
-            version: self.version,
-            del_flag: self.del_flag,
-        }
-    }
-}
-
 // 云同步请求结构体
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CloudSyncRequest {
