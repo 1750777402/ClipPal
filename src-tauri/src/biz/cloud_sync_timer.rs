@@ -5,6 +5,7 @@ use tauri::{AppHandle, Emitter};
 use tokio::time::{Duration, sleep};
 
 use crate::api::cloud_sync_api::{CloudSyncRequest, sync_clipboard, sync_server_time};
+use crate::biz::clip_record_clean::try_clean_clip_record;
 use crate::biz::sync_time::SyncTime;
 use crate::biz::system_setting::{SYNC_INTERVAL_SECONDS, check_cloud_sync_enabled};
 use crate::errors::{AppError, AppResult};
@@ -131,6 +132,10 @@ impl CloudSyncTimer {
 
             ClipRecord::update_sync_flag(&self.rb, &ids, 2, new_server_time).await?;
             self.notify_frontend_sync_status_batch(&ids, 1).await?;
+            // 同步完数据之后，检查是否需要删除过期数据
+            tokio::spawn(async {
+                try_clean_clip_record().await;
+            });
             Ok(())
         } else {
             log::warn!("云同步请求未返回数据");

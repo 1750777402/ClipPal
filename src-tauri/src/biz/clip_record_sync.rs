@@ -46,7 +46,7 @@ impl ClipBoardEventListener<ClipboardEvent> for ClipboardEventTigger {
             log::error!("处理剪贴板事件失败: {:?}", e);
         }
 
-        tokio::spawn(async move {
+        tokio::spawn(async {
             // 清理过期数据
             try_clean_clip_record().await;
         });
