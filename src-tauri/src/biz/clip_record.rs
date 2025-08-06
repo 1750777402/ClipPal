@@ -112,16 +112,6 @@ impl ClipRecord {
         tx.commit().await
     }
 
-    pub async fn count(rb: &RBatis) -> i64 {
-        let count_res: Result<i64, rbs::Error> = rb
-            .query_decode("SELECT COUNT(*) FROM clip_record", vec![])
-            .await;
-        match count_res {
-            Ok(count) => return count,
-            Err(_) => return 0,
-        }
-    }
-
     /// 获取已逻辑删除且已同步的数据数量
     pub async fn count_invalid(rb: &RBatis) -> i64 {
         let count_res: Result<i64, rbs::Error> = rb
