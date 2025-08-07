@@ -100,7 +100,7 @@ fn build_clip_record(
         sort,
         pinned_flag: 0,
         sync_flag: Some(0),
-        sync_time: Some(cur_time),
+        sync_time: Some(0),
         device_id: Some(GLOBAL_DEVICE_ID.clone()),
         version: Some(1),
         del_flag: Some(0),

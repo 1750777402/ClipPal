@@ -144,7 +144,7 @@ impl CloudSyncTimer {
                             }
                         });
                     } else {
-                        // 如果本地有这条记录，那么查看是不是云端同步的是被删除的，如果是那么本地也逻辑删除
+                        // 如果本地有这条记录，那么查看是不是云端同步的是被删除的，如果是那么本地也逻辑删除  并且把同步状态设置为已同步
                         if clip.del_flag.unwrap_or_default() == 1 {
                             // 如果是删除操作，逻辑删除记录
                             ClipRecord::sync_del_by_ids(
