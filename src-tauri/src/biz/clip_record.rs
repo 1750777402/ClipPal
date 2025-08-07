@@ -139,10 +139,10 @@ impl ClipRecord {
         }
     }
 
-    /// 逻辑删除
+    /// 逻辑删除 并标记为待同步状态
     pub async fn update_del_by_ids(rb: &RBatis, ids: &Vec<String>) -> Result<(), Error> {
         let sql = format!(
-            "UPDATE clip_record SET del_flag = 1 WHERE id IN ({})",
+            "UPDATE clip_record SET del_flag = 1, sync_flag = 0 WHERE id IN ({})",
             ids.iter().map(|_| "?").collect::<Vec<_>>().join(",")
         );
         let tx = rb.acquire_begin().await?;

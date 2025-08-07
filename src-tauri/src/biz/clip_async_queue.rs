@@ -10,7 +10,7 @@ use tokio::time::{Duration, sleep};
 use crate::CONTEXT;
 use crate::api::cloud_sync_api::{SingleCloudSyncParam, sync_single_clip_record};
 use crate::biz::clip_record::ClipRecord;
-use crate::errors::AppError;
+use crate::errors::{AppError, AppResult};
 use crate::utils::lock_utils::GlobalSyncLock;
 
 #[derive(Clone, Debug)]
@@ -84,17 +84,26 @@ pub fn consume_clip_record_queue(queue: AsyncQueue<ClipRecord>) {
                     match queue.try_recv() {
                         Ok(event) => {
                             // 处理数据
-                            let param = match event {
-                                QueueEvent::Add(item) => SingleCloudSyncParam {
-                                    r#type: 1,
-                                    clip: item.clone(),
-                                },
-                                QueueEvent::Delete(item) => SingleCloudSyncParam {
-                                    r#type: 2,
-                                    clip: item.clone(),
-                                },
+                            match event {
+                                QueueEvent::Add(item) => {
+                                    let param = SingleCloudSyncParam {
+                                        r#type: 1,
+                                        clip: item.clone(),
+                                    };
+                                    let res = handle_sync_inner(param).await;
+                                    if let Ok(_) = res {
+                                        // 新增的数据需要通知前端同步完成
+                                        notify_frontend_sync_status(vec![item.id]).await;
+                                    }
+                                }
+                                QueueEvent::Delete(item) => {
+                                    let param = SingleCloudSyncParam {
+                                        r#type: 2,
+                                        clip: item.clone(),
+                                    };
+                                    let _ = handle_sync_inner(param).await;
+                                }
                             };
-                            handle_sync_inner(param).await;
                         }
                         Err(TryRecvError::Empty) => {
                             // 队列空了，跳出内层循环，释放锁
@@ -116,7 +125,7 @@ pub fn consume_clip_record_queue(queue: AsyncQueue<ClipRecord>) {
     });
 }
 
-async fn handle_sync_inner(param: SingleCloudSyncParam) {
+async fn handle_sync_inner(param: SingleCloudSyncParam) -> AppResult<()> {
     let res = sync_single_clip_record(&param).await;
     log::info!(
         "同步单个剪贴板记录，粘贴记录：{}，结果：{:?}",
@@ -126,23 +135,43 @@ async fn handle_sync_inner(param: SingleCloudSyncParam) {
     match res {
         Ok(response) => {
             if let Some(success) = response {
-                let ids = vec![param.clip.id];
+                let ids = vec![param.clip.id.clone()];
                 let rb: &RBatis = CONTEXT.get::<RBatis>();
-                let _ = ClipRecord::update_sync_flag(rb, &ids, 2, success.timestamp);
-                let payload = serde_json::json!({
-                    "clip_ids": ids,
-                    "sync_flag": 2
-                });
-                let app_handle = CONTEXT.get::<AppHandle>();
-                let _ = app_handle
-                    .emit("sync_status_update_batch", payload)
-                    .map_err(|e| AppError::General(format!("批量通知前端失败: {}", e)));
+
+                let update_res = ClipRecord::update_sync_flag(rb, &ids, 2, success.timestamp).await;
+                match update_res {
+                    Ok(_) => Ok(()),
+                    Err(e) => {
+                        log::error!(
+                            "云同步单个粘贴板记录成功但更新本地同步状态失败，粘贴记录：{}，错误：{}",
+                            param.clip.id,
+                            e
+                        );
+                        Err(AppError::General("同步单个剪贴板记录失败".to_string()))
+                    }
+                }
+            } else {
+                Err(AppError::General("同步单个剪贴板记录失败".to_string()))
             }
         }
-        Err(e) => log::error!(
-            "同步单个剪贴板记录失败，粘贴记录：{}，错误：{}",
-            param.clip.id,
-            e
-        ),
+        Err(e) => {
+            log::error!(
+                "同步单个剪贴板记录失败，粘贴记录：{}，错误：{}",
+                param.clip.id,
+                e
+            );
+            Err(AppError::General("同步单个剪贴板记录失败".to_string()))
+        }
     }
+}
+
+async fn notify_frontend_sync_status(ids: Vec<String>) {
+    let payload = serde_json::json!({
+        "clip_ids": ids,
+        "sync_flag": 2
+    });
+    let app_handle = CONTEXT.get::<AppHandle>();
+    let _ = app_handle
+        .emit("sync_status_update_batch", payload)
+        .map_err(|e| AppError::General(format!("批量通知前端失败: {}", e)));
 }

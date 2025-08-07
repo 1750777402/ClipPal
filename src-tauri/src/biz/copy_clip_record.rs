@@ -224,6 +224,7 @@ pub async fn del_record(param: CopyClipRecord) -> Result<String, String> {
     match record_result {
         Ok(records) => {
             if !records.is_empty() {
+                // 逻辑删除 并标记为待同步状态
                 let res = ClipRecord::update_del_by_ids(rb, &ids).await;
                 if let Ok(_) = res {
                     // 如果有删除记录，发送到异步队列   前提是开启了云同步开关
