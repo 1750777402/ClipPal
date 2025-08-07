@@ -113,8 +113,8 @@ impl CloudSyncTimer {
                     )
                     .await?;
 
-                    if check_res.is_empty() {
-                        // 如果本地没有这条记录  那么就插入新记录
+                    if check_res.is_empty() && clip.del_flag == Some(0) {
+                        // 如果本地没有这条记录 并且这条记录不是已经删除的 那么就插入新记录
                         let new_id = Uuid::new_v4().to_string();
                         let content = clip.content.clone();
                         let obj = ClipRecord {
