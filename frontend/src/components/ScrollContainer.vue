@@ -54,6 +54,17 @@
     </div>
 
     <SettingsDialog v-model="showSettings" @save="handleSettingsSave" />
+    
+    <!-- 回到顶部按钮 -->
+    <button 
+      v-show="showBackToTop" 
+      class="back-to-top-btn" 
+      @click="scrollToTop"
+      title="回到顶部"
+      type="button"
+    >
+      <span class="iconfont icon-huidaodingbu"></span>
+    </button>
   </div>
 </template>
 
@@ -61,7 +72,7 @@
 <script setup lang="ts">
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-import { ref, onMounted, onBeforeUnmount, watch, nextTick, computed } from 'vue';
+import { ref, onMounted, onBeforeUnmount, watch, nextTick } from 'vue';
 import SettingsDialog from './SettingsDialog.vue';
 import ClipCard from './ClipCard.vue';
 import { useWindowAdaptive } from '../utils/responsive';
@@ -90,6 +101,9 @@ const CACHE_DURATION = 2000; // 2秒内避免重复请求
 const lastSearchValue = ref('');
 
 const scrollContainer = ref<HTMLElement | null>(null);
+
+// 回到顶部按钮相关
+const showBackToTop = ref(false);
 
 // 使用响应式工具
 const responsive = useWindowAdaptive();
@@ -252,9 +266,25 @@ const handleScroll = () => {
   if (!scrollContainer.value || isFetchingMore.value || !hasMore.value) return;
 
   const { scrollTop, clientHeight, scrollHeight } = scrollContainer.value;
+  
+  // 控制回到顶部按钮显示
+  // 根据页面高度动态计算显示阈值：窗口高度的0.8倍作为触发距离
+  const threshold = Math.max(clientHeight * 0.8, 300); // 最小300px，避免太敏感
+  showBackToTop.value = scrollTop > threshold;
+  
   if (scrollTop + clientHeight >= scrollHeight - 200) {
     fetchClipRecords();
   }
+};
+
+// 回到顶部功能
+const scrollToTop = () => {
+  if (!scrollContainer.value) return;
+  
+  scrollContainer.value.scrollTo({
+    top: 0,
+    behavior: 'smooth'
+  });
 };
 
 // 优化搜索防抖
@@ -624,6 +654,45 @@ onBeforeUnmount(() => {
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
 }
 
+/* 回到顶部按钮 */
+.back-to-top-btn {
+  position: fixed;
+  bottom: 80px;
+  right: 24px;
+  width: 48px;
+  height: 48px;
+  background: linear-gradient(135deg, var(--header-bg, #2c7a7b), #319795);
+  color: white;
+  border: none;
+  border-radius: var(--radius-lg);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  box-shadow: 0 6px 16px rgba(44, 122, 123, 0.25), 0 2px 8px rgba(0, 0, 0, 0.05);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  z-index: 1000;
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+.back-to-top-btn:hover {
+  background: linear-gradient(135deg, #319795, #2dd4bf);
+  box-shadow: 0 8px 20px rgba(44, 122, 123, 0.35), 0 3px 12px rgba(0, 0, 0, 0.1);
+  transform: translateY(-2px) scale(1.02);
+}
+
+.back-to-top-btn:active {
+  transform: translateY(0) scale(0.98);
+  box-shadow: 0 3px 8px rgba(44, 122, 123, 0.3), 0 1px 4px rgba(0, 0, 0, 0.05);
+}
+
+.back-to-top-btn .iconfont {
+  font-size: 18px;
+  line-height: 1;
+}
+
 /* 响应式布局 */
 @media (max-width: 768px) {
   .panel-header {
@@ -665,6 +734,15 @@ onBeforeUnmount(() => {
   .skeleton-card {
     margin: 0 12px 12px 12px;
     padding: 12px;
+  }
+
+  /* 平板尺寸回到顶部按钮调整 */
+  .back-to-top-btn {
+    width: 44px;
+    height: 44px;
+    bottom: 72px;
+    right: 20px;
+    font-size: 16px;
   }
 }
 
@@ -708,6 +786,15 @@ onBeforeUnmount(() => {
   
   .clip-list {
     padding: 8px 0;
+  }
+
+  /* 中等尺寸回到顶部按钮调整 */
+  .back-to-top-btn {
+    width: 40px;
+    height: 40px;
+    bottom: 64px;
+    right: 18px;
+    font-size: 15px;
   }
 }
 
@@ -782,6 +869,15 @@ onBeforeUnmount(() => {
     padding: 12px;
     font-size: 13px;
   }
+
+  /* 小屏幕回到顶部按钮调整 */
+  .back-to-top-btn {
+    width: 38px;
+    height: 38px;
+    bottom: 60px;
+    right: 16px;
+    font-size: 14px;
+  }
 }
 
 /* 极小窗口优化 */
@@ -849,6 +945,15 @@ onBeforeUnmount(() => {
   
   .skeleton-content {
     height: 50px;
+  }
+
+  /* 极小屏幕回到顶部按钮调整 */
+  .back-to-top-btn {
+    width: 36px;
+    height: 36px;
+    bottom: 56px;
+    right: 14px;
+    font-size: 13px;
   }
 }
 
@@ -1015,6 +1120,17 @@ onBeforeUnmount(() => {
     border-color: #4a4a4a;
     border-radius: 16px; /* 暗色模式下的圆角 */
   }
+  }
+
+  /* 暗色模式下回到顶部按钮 */
+  .back-to-top-btn {
+    background: linear-gradient(135deg, #1e3a3a, #2c4a4a);
+    box-shadow: 0 6px 16px rgba(30, 58, 58, 0.3), 0 2px 8px rgba(0, 0, 0, 0.1);
+  }
+
+  .back-to-top-btn:hover {
+    background: linear-gradient(135deg, #2c4a4a, #4a7c7c);
+    box-shadow: 0 8px 20px rgba(30, 58, 58, 0.4), 0 3px 12px rgba(0, 0, 0, 0.15);
   }
 }
 </style>

@@ -465,15 +465,6 @@ const getTypeTitle = computed(() => {
     }
 });
 
-const syncStatusText = computed(() => {
-  switch (props.record.sync_flag) {
-    case 0: return 'unsynced';
-    case 1: return 'syncing';
-    case 2: return 'synced';
-    default: return '';
-  }
-});
-
 const fileList = computed(() => {
     if (props.record.type === 'File') {
         try {
