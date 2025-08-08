@@ -4,7 +4,7 @@ use crate::biz::system_setting::{
 };
 use crate::utils::lock_utils::lock_utils::safe_read_lock;
 use crate::{CONTEXT, biz::system_setting::Settings};
-use anyhow::Result;
+use crate::errors::AppResult;
 use bloomfilter::Bloom;
 use dashmap::DashMap;
 use once_cell::sync::Lazy;
@@ -263,7 +263,7 @@ static SEARCH_INDEX: Lazy<Arc<SimpleSearchIndex>> =
     Lazy::new(|| Arc::new(SimpleSearchIndex::new()));
 
 /// 添加内容到搜索索引
-pub async fn add_content_to_index(id: &str, content: &str) -> Result<()> {
+pub async fn add_content_to_index(id: &str, content: &str) -> AppResult<()> {
     SEARCH_INDEX.add_record(id, content);
     log::debug!(
         "添加记录到搜索索引 - ID: {}, 内容长度: {}",
@@ -279,7 +279,7 @@ pub async fn search_ids_by_content(content: &str) -> Vec<String> {
 }
 
 /// 删除ID并更新索引
-pub async fn remove_ids_from_index(ids: &[String]) -> Result<()> {
+pub async fn remove_ids_from_index(ids: &[String]) -> AppResult<()> {
     if ids.is_empty() {
         return Ok(());
     }
@@ -290,7 +290,7 @@ pub async fn remove_ids_from_index(ids: &[String]) -> Result<()> {
 }
 
 /// 异步初始化搜索索引，从现有记录中构建
-pub async fn initialize_search_index(clips: Vec<ClipRecord>) -> Result<()> {
+pub async fn initialize_search_index(clips: Vec<ClipRecord>) -> AppResult<()> {
     tokio::spawn(async move {
         // 清空现有索引
         SEARCH_INDEX.clear();

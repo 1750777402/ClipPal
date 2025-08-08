@@ -37,6 +37,18 @@ pub enum AppError {
     #[error("系统托盘错误: {0}")]
     Tray(String),
 
+    #[error("HTTP请求错误: {0}")]
+    Http(String),
+
+    #[error("网络错误: {0}")]
+    Network(String),
+
+    #[error("系统操作错误: {0}")]
+    System(String),
+
+    #[error("自动粘贴错误: {0}")]
+    AutoPaste(String),
+
     #[error("通用错误: {0}")]
     General(String),
 }
@@ -52,6 +64,34 @@ impl From<AppError> for String {
 impl<T> From<PoisonError<T>> for AppError {
     fn from(err: PoisonError<T>) -> Self {
         AppError::Lock(format!("锁已中毒: {}", err))
+    }
+}
+
+/// HttpError 转换为 AppError
+impl From<crate::utils::http_client::HttpError> for AppError {
+    fn from(err: crate::utils::http_client::HttpError) -> Self {
+        AppError::Http(err.to_string())
+    }
+}
+
+/// anyhow::Error 转换为 AppError
+impl From<anyhow::Error> for AppError {
+    fn from(err: anyhow::Error) -> Self {
+        AppError::General(err.to_string())
+    }
+}
+
+/// serde_json::Error 转换为 AppError
+impl From<serde_json::Error> for AppError {
+    fn from(err: serde_json::Error) -> Self {
+        AppError::Serde(err.to_string())
+    }
+}
+
+/// base64::DecodeError 转换为 AppError
+impl From<base64::DecodeError> for AppError {
+    fn from(err: base64::DecodeError) -> Self {
+        AppError::Crypto(format!("Base64解码错误: {}", err))
     }
 }
 

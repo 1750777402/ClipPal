@@ -77,10 +77,10 @@ fn generate_global_aes_gcm_key() -> String {
 }
 
 // 解密base64字符串   获得秘钥
-fn decode_base64_key(base64_str: &str) -> anyhow::Result<[u8; KEY_SIZE]> {
+fn decode_base64_key(base64_str: &str) -> AppResult<[u8; KEY_SIZE]> {
     let bytes = general_purpose::STANDARD.decode(base64_str)?;
     let array: [u8; KEY_SIZE] = bytes
         .try_into()
-        .map_err(|_| anyhow::anyhow!("密钥长度错误"))?;
+        .map_err(|_| AppError::Crypto("密钥长度错误".to_string()))?;
     Ok(array)
 }

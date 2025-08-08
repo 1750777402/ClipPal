@@ -2,7 +2,7 @@ use crate::{
     CONTEXT,
     utils::{file_dir::get_data_dir, path_utils::to_safe_string},
 };
-use anyhow::{Error, Ok};
+use crate::errors::{AppError, AppResult};
 use rbatis::RBatis;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -192,7 +192,7 @@ struct RawColumnInfo {
 }
 
 /// 获取数据库中实际存在的表结构
-async fn get_actual_schema(rb: &RBatis) -> Result<HashMap<String, TableSchema>, Error> {
+async fn get_actual_schema(rb: &RBatis) -> AppResult<HashMap<String, TableSchema>> {
     let mut schema = HashMap::new();
 
     // 获取所有表名
@@ -294,7 +294,7 @@ fn compare_schemas(
 }
 
 /// 执行数据库迁移
-async fn execute_migrations(rb: &RBatis, migrations: Vec<String>) -> Result<(), Error> {
+async fn execute_migrations(rb: &RBatis, migrations: Vec<String>) -> AppResult<()> {
     for migration in migrations {
         log::debug!("执行数据库迁移: {}", migration);
         rb.acquire().await?.exec(&migration, vec![]).await?;
@@ -303,7 +303,7 @@ async fn execute_migrations(rb: &RBatis, migrations: Vec<String>) -> Result<(), 
 }
 
 /// 创建索引
-async fn create_indexes(rb: &RBatis) -> Result<(), Error> {
+async fn create_indexes(rb: &RBatis) -> AppResult<()> {
     let conn = rb.acquire().await?;
 
     // 手动查询索引是否存在
@@ -338,7 +338,7 @@ async fn create_indexes(rb: &RBatis) -> Result<(), Error> {
 }
 
 /// 检查并修复数据库结构
-async fn check_and_fix_database_schema(rb: &RBatis) -> Result<(), Error> {
+async fn check_and_fix_database_schema(rb: &RBatis) -> AppResult<()> {
     log::debug!("检查数据库结构...");
 
     // 获取期望的结构
@@ -367,20 +367,20 @@ async fn check_and_fix_database_schema(rb: &RBatis) -> Result<(), Error> {
     Ok(())
 }
 
-pub async fn init_sqlite() -> Result<RBatis, Error> {
+pub async fn init_sqlite() -> AppResult<RBatis> {
     // 创建sqlite链接
     let rb = RBatis::new();
 
     // 安全地处理数据库路径，确保中文字符正确处理
     let db_path = get_data_dir()
-        .ok_or_else(|| anyhow::anyhow!("无法获取数据目录"))?
+        .ok_or_else(|| AppError::Config("无法获取数据目录".to_string()))?
         .join("clip_record.db");
 
     // 使用工具函数安全地处理路径
     let db_path_str = to_safe_string(&db_path);
 
     rb.init(rbdc_sqlite::Driver {}, &format!("sqlite://{}", db_path_str))
-        .map_err(|e| anyhow::anyhow!("数据库连接初始化失败: {}", e))?;
+        .map_err(|e| AppError::Database(e))?;
 
     // 检查并修复数据库结构
     check_and_fix_database_schema(&rb).await?;

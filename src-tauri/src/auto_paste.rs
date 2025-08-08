@@ -2,6 +2,7 @@
 use once_cell::sync::Lazy;
 #[cfg(any(windows, target_os = "macos"))]
 use std::sync::{Arc, Mutex};
+use crate::errors::{AppError, AppResult};
 
 #[cfg(windows)]
 use windows::Win32::{
@@ -201,17 +202,17 @@ pub fn save_foreground_window() {
 
 /// 执行自动粘贴到之前的窗口 - Windows版本
 #[cfg(windows)]
-pub fn auto_paste_to_previous_window() -> Result<(), String> {
+pub fn auto_paste_to_previous_window() -> AppResult<()> {
     let window_info = {
         let previous = PREVIOUS_WINDOW
             .lock()
-            .map_err(|e| format!("获取窗口信息锁失败: {}", e))?;
+            .map_err(|e| AppError::Lock(format!("获取窗口信息锁失败: {}", e)))?;
 
         match previous.as_ref() {
             Some(info) => info.clone(),
             None => {
                 log::warn!("没有保存的目标窗口信息");
-                return Err("没有找到目标窗口".to_string());
+                return Err(AppError::AutoPaste("没有找到目标窗口".to_string()));
             }
         }
     };
@@ -222,14 +223,14 @@ pub fn auto_paste_to_previous_window() -> Result<(), String> {
     let is_valid = unsafe { IsWindow(hwnd) };
     if !is_valid.as_bool() {
         log::warn!("目标窗口已经无效");
-        return Err("目标窗口已经无效".to_string());
+        return Err(AppError::AutoPaste("目标窗口已经无效".to_string()));
     }
 
     // 检查窗口是否可见
     let is_visible = unsafe { IsWindowVisible(hwnd) };
     if !is_visible.as_bool() {
         log::warn!("目标窗口不可见");
-        return Err("目标窗口不可见".to_string());
+        return Err(AppError::AutoPaste("目标窗口不可见".to_string()));
     }
 
     log::debug!("尝试自动粘贴到窗口: {}", window_info.title);
@@ -253,17 +254,17 @@ pub fn auto_paste_to_previous_window() -> Result<(), String> {
 
 /// 执行自动粘贴到之前的窗口 - macOS版本
 #[cfg(target_os = "macos")]
-pub fn auto_paste_to_previous_window() -> Result<(), String> {
+pub fn auto_paste_to_previous_window() -> AppResult<()> {
     let window_info = {
         let previous = PREVIOUS_WINDOW
             .lock()
-            .map_err(|e| format!("获取窗口信息锁失败: {}", e))?;
+            .map_err(|e| AppError::Lock(format!("获取窗口信息锁失败: {}", e)))?;
 
         match previous.as_ref() {
             Some(info) => info.clone(),
             None => {
                 log::warn!("没有保存的目标窗口信息");
-                return Err("没有找到目标窗口".to_string());
+                return Err(AppError::AutoPaste("没有找到目标窗口".to_string()));
             }
         }
     };
@@ -319,7 +320,7 @@ pub fn auto_paste_to_previous_window() -> Result<(), String> {
 
 /// 发送 Ctrl+V 按键组合 - Windows版本
 #[cfg(windows)]
-fn send_ctrl_v_windows() -> Result<(), String> {
+fn send_ctrl_v_windows() -> AppResult<()> {
     let mut inputs = vec![
         // 按下 Ctrl
         INPUT {
@@ -378,11 +379,11 @@ fn send_ctrl_v_windows() -> Result<(), String> {
     let result = unsafe { SendInput(&mut inputs, std::mem::size_of::<INPUT>() as i32) };
 
     if result != inputs.len() as u32 {
-        return Err(format!(
+        return Err(AppError::AutoPaste(format!(
             "发送按键失败，期望发送 {} 个事件，实际发送 {} 个",
             inputs.len(),
             result
-        ));
+        )));
     }
 
     log::debug!("成功发送 Ctrl+V 按键事件");
@@ -391,18 +392,18 @@ fn send_ctrl_v_windows() -> Result<(), String> {
 
 /// 发送 Cmd+V 按键组合 - macOS版本  
 #[cfg(target_os = "macos")]
-fn send_cmd_v_macos() -> Result<(), String> {
+fn send_cmd_v_macos() -> AppResult<()> {
     unsafe {
         // 创建事件源
         let event_source = CGEventSource::new(CGEventSourceStateID::CombinedSessionState)
-            .map_err(|e| format!("创建事件源失败: {:?}", e))?;
+            .map_err(|e| AppError::AutoPaste(format!("创建事件源失败: {:?}", e)))?;
 
         // V键的虚拟键码 (基于US键盘布局)
         let v_keycode: CGKeyCode = 9;
 
         // 按下 Cmd+V
         let key_down_event = CGEvent::new_keyboard_event(event_source.clone(), v_keycode, true)
-            .map_err(|e| format!("创建按键按下事件失败: {:?}", e))?;
+            .map_err(|e| AppError::AutoPaste(format!("创建按键按下事件失败: {:?}", e)))?;
 
         key_down_event.set_flags(CGEventFlags::CGEventFlagCommand);
         key_down_event.post(core_graphics::event::CGEventTapLocation::HID);
@@ -412,7 +413,7 @@ fn send_cmd_v_macos() -> Result<(), String> {
 
         // 释放 Cmd+V
         let key_up_event = CGEvent::new_keyboard_event(event_source, v_keycode, false)
-            .map_err(|e| format!("创建按键释放事件失败: {:?}", e))?;
+            .map_err(|e| AppError::AutoPaste(format!("创建按键释放事件失败: {:?}", e)))?;
 
         key_up_event.set_flags(CGEventFlags::CGEventFlagCommand);
         key_up_event.post(core_graphics::event::CGEventTapLocation::HID);
@@ -430,6 +431,6 @@ pub fn save_foreground_window() {
 
 /// 不支持平台的占位实现
 #[cfg(not(any(windows, target_os = "macos")))]
-pub fn auto_paste_to_previous_window() -> Result<(), String> {
-    Err("自动粘贴功能仅在Windows和macOS平台支持".to_string())
+pub fn auto_paste_to_previous_window() -> AppResult<()> {
+    Err(AppError::AutoPaste("自动粘贴功能仅在Windows和macOS平台支持".to_string()))
 }
