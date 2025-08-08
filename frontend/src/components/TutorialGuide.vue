@@ -9,9 +9,9 @@
     </div>
     
     <!-- 引导卡片 -->
-    <div class="tutorial-card" :class="`position-${currentStep.position}`" :style="cardPosition">
+    <div class="tutorial-card" :class="`position-${actualCardPosition}`" :style="cardPosition">
       <!-- 箭头指示器 -->
-      <div v-if="currentStep.target !== 'body'" class="tutorial-arrow" :class="`arrow-${getArrowDirection()}`"></div>
+      <div v-if="currentStep.target !== 'body' && getArrowDirection() !== 'none'" class="tutorial-arrow" :class="`arrow-${getArrowDirection()}`"></div>
       
       <div class="tutorial-header">
         <div class="tutorial-step-indicator">
@@ -116,7 +116,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, nextTick, watch } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, nextTick, watch } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 
 interface TutorialStep {
@@ -254,55 +254,97 @@ const updateHighlight = async () => {
   }
 }
 
+// 添加实际位置状态跟踪
+const actualCardPosition = ref('center')
+
 // 计算卡片位置
-const calculateCardPosition = (targetRect: DOMRect, position: string) => {
-  const cardWidth = 400
-  const cardHeight = 300
-  const gap = 20
+const calculateCardPosition = (targetRect: DOMRect, preferredPosition: string) => {
+  // 动态获取卡片实际尺寸
+  const cardElement = document.querySelector('.tutorial-card') as HTMLElement
+  const cardWidth = cardElement ? Math.min(cardElement.offsetWidth, 420) : 420
+  const cardHeight = cardElement ? Math.min(cardElement.offsetHeight, 500) : 400
   
+  const gap = 24
+  const windowWidth = window.innerWidth
+  const windowHeight = window.innerHeight
+  const scrollTop = window.scrollY || document.documentElement.scrollTop
+  const scrollLeft = window.scrollX || document.documentElement.scrollLeft
+  
+  // 可用空间计算
+  const spaces = {
+    top: targetRect.top - gap - cardHeight,
+    bottom: windowHeight - targetRect.bottom - gap - cardHeight,
+    left: targetRect.left - gap - cardWidth,
+    right: windowWidth - targetRect.right - gap - cardWidth
+  }
+  
+  // 位置优先级列表
+  const positionPriority = {
+    'top': ['top', 'bottom', 'right', 'left', 'center'],
+    'bottom': ['bottom', 'top', 'right', 'left', 'center'],
+    'left': ['left', 'right', 'bottom', 'top', 'center'],
+    'right': ['right', 'left', 'bottom', 'top', 'center'],
+    'center': ['center']
+  }
+  
+  // 尝试找到最佳位置
+  let finalPosition = preferredPosition
   let top = 0
   let left = 0
   
-  switch (position) {
-    case 'top':
-      top = targetRect.top - cardHeight - gap
-      left = targetRect.left + (targetRect.width - cardWidth) / 2
+  for (const pos of positionPriority[preferredPosition as keyof typeof positionPriority] || ['center']) {
+    if (pos === 'center') {
+      top = (windowHeight - cardHeight) / 2 + scrollTop
+      left = (windowWidth - cardWidth) / 2 + scrollLeft
+      finalPosition = 'center'
       break
-    case 'bottom':
-      top = targetRect.bottom + gap
-      left = targetRect.left + (targetRect.width - cardWidth) / 2
+    }
+    
+    // 检查是否有足够空间
+    if (spaces[pos as keyof typeof spaces] >= 0) {
+      switch (pos) {
+        case 'top':
+          top = targetRect.top - cardHeight - gap + scrollTop
+          left = targetRect.left + (targetRect.width - cardWidth) / 2 + scrollLeft
+          break
+        case 'bottom':
+          top = targetRect.bottom + gap + scrollTop
+          left = targetRect.left + (targetRect.width - cardWidth) / 2 + scrollLeft
+          break
+        case 'left':
+          top = targetRect.top + (targetRect.height - cardHeight) / 2 + scrollTop
+          left = targetRect.left - cardWidth - gap + scrollLeft
+          break
+        case 'right':
+          top = targetRect.top + (targetRect.height - cardHeight) / 2 + scrollTop
+          left = targetRect.right + gap + scrollLeft
+          break
+      }
+      
+      // 微调确保在边界内
+      left = Math.max(gap + scrollLeft, Math.min(left, windowWidth - cardWidth - gap + scrollLeft))
+      top = Math.max(gap + scrollTop, Math.min(top, windowHeight - cardHeight - gap + scrollTop))
+      
+      finalPosition = pos
       break
-    case 'left':
-      top = targetRect.top + (targetRect.height - cardHeight) / 2
-      left = targetRect.left - cardWidth - gap
-      break
-    case 'right':
-      top = targetRect.top + (targetRect.height - cardHeight) / 2
-      left = targetRect.right + gap
-      break
-    default:
-      return { top: 0, left: 0 }
+    }
   }
   
-  // 确保卡片在视窗内
-  const windowWidth = window.innerWidth
-  const windowHeight = window.innerHeight
+  // 更新实际位置状态
+  actualCardPosition.value = finalPosition
   
-  left = Math.max(gap, Math.min(left, windowWidth - cardWidth - gap))
-  top = Math.max(gap, Math.min(top, windowHeight - cardHeight - gap))
-  
-  return { top, left }
+  return { top, left, position: finalPosition }
 }
 
-// 获取箭头方向
+// 获取箭头方向（基于实际位置）
 const getArrowDirection = () => {
-  const position = currentStep.value.position
+  const position = actualCardPosition.value
   switch (position) {
     case 'top': return 'down'
     case 'bottom': return 'up'
     case 'left': return 'right'
     case 'right': return 'left'
-    default: return 'up'
+    default: return 'none'
   }
 }
 
@@ -356,8 +398,15 @@ watch(currentStepIndex, () => {
   updateHighlight()
 })
 
-// 监听窗口大小变化
+// 监听窗口大小变化和滚动
 const handleResize = () => {
+  // 延迟更新，避免频繁计算
+  setTimeout(() => {
+    updateHighlight()
+  }, 100)
+}
+
+const handleScroll = () => {
   updateHighlight()
 }
 
@@ -365,6 +414,13 @@ const handleResize = () => {
 onMounted(() => {
   checkShouldShowTutorial()
   window.addEventListener('resize', handleResize)
+  window.addEventListener('scroll', handleScroll, { passive: true })
+})
+
+// 组件销毁时清理事件监听器
+onBeforeUnmount(() => {
+  window.removeEventListener('resize', handleResize)
+  window.removeEventListener('scroll', handleScroll)
 })
 
 // 暴露方法给外部调用
@@ -391,9 +447,9 @@ defineExpose({
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(0, 0, 0, 0.6);
-  backdrop-filter: blur(3px);
-  animation: fadeIn 0.3s ease;
+  background: rgba(0, 0, 0, 0.75);
+  backdrop-filter: blur(8px) saturate(120%);
+  animation: backdropFadeIn 0.5s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .highlight-mask {
@@ -408,56 +464,76 @@ defineExpose({
 
 .highlight-hole {
   position: absolute;
-  border: 3px solid #4285f4;
-  border-radius: 12px;
+  border: 3px solid var(--header-bg, #2c7a7b);
+  border-radius: 16px;
   box-shadow: 
-    0 0 0 4px rgba(66, 133, 244, 0.3),
-    0 0 0 9999px rgba(0, 0, 0, 0.4);
-  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-  animation: pulse 2s infinite;
+    0 0 0 4px rgba(44, 122, 123, 0.4),
+    0 0 0 8px rgba(44, 122, 123, 0.2),
+    0 0 0 9999px rgba(0, 0, 0, 0.5),
+    inset 0 0 0 2px rgba(255, 255, 255, 0.3);
+  transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+  animation: highlightPulse 2.5s infinite;
 }
 
-@keyframes pulse {
+@keyframes highlightPulse {
   0%, 100% {
     box-shadow: 
-      0 0 0 4px rgba(66, 133, 244, 0.3),
-      0 0 0 9999px rgba(0, 0, 0, 0.4);
+      0 0 0 4px rgba(44, 122, 123, 0.4),
+      0 0 0 8px rgba(44, 122, 123, 0.2),
+      0 0 0 9999px rgba(0, 0, 0, 0.5),
+      inset 0 0 0 2px rgba(255, 255, 255, 0.3);
+    transform: scale(1);
   }
   50% {
     box-shadow: 
-      0 0 0 8px rgba(66, 133, 244, 0.5),
-      0 0 0 9999px rgba(0, 0, 0, 0.4);
+      0 0 0 8px rgba(44, 122, 123, 0.6),
+      0 0 0 16px rgba(44, 122, 123, 0.3),
+      0 0 0 9999px rgba(0, 0, 0, 0.5),
+      inset 0 0 0 2px rgba(255, 255, 255, 0.5);
+    transform: scale(1.02);
   }
 }
 
 .tutorial-card {
   position: absolute;
-  background: white;
-  border-radius: 16px;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.95) 0%, rgba(255, 255, 255, 0.9) 100%);
+  backdrop-filter: blur(20px) saturate(150%);
+  border-radius: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.3);
   box-shadow: 
-    0 20px 40px rgba(0, 0, 0, 0.2),
-    0 0 0 1px rgba(0, 0, 0, 0.05);
-  min-width: 360px;
-  max-width: 400px;
+    0 32px 64px rgba(0, 0, 0, 0.25),
+    0 16px 32px rgba(44, 122, 123, 0.15),
+    inset 0 1px 0 rgba(255, 255, 255, 0.4);
+  min-width: 380px;
+  max-width: 420px;
   overflow: hidden;
-  animation: slideIn 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  animation: cardSlideIn 0.6s cubic-bezier(0.2, 0, 0.1, 1);
   z-index: 3;
+  transform-origin: center;
 }
 
-@keyframes slideIn {
+@keyframes cardSlideIn {
   from {
     opacity: 0;
-    transform: scale(0.9) translateY(20px);
+    transform: scale(0.85) translateY(40px) rotateX(15deg);
+    filter: blur(8px);
   }
   to {
     opacity: 1;
-    transform: scale(1) translateY(0);
+    transform: scale(1) translateY(0) rotateX(0deg);
+    filter: blur(0px);
   }
 }
 
-@keyframes fadeIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
+@keyframes backdropFadeIn {
+  from { 
+    opacity: 0;
+    backdrop-filter: blur(0px) saturate(100%);
+  }
+  to { 
+    opacity: 1;
+    backdrop-filter: blur(8px) saturate(120%);
+  }
 }
 
 /* 箭头指示器 */
@@ -466,46 +542,52 @@ defineExpose({
   width: 0;
   height: 0;
   z-index: 4;
+  animation: arrowFloat 2s ease-in-out infinite;
+}
+
+@keyframes arrowFloat {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-3px); }
 }
 
 .arrow-up {
-  bottom: -12px;
+  bottom: -15px;
   left: 50%;
   transform: translateX(-50%);
-  border-left: 12px solid transparent;
-  border-right: 12px solid transparent;
-  border-top: 12px solid white;
-  filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.1));
+  border-left: 15px solid transparent;
+  border-right: 15px solid transparent;
+  border-top: 15px solid rgba(255, 255, 255, 0.95);
+  filter: drop-shadow(0 4px 12px rgba(0, 0, 0, 0.15));
 }
 
 .arrow-down {
-  top: -12px;
+  top: -15px;
   left: 50%;
   transform: translateX(-50%);
-  border-left: 12px solid transparent;
-  border-right: 12px solid transparent;
-  border-bottom: 12px solid white;
-  filter: drop-shadow(0 -4px 8px rgba(0, 0, 0, 0.1));
+  border-left: 15px solid transparent;
+  border-right: 15px solid transparent;
+  border-bottom: 15px solid rgba(255, 255, 255, 0.95);
+  filter: drop-shadow(0 -4px 12px rgba(0, 0, 0, 0.15));
 }
 
 .arrow-left {
-  right: -12px;
+  right: -15px;
   top: 50%;
   transform: translateY(-50%);
-  border-top: 12px solid transparent;
-  border-bottom: 12px solid transparent;
-  border-left: 12px solid white;
-  filter: drop-shadow(4px 0 8px rgba(0, 0, 0, 0.1));
+  border-top: 15px solid transparent;
+  border-bottom: 15px solid transparent;
+  border-left: 15px solid rgba(255, 255, 255, 0.95);
+  filter: drop-shadow(4px 0 12px rgba(0, 0, 0, 0.15));
 }
 
 .arrow-right {
-  left: -12px;
+  left: -15px;
   top: 50%;
   transform: translateY(-50%);
-  border-top: 12px solid transparent;
-  border-bottom: 12px solid transparent;
-  border-right: 12px solid white;
-  filter: drop-shadow(-4px 0 8px rgba(0, 0, 0, 0.1));
+  border-top: 15px solid transparent;
+  border-bottom: 15px solid transparent;
+  border-right: 15px solid rgba(255, 255, 255, 0.95);
+  filter: drop-shadow(-4px 0 12px rgba(0, 0, 0, 0.15));
 }
 
 /* 默认定位样式 */
@@ -519,19 +601,37 @@ defineExpose({
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 20px 24px 16px;
-  background: linear-gradient(135deg, #4285f4 0%, #34a853 100%);
+  padding: 24px 28px 20px;
+  background: linear-gradient(135deg, var(--header-bg, #2c7a7b) 0%, #319795 50%, #2dd4bf 100%);
   color: white;
+  position: relative;
+  overflow: hidden;
+}
+
+.tutorial-header::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(45deg, rgba(255, 255, 255, 0.1) 0%, transparent 100%);
+  pointer-events: none;
 }
 
 .tutorial-step-indicator {
   display: flex;
   align-items: center;
-  background: rgba(255, 255, 255, 0.2);
-  border-radius: 12px;
-  padding: 4px 8px;
+  background: rgba(255, 255, 255, 0.25);
+  border-radius: 20px;
+  padding: 6px 12px;
   font-size: 12px;
-  font-weight: 600;
+  font-weight: 700;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  backdrop-filter: blur(8px);
+  position: relative;
+  z-index: 1;
 }
 
 .step-number {
@@ -545,39 +645,49 @@ defineExpose({
 .tutorial-title {
   flex: 1;
   margin: 0;
-  font-size: 18px;
-  font-weight: 600;
+  font-size: 20px;
+  font-weight: 700;
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+  position: relative;
+  z-index: 1;
 }
 
 .tutorial-close {
-  background: rgba(255, 255, 255, 0.2);
-  border: none;
+  background: rgba(255, 255, 255, 0.25);
+  border: 1px solid rgba(255, 255, 255, 0.3);
   border-radius: 50%;
-  width: 32px;
-  height: 32px;
+  width: 36px;
+  height: 36px;
   color: white;
   cursor: pointer;
-  font-size: 16px;
+  font-size: 18px;
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: all 0.2s ease;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  backdrop-filter: blur(8px);
+  position: relative;
+  z-index: 1;
 }
 
 .tutorial-close:hover {
-  background: rgba(255, 255, 255, 0.3);
-  transform: scale(1.1);
+  background: rgba(255, 255, 255, 0.35);
+  transform: scale(1.1) rotate(90deg);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
 }
 
 .tutorial-content {
-  padding: 24px;
+  padding: 28px;
+  background: rgba(255, 255, 255, 0.02);
 }
 
 .tutorial-description {
-  margin: 0 0 20px 0;
-  line-height: 1.6;
-  color: #444;
-  font-size: 15px;
+  margin: 0 0 24px 0;
+  line-height: 1.7;
+  color: #2d3748;
+  font-size: 16px;
+  font-weight: 500;
+  text-shadow: 0 1px 2px rgba(255, 255, 255, 0.5);
 }
 
 .demo-section {
@@ -589,13 +699,14 @@ defineExpose({
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
-  padding: 20px;
-  background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
-  border-radius: 12px;
-  border: 2px solid #4285f4;
+  gap: 12px;
+  padding: 24px;
+  background: linear-gradient(135deg, #e0f2f1 0%, #b2dfdb 100%);
+  border-radius: 16px;
+  border: 2px solid var(--header-bg, #2c7a7b);
   position: relative;
   overflow: hidden;
+  box-shadow: 0 8px 16px rgba(44, 122, 123, 0.15), inset 0 1px 0 rgba(255, 255, 255, 0.3);
 }
 
 .shortcut-demo::before {
@@ -605,8 +716,8 @@ defineExpose({
   left: -100%;
   width: 100%;
   height: 100%;
-  background: linear-gradient(90deg, transparent, rgba(66, 133, 244, 0.1), transparent);
-  animation: shimmer 2s infinite;
+  background: linear-gradient(90deg, transparent, rgba(44, 122, 123, 0.2), transparent);
+  animation: shimmer 2.5s infinite;
 }
 
 @keyframes shimmer {
@@ -627,20 +738,22 @@ defineExpose({
 }
 
 .plus {
-  font-size: 18px;
+  font-size: 20px;
   font-weight: bold;
-  color: #4285f4;
+  color: var(--header-bg, #2c7a7b);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
 }
 
 .tray-demo {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 12px;
-  padding: 20px;
-  background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
-  border-radius: 12px;
-  border: 2px solid #4285f4;
+  gap: 16px;
+  padding: 24px;
+  background: linear-gradient(135deg, #e0f2f1 0%, #b2dfdb 100%);
+  border-radius: 16px;
+  border: 2px solid var(--header-bg, #2c7a7b);
+  box-shadow: 0 8px 16px rgba(44, 122, 123, 0.15), inset 0 1px 0 rgba(255, 255, 255, 0.3);
 }
 
 .tray-icon-demo {
@@ -667,9 +780,9 @@ defineExpose({
   transform: translate(-50%, -50%);
   width: 60px;
   height: 60px;
-  border: 2px solid #4285f4;
+  border: 3px solid var(--header-bg, #2c7a7b);
   border-radius: 50%;
-  animation: clickPulse 1.5s infinite;
+  animation: clickPulse 1.8s infinite;
 }
 
 @keyframes clickPulse {
@@ -687,11 +800,12 @@ defineExpose({
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 12px;
-  padding: 20px;
-  background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
-  border-radius: 12px;
-  border: 2px solid #4285f4;
+  gap: 16px;
+  padding: 24px;
+  background: linear-gradient(135deg, #e0f2f1 0%, #b2dfdb 100%);
+  border-radius: 16px;
+  border: 2px solid var(--header-bg, #2c7a7b);
+  box-shadow: 0 8px 16px rgba(44, 122, 123, 0.15), inset 0 1px 0 rgba(255, 255, 255, 0.3);
 }
 
 .demo-card {
@@ -713,13 +827,14 @@ defineExpose({
 }
 
 .double-click-hint {
-  background: #4285f4;
+  background: var(--header-bg, #2c7a7b);
   color: white;
-  padding: 4px 8px;
-  border-radius: 12px;
-  font-size: 12px;
-  font-weight: bold;
-  animation: bounce 1s infinite;
+  padding: 6px 12px;
+  border-radius: 16px;
+  font-size: 13px;
+  font-weight: 700;
+  box-shadow: 0 2px 8px rgba(44, 122, 123, 0.3);
+  animation: bounce 1.2s infinite;
 }
 
 @keyframes bounce {
@@ -728,9 +843,10 @@ defineExpose({
 }
 
 .arrow-down {
-  font-size: 24px;
-  color: #4285f4;
-  animation: moveDown 1s infinite;
+  font-size: 28px;
+  color: var(--header-bg, #2c7a7b);
+  text-shadow: 0 2px 4px rgba(44, 122, 123, 0.3);
+  animation: moveDown 1.2s infinite;
 }
 
 @keyframes moveDown {
@@ -739,12 +855,14 @@ defineExpose({
 }
 
 .result {
-  padding: 8px 16px;
-  background: #34a853;
+  padding: 10px 20px;
+  background: linear-gradient(135deg, #319795, #2dd4bf);
   color: white;
-  border-radius: 8px;
-  font-weight: bold;
-  font-size: 14px;
+  border-radius: 12px;
+  font-weight: 700;
+  font-size: 15px;
+  box-shadow: 0 4px 12px rgba(45, 212, 191, 0.3);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
 }
 
 .demo-tip {
@@ -755,9 +873,10 @@ defineExpose({
 }
 
 .tutorial-footer {
-  padding: 16px 24px 24px;
-  background: #fafafa;
-  border-top: 1px solid #e9ecef;
+  padding: 20px 28px 28px;
+  background: linear-gradient(135deg, rgba(248, 249, 250, 0.95) 0%, rgba(241, 243, 244, 0.9) 100%);
+  border-top: 1px solid rgba(0, 0, 0, 0.06);
+  backdrop-filter: blur(8px);
 }
 
 .tutorial-progress {
@@ -769,17 +888,20 @@ defineExpose({
 
 .progress-bar {
   flex: 1;
-  height: 6px;
-  background: #e9ecef;
-  border-radius: 3px;
+  height: 8px;
+  background: linear-gradient(135deg, #e2e8f0 0%, #cbd5e0 100%);
+  border-radius: 6px;
   overflow: hidden;
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.1);
+  border: 1px solid rgba(44, 122, 123, 0.1);
 }
 
 .progress-fill {
   height: 100%;
-  background: linear-gradient(90deg, #4285f4 0%, #34a853 100%);
-  transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-  border-radius: 3px;
+  background: linear-gradient(90deg, var(--header-bg, #2c7a7b) 0%, #319795 50%, #2dd4bf 100%);
+  transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+  border-radius: 4px;
+  box-shadow: 0 2px 4px rgba(44, 122, 123, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.2);
 }
 
 .progress-text {
@@ -797,73 +919,224 @@ defineExpose({
 }
 
 .btn {
-  padding: 10px 20px;
+  padding: 12px 24px;
   border: none;
-  border-radius: 8px;
-  font-size: 14px;
-  font-weight: 600;
+  border-radius: 12px;
+  font-size: 15px;
+  font-weight: 700;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   text-decoration: none;
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
+  position: relative;
+  overflow: hidden;
 }
 
 .btn-primary {
-  background: linear-gradient(135deg, #4285f4 0%, #34a853 100%);
+  background: linear-gradient(135deg, var(--header-bg, #2c7a7b) 0%, #319795 50%, #2dd4bf 100%);
   color: white;
+  box-shadow: 0 4px 12px rgba(44, 122, 123, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.2);
 }
 
 .btn-primary:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(66, 133, 244, 0.3);
+  transform: translateY(-2px) scale(1.02);
+  box-shadow: 0 8px 20px rgba(44, 122, 123, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.3);
+  background: linear-gradient(135deg, #319795 0%, #2dd4bf 50%, #4ade80 100%);
 }
 
 .btn-complete {
-  background: linear-gradient(135deg, #ff6b6b 0%, #feca57 100%);
+  background: linear-gradient(135deg, #f59e0b 0%, #eab308 50%, #84cc16 100%);
+  box-shadow: 0 4px 12px rgba(245, 158, 11, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.2);
 }
 
 .btn-secondary {
-  background: #f8f9fa;
-  color: #666;
-  border: 1px solid #ddd;
+  background: linear-gradient(135deg, rgba(248, 249, 250, 0.9) 0%, rgba(241, 243, 244, 0.9) 100%);
+  color: #4a5568;
+  border: 1px solid rgba(44, 122, 123, 0.2);
+  backdrop-filter: blur(8px);
+  box-shadow: 0 2px 8px rgba(44, 122, 123, 0.1);
 }
 
 .btn-secondary:hover {
-  background: #e9ecef;
-  transform: translateY(-1px);
+  background: linear-gradient(135deg, rgba(226, 232, 240, 0.9) 0%, rgba(203, 213, 224, 0.9) 100%);
+  transform: translateY(-2px) scale(1.02);
+  box-shadow: 0 4px 12px rgba(44, 122, 123, 0.2);
+  border-color: rgba(44, 122, 123, 0.3);
 }
 
 .btn-link {
-  background: none;
-  color: #666;
-  padding: 10px 16px;
-  font-size: 13px;
+  background: rgba(44, 122, 123, 0.05);
+  color: #4a5568;
+  padding: 12px 20px;
+  font-size: 14px;
+  border-radius: 12px;
+  font-weight: 600;
+  backdrop-filter: blur(4px);
 }
 
 .btn-link:hover {
-  color: #333;
-  background: rgba(0, 0, 0, 0.05);
+  color: var(--header-bg, #2c7a7b);
+  background: rgba(44, 122, 123, 0.1);
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(44, 122, 123, 0.15);
+}
+
+/* 响应式设计优化 */
+@media (max-width: 768px) {
+  .tutorial-card {
+    min-width: 340px;
+    max-width: calc(100vw - 32px);
+    margin: 0 16px;
+  }
+  
+  .tutorial-header {
+    padding: 20px 20px 16px;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  
+  .tutorial-title {
+    font-size: 18px;
+    flex: 1;
+    min-width: 200px;
+  }
+  
+  .tutorial-content {
+    padding: 20px;
+  }
+  
+  .tutorial-description {
+    font-size: 15px;
+    line-height: 1.6;
+    margin-bottom: 20px;
+  }
+  
+  .tutorial-footer {
+    padding: 16px 20px 20px;
+  }
+  
+  .tutorial-actions {
+    flex-wrap: wrap;
+    gap: 8px;
+    justify-content: center;
+  }
+  
+  .btn {
+    padding: 10px 18px;
+    font-size: 14px;
+    min-width: 100px;
+  }
+  
+  .btn-link {
+    padding: 8px 16px;
+    font-size: 13px;
+  }
+}
+
+@media (max-width: 480px) {
+  .tutorial-card {
+    min-width: 300px;
+    max-width: calc(100vw - 24px);
+    margin: 0 12px;
+  }
+  
+  .tutorial-header {
+    padding: 16px 16px 12px;
+  }
+  
+  .tutorial-title {
+    font-size: 16px;
+  }
+  
+  .tutorial-close {
+    width: 32px;
+    height: 32px;
+    font-size: 16px;
+  }
+  
+  .tutorial-content {
+    padding: 16px;
+  }
+  
+  .tutorial-description {
+    font-size: 14px;
+    margin-bottom: 16px;
+  }
+  
+  .shortcut-demo,
+  .tray-demo,
+  .action-demo {
+    padding: 16px;
+    border-radius: 12px;
+  }
+  
+  .demo-section {
+    margin: 16px 0;
+  }
+  
+  .tutorial-footer {
+    padding: 12px 16px 16px;
+  }
+  
+  .tutorial-progress {
+    margin-bottom: 16px;
+  }
+  
+  .tutorial-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  
+  .btn {
+    padding: 12px 20px;
+    font-size: 15px;
+    justify-content: center;
+    width: 100%;
+  }
+  
+  .btn-link {
+    order: -1;
+    padding: 8px 16px;
+    font-size: 13px;
+  }
+}
+
+@media (max-height: 600px) {
+  .tutorial-card {
+    max-height: calc(100vh - 40px);
+    overflow-y: auto;
+  }
+  
+  .tutorial-content {
+    max-height: 300px;
+    overflow-y: auto;
+  }
 }
 
 /* 自动粘贴警告样式 */
 .auto-paste-warning {
   display: flex;
-  gap: 12px;
-  padding: 16px;
-  background: linear-gradient(135deg, #fff3cd 0%, #ffeeba 100%);
-  border: 2px solid #ffc107;
-  border-radius: 12px;
-  animation: warningPulse 2s infinite;
+  gap: 16px;
+  padding: 20px;
+  background: linear-gradient(135deg, #fef3c7 0%, #fed7aa 100%);
+  border: 2px solid #f59e0b;
+  border-radius: 16px;
+  animation: warningPulse 2.5s infinite;
+  box-shadow: 0 8px 16px rgba(245, 158, 11, 0.15), inset 0 1px 0 rgba(255, 255, 255, 0.4);
 }
 
 @keyframes warningPulse {
   0%, 100% {
-    box-shadow: 0 0 0 0 rgba(255, 193, 7, 0.4);
+    box-shadow: 0 8px 16px rgba(245, 158, 11, 0.15), inset 0 1px 0 rgba(255, 255, 255, 0.4), 0 0 0 0 rgba(245, 158, 11, 0.4);
   }
   50% {
-    box-shadow: 0 0 0 8px rgba(255, 193, 7, 0.1);
+    box-shadow: 0 8px 16px rgba(245, 158, 11, 0.15), inset 0 1px 0 rgba(255, 255, 255, 0.4), 0 0 0 8px rgba(245, 158, 11, 0.2);
   }
 }
 
