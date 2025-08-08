@@ -51,11 +51,11 @@ impl ClipBoardEventListener<ClipboardEvent> for ClipboardEventTigger {
             try_clean_clip_record().await;
         });
 
-        if let Ok(Some(item)) = record_result {
-            // 通知前端粘贴板变更
-            let app_handle = CONTEXT.get::<AppHandle>();
-            let _ = app_handle.emit("clip_record_change", ());
+        // 通知前端粘贴板变更
+        let app_handle = CONTEXT.get::<AppHandle>();
+        let _ = app_handle.emit("clip_record_change", ());
 
+        if let Ok(Some(item)) = record_result {
             // 如果有新增记录，发送到异步队列   前提是开启了云同步开关
             if check_cloud_sync_enabled().await {
                 let async_queue = CONTEXT.get::<AsyncQueue<ClipRecord>>();

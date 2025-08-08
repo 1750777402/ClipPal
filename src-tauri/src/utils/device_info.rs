@@ -15,8 +15,8 @@ pub static GLOBAL_DEVICE_ID: Lazy<String> = Lazy::new(|| get_device_id());
 pub fn get_os_type() -> OsType {
     let os = env::consts::OS;
     match os {
-        "win" => OsType::Windows,
-        "mac" => OsType::Mac,
+        "windows" => OsType::Windows,
+        "macos" => OsType::Mac,
         "linux" => OsType::Linux,
         _ => OsType::Unknown,
     }
@@ -24,8 +24,8 @@ pub fn get_os_type() -> OsType {
 
 pub fn get_os_type_str() -> &'static str {
     match get_os_type() {
-        OsType::Windows => "win",
-        OsType::Mac => "mac",
+        OsType::Windows => "windows",
+        OsType::Mac => "macos",
         OsType::Linux => "linux",
         OsType::Unknown => "unknown",
     }
