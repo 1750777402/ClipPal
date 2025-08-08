@@ -9,11 +9,14 @@ pub enum OsType {
     Unknown,
 }
 
+pub static GLOBAL_OS_TYPE: Lazy<String> = Lazy::new(|| get_os_type_str().to_string());
+pub static GLOBAL_DEVICE_ID: Lazy<String> = Lazy::new(|| get_device_id());
+
 pub fn get_os_type() -> OsType {
     let os = env::consts::OS;
     match os {
-        "windows" => OsType::Windows,
-        "macos" => OsType::Mac,
+        "win" => OsType::Windows,
+        "mac" => OsType::Mac,
         "linux" => OsType::Linux,
         _ => OsType::Unknown,
     }
@@ -85,6 +88,3 @@ pub fn get_device_id() -> String {
     // 兜底
     String::new()
 }
-
-pub static GLOBAL_OS_TYPE: Lazy<String> = Lazy::new(|| get_os_type_str().to_string());
-pub static GLOBAL_DEVICE_ID: Lazy<String> = Lazy::new(|| get_device_id());

@@ -11,6 +11,7 @@ use crate::biz::content_search::add_content_to_index;
 use crate::biz::sync_time::SyncTime;
 use crate::biz::system_setting::{SYNC_INTERVAL_SECONDS, check_cloud_sync_enabled};
 use crate::errors::{AppError, AppResult};
+use crate::utils::device_info::{GLOBAL_DEVICE_ID, GLOBAL_OS_TYPE};
 use crate::utils::lock_utils::lock_utils::safe_read_lock;
 use crate::{
     CONTEXT,
@@ -87,9 +88,11 @@ impl CloudSyncTimer {
             .collect();
 
         let sync_request = CloudSyncRequest {
-            clips: unsynced_record.clone(),
+            clips: unsynced_record.clone(), // 本次需要同步的数据
             timestamp: server_time,
             last_sync_time,
+            device_id: GLOBAL_DEVICE_ID.clone(),
+            os_type: GLOBAL_OS_TYPE.clone(),
         };
 
         let response = sync_clipboard(&sync_request)

@@ -52,6 +52,8 @@ pub struct CloudSyncRequest {
     pub clips: Vec<ClipRecord>,
     pub timestamp: u64,
     pub last_sync_time: u64,
+    pub device_id: String,
+    pub os_type: String,
 }
 
 // 云同步api
