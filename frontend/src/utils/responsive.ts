@@ -183,8 +183,8 @@ export function useBreakpoint() {
 
     return {
         // 尺寸
-        width: width.value,
-        height: height.value,
+        width,
+        height,
 
         // 断点
         isXs,

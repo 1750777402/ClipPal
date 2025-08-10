@@ -179,39 +179,17 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, inject } from 'vue';
+import { ref, computed, onMounted, onUnmounted, inject, shallowRef } from 'vue';
 import { formatDistanceToNow } from 'date-fns';
 import { zhCN } from 'date-fns/locale';
 import VueEasyLightbox from 'vue-easy-lightbox';
 import SmartContentDisplay from './SmartContentDisplay.vue';
 import { clipApi, settingsApi, isSuccess } from '../utils/api';
 
-interface ClipRecord {
-    id: string;
-    type: string;
-    content: string;
-    created: number;
-    user_id: number;
-    os_type: string;
-    fileSize?: number;
-    pinned_flag?: number;
-    file_info?: FileInfo[];
-    image_info?: ImageInfo;
-    sync_flag?: 0 | 1 | 2; // 0未同步 1同步中 2已同步
-}
+// 导入全局类型
+import type { ClipRecord } from '../types/global';
 
-interface ImageInfo {
-    path: string;
-    size: number;
-    width?: number;
-    height?: number;
-}
-
-interface FileInfo {
-    path: string;
-    size: number;
-    type?: string;
-}
+// 组件 props 定义
 
 const props = defineProps<{
     record: ClipRecord;
@@ -234,7 +212,7 @@ const showConfirm = ref(false);
 const showAutoPasteWarning = ref(false);
 
 // 图片懒加载相关状态
-const imageBase64Data = ref<string>('');
+const imageBase64Data = shallowRef<string>('');
 const isLoadingImage = ref(false);
 const shouldLoadImage = ref(false);
 

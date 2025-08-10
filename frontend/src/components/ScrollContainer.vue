@@ -146,7 +146,7 @@ const initEventListeners = async () => {
     await listen('clip_record_change', () => {
       smartRefresh();
     });
-    await listen('open_settings_winodws', () => {
+    await listen('open_settings_windows', () => {
       showSettings.value = true;
     });
     // 单个同步状态更新

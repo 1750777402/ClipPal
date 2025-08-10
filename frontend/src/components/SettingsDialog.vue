@@ -135,9 +135,8 @@ const pressedKeys = ref<string[]>([]);
 const responsive = useWindowAdaptive();
 const responsiveClasses = computed(() => generateResponsiveClasses(responsive));
 
-// 检测Mac系统
-const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0 || 
-             navigator.userAgent.toUpperCase().indexOf('MAC') >= 0;
+// 使用统一的平台检测
+const isMac = computed(() => responsive.isMac.value);
 
 // 计算是否有错误
 const hasErrors = computed(() => {
