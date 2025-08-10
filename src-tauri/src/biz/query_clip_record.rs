@@ -72,7 +72,7 @@ pub struct ImageBase64Response {
 }
 
 #[tauri::command]
-pub async fn get_clip_records(param: QueryParam) -> Vec<ClipRecordDTO> {
+pub async fn get_clip_records(param: QueryParam) -> Result<Vec<ClipRecordDTO>, String> {
     let offset = (param.page - 1) * param.size;
     let rb: &RBatis = CONTEXT.get::<RBatis>();
     // 执行数据库查询逻辑
@@ -87,14 +87,14 @@ pub async fn get_clip_records(param: QueryParam) -> Vec<ClipRecordDTO> {
         Ok(data) => data,
         Err(e) => {
             log::error!("查询粘贴记录失败: {:?}", e);
-            return vec![];
+            return Err("查询粘贴记录失败".to_string());
         }
     };
     if all_data.is_empty() {
-        return vec![];
+        return Ok(vec![]);
     }
 
-    all_data
+    Ok(all_data
         .into_iter()
         .map(|item| {
             if item.r#type == "File" {
@@ -141,7 +141,7 @@ pub async fn get_clip_records(param: QueryParam) -> Vec<ClipRecordDTO> {
                 };
             }
         })
-        .collect()
+        .collect())
 }
 
 pub fn get_file_info(paths: String) -> Vec<FileInfo> {

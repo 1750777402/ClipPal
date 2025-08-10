@@ -126,7 +126,7 @@ async fn handle_text(
             if let Some(record) = existing.first() {
                 if let Err(e) = ClipRecord::update_sort(rb, &record.id, sort).await {
                     log::error!("更新排序失败: {}", e);
-                    return Err(AppError::Database(e));
+                    return Err(e);
                 }
                 Ok(None)
             } else {
@@ -185,7 +185,7 @@ async fn handle_image(
         if let Some(record) = existing.first() {
             if let Err(e) = ClipRecord::update_sort(rb, &record.id, sort).await {
                 log::error!("更新图片排序失败: {}", e);
-                return Err(AppError::Database(e));
+                return Err(e);
             }
             Ok(None)
         } else {
@@ -233,7 +233,7 @@ async fn handle_file(
         if let Some(record) = existing.first() {
             if let Err(e) = ClipRecord::update_sort(rb, &record.id, sort).await {
                 log::error!("更新文件排序失败: {}", e);
-                return Err(AppError::Database(e));
+                return Err(e);
             }
             Ok(None)
         } else {

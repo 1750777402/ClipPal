@@ -32,7 +32,7 @@ pub fn get_app_secret_key() -> AppResult<AppSecretKey> {
 }
 
 /// 解混淆密钥 - 简单的字符替换 + base64
-fn decode_obfuscated_key(obfuscated: &str) -> Result<String, String> {
+fn decode_obfuscated_key(obfuscated: &str) -> AppResult<String> {
     // 步骤1: 字符替换还原 (简单的替换混淆)
     let step1 = obfuscated
         .replace('j', "u") // j -> u
@@ -47,15 +47,14 @@ fn decode_obfuscated_key(obfuscated: &str) -> Result<String, String> {
     // 步骤2: Base64解码验证
     match general_purpose::STANDARD.decode(&step1) {
         Ok(_) => Ok(step1),
-        Err(e) => Err(format!("Base64解码验证失败: {}", e)),
+        Err(e) => Err(AppError::Crypto(format!("Base64解码验证失败: {}", e))),
     }
 }
 
 /// 获取解混淆后的真实密钥
 pub fn get_decoded_secret_key() -> AppResult<AppSecretKey> {
     let app_secret = get_app_secret_key()?;
-    let decoded_key = decode_obfuscated_key(&app_secret.secret_key)
-        .map_err(|e| AppError::Config(format!("解码密钥失败: {}", e)))?;
+    let decoded_key = decode_obfuscated_key(&app_secret.secret_key)?;
 
     Ok(AppSecretKey {
         secret_key: decoded_key,

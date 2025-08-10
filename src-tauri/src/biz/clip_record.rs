@@ -2,6 +2,7 @@ use rbatis::{Error, RBatis, crud, impl_select};
 use rbs::to_value;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use crate::errors::{AppError, AppResult};
 
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
 pub struct ClipRecord {
@@ -55,11 +56,11 @@ impl_select!(ClipRecord{select_order_by_created(created: u64) =>"`where created 
 impl_select!(ClipRecord{select_invalid() =>"`where sync_flag = 2 and del_flag = 1`"});
 
 impl ClipRecord {
-    pub async fn update_content(rb: &RBatis, id: &str, content: &String) -> Result<(), Error> {
+    pub async fn update_content(rb: &RBatis, id: &str, content: &String) -> AppResult<()> {
         let sql = "UPDATE clip_record SET content = ? WHERE id = ?";
         let tx = rb.acquire_begin().await?;
         let _ = tx.exec(sql, vec![to_value!(content), to_value!(id)]).await;
-        tx.commit().await
+        tx.commit().await.map_err(|e| AppError::Database(rbatis::Error::from(e)))
     }
 
     pub async fn get_next_sort(rb: &RBatis) -> i32 {
@@ -70,15 +71,15 @@ impl ClipRecord {
             .unwrap_or(0)
     }
 
-    pub async fn update_sort(rb: &RBatis, id: &str, sort: i32) -> Result<(), Error> {
+    pub async fn update_sort(rb: &RBatis, id: &str, sort: i32) -> AppResult<()> {
         // 更新排序的时候，同时也要给版本号自增1
         let sql = "UPDATE clip_record SET sort = ?, version = IFNULL(version, 0) + 1 WHERE id = ?";
         let tx = rb.acquire_begin().await?;
         let _ = tx.exec(sql, vec![to_value!(sort), to_value!(id)]).await;
-        tx.commit().await
+        tx.commit().await.map_err(|e| AppError::Database(rbatis::Error::from(e)))
     }
 
-    pub async fn update_pinned(rb: &RBatis, id: &str, pinned_flag: i32) -> Result<(), Error> {
+    pub async fn update_pinned(rb: &RBatis, id: &str, pinned_flag: i32) -> AppResult<()> {
         let sql =
             "UPDATE clip_record SET pinned_flag = ?, version = IFNULL(version, 0) + 1 WHERE id = ?";
         let tx = rb.acquire_begin().await?;
@@ -90,7 +91,7 @@ impl ClipRecord {
         let _ = tx
             .exec(sql, vec![to_value!(pinned_flag), to_value!(id)])
             .await;
-        tx.commit().await
+        tx.commit().await.map_err(|e| AppError::Database(rbatis::Error::from(e)))
     }
 
     pub async fn update_sync_flag(
@@ -98,7 +99,7 @@ impl ClipRecord {
         ids: &Vec<String>,
         sync_flag: i32,
         sync_time: u64,
-    ) -> Result<(), Error> {
+    ) -> AppResult<()> {
         let sql = format!(
             "UPDATE clip_record SET sync_flag = ?, sync_time = ? WHERE id in ({})",
             ids.iter().map(|_| "?").collect::<Vec<_>>().join(",")
@@ -109,7 +110,7 @@ impl ClipRecord {
         }
         let tx = rb.acquire_begin().await?;
         tx.exec(&sql, args).await?;
-        tx.commit().await
+        tx.commit().await.map_err(|e| AppError::Database(rbatis::Error::from(e)))
     }
 
     /// 获取已逻辑删除且已同步的数据数量
@@ -140,7 +141,7 @@ impl ClipRecord {
     }
 
     /// 逻辑删除 并标记为待同步状态
-    pub async fn update_del_by_ids(rb: &RBatis, ids: &Vec<String>) -> Result<(), Error> {
+    pub async fn update_del_by_ids(rb: &RBatis, ids: &Vec<String>) -> AppResult<()> {
         let sql = format!(
             "UPDATE clip_record SET del_flag = 1, sync_flag = 0 WHERE id IN ({})",
             ids.iter().map(|_| "?").collect::<Vec<_>>().join(",")
@@ -149,7 +150,7 @@ impl ClipRecord {
         // 转换ids为Vec<Value>
         let params = ids.into_iter().map(|id| to_value!(id)).collect::<Vec<_>>();
         let _ = tx.exec(&sql, params).await?;
-        tx.commit().await
+        tx.commit().await.map_err(|e| AppError::Database(rbatis::Error::from(e)))
     }
 
     /// 标记数据为云端已删除的数据  本地数据也需要逻辑删除并且标记为已同步
@@ -157,7 +158,7 @@ impl ClipRecord {
         rb: &RBatis,
         ids: &Vec<String>,
         sync_time: u64,
-    ) -> Result<(), Error> {
+    ) -> AppResult<()> {
         let sql = format!(
             "UPDATE clip_record SET del_flag = 1, sync_flag = 2, sync_time = ? WHERE id IN ({})",
             ids.iter().map(|_| "?").collect::<Vec<_>>().join(",")
@@ -167,10 +168,10 @@ impl ClipRecord {
         let mut params = ids.into_iter().map(|id| to_value!(id)).collect::<Vec<_>>();
         params.insert(0, to_value!(sync_time));
         let _ = tx.exec(&sql, params).await?;
-        tx.commit().await
+        tx.commit().await.map_err(|e| AppError::Database(rbatis::Error::from(e)))
     }
 
-    pub async fn del_by_ids(rb: &RBatis, ids: &Vec<String>) -> Result<(), Error> {
+    pub async fn del_by_ids(rb: &RBatis, ids: &Vec<String>) -> AppResult<()> {
         let sql = format!(
             "DELETE FROM clip_record WHERE id IN ({})",
             ids.iter().map(|_| "?").collect::<Vec<_>>().join(",")
@@ -179,11 +180,11 @@ impl ClipRecord {
         // 转换ids为Vec<Value>
         let params = ids.into_iter().map(|id| to_value!(id)).collect::<Vec<_>>();
         let _ = tx.exec(&sql, params).await?;
-        tx.commit().await
+        tx.commit().await.map_err(|e| AppError::Database(rbatis::Error::from(e)))
     }
 
     /// 逻辑删除数据并标记为未同步
-    pub async fn tombstone_by_ids(rb: &RBatis, ids: &Vec<String>) -> Result<(), Error> {
+    pub async fn tombstone_by_ids(rb: &RBatis, ids: &Vec<String>) -> AppResult<()> {
         let sql = format!(
             "UPDATE clip_record set sync_flag = 0, del_flag = 1 WHERE id IN ({})",
             ids.iter().map(|_| "?").collect::<Vec<_>>().join(",")
@@ -192,7 +193,7 @@ impl ClipRecord {
         // 转换ids为Vec<Value>
         let params = ids.into_iter().map(|id| to_value!(id)).collect::<Vec<_>>();
         let _ = tx.exec(&sql, params).await?;
-        tx.commit().await
+        tx.commit().await.map_err(|e| AppError::Database(rbatis::Error::from(e)))
     }
 
     pub async fn select_by_ids(
@@ -218,7 +219,7 @@ impl ClipRecord {
         Ok(res)
     }
 
-    pub async fn insert_by_created_sort(rb: &RBatis, mut record: ClipRecord) -> Result<(), Error> {
+    pub async fn insert_by_created_sort(rb: &RBatis, mut record: ClipRecord) -> AppResult<()> {
         let tx = rb.acquire_begin().await?;
         let next_record = ClipRecord::select_order_by_created(rb, record.created).await?;
         if next_record.is_empty() {
@@ -232,6 +233,6 @@ impl ClipRecord {
             record.sort = next_record[0].sort;
             ClipRecord::insert(&tx, &record).await?;
         }
-        tx.commit().await
+        tx.commit().await.map_err(|e| AppError::Database(rbatis::Error::from(e)))
     }
 }

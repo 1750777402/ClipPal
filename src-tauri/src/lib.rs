@@ -131,11 +131,10 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
             image_save_as
         ])
         .build(tauri::generate_context!())
-        .map_err(|e| {
+        .unwrap_or_else(|e| {
             log::error!("Tauri应用构建失败: {}", e);
             std::process::exit(1);
         })
-        .unwrap()
         .run(move |_, event| match event {
             // 程序关闭事件处理
             tauri::RunEvent::ExitRequested { api: _, .. } => {

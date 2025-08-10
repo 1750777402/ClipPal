@@ -12,6 +12,19 @@ use regex::Regex;
 use std::collections::HashSet;
 use std::sync::{Arc, RwLock};
 
+// 静态编译的正则表达式
+static WORD_REGEX: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"\b[a-z]{2,}\b|\b\d{2,}\b").expect("Valid word regex")
+});
+
+static TAG_REGEX: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"</?([a-z][a-z0-9]*)\b").expect("Valid tag regex")
+});
+
+static ATTR_REGEX: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r#"(\w+)=["']([^"']*)["']"#).expect("Valid attribute regex")
+});
+
 /// 搜索索引配置
 const BLOOM_FILTER_ITEMS: usize = 1000; // 每个记录预期的词汇数量
 const BLOOM_FILTER_FP_RATE: f64 = 0.01; // 1%的误报率
@@ -52,8 +65,7 @@ impl RecordSearchData {
         let cleaned_text = Self::clean_text(text).to_lowercase();
 
         // ===== 1. 统一提取字母和数字序列 =====
-        let word_regex = Regex::new(r"\b[a-z]{2,}\b|\b\d{2,}\b").unwrap();
-        for cap in word_regex.find_iter(&cleaned_text) {
+        for cap in WORD_REGEX.find_iter(&cleaned_text) {
             tokens.insert(cap.as_str().to_string());
         }
 
@@ -77,15 +89,13 @@ impl RecordSearchData {
 
     // XML/HTML标签处理（独立函数）
     fn extract_xml_tokens(text: &str, tokens: &mut HashSet<String>) {
-        let tag_regex = Regex::new(r"</?([a-z][a-z0-9]*)\b").unwrap();
-        for cap in tag_regex.captures_iter(text) {
+        for cap in TAG_REGEX.captures_iter(text) {
             if let Some(tag) = cap.get(1) {
                 tokens.insert(tag.as_str().to_string());
             }
         }
 
-        let attr_regex = Regex::new(r#"(\w+)=["']([^"']*)["']"#).unwrap();
-        for cap in attr_regex.captures_iter(text) {
+        for cap in ATTR_REGEX.captures_iter(text) {
             if let Some(name) = cap.get(1) {
                 tokens.insert(name.as_str().to_string());
             }
