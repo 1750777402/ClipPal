@@ -180,11 +180,11 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, inject } from 'vue';
-import { invoke } from '@tauri-apps/api/core';
 import { formatDistanceToNow } from 'date-fns';
 import { zhCN } from 'date-fns/locale';
 import VueEasyLightbox from 'vue-easy-lightbox';
 import SmartContentDisplay from './SmartContentDisplay.vue';
+import { clipApi, settingsApi, isSuccess } from '../utils/api';
 
 interface ClipRecord {
     id: string;
@@ -248,11 +248,14 @@ const loadImageBase64 = async () => {
     
     isLoadingImage.value = true;
     try {
-        const response = await invoke('get_image_base64', {
-            param: { record_id: props.record.id }
-        }) as { id: string; base64_data: string };
+        const response = await clipApi.getImageBase64(props.record.id);
         
-        imageBase64Data.value = response.base64_data;
+        if (isSuccess(response)) {
+            imageBase64Data.value = response.data.base64_data;
+        } else {
+            imageError.value = true;
+            return;
+        }
         
         // 预加载图片确保能正常显示
         const img = new Image();
@@ -299,7 +302,7 @@ const confirmAutoPaste = async () => {
     
     // 继续执行自动粘贴
     try {
-        await invoke('copy_clip_record', { param: { record_id: props.record.id } });
+        await clipApi.copyRecord(props.record.id);
         emit('click', props.record);
         // 移除成功提示，只保留错误提示
     } catch (err: any) {
@@ -320,7 +323,9 @@ const cancelAutoPaste = async () => {
 const handleCardDoubleClick = async () => {
     // 检查自动粘贴设置
     try {
-        const settings = await invoke('load_settings') as any;
+        const settingsResponse = await settingsApi.loadSettings();
+        if (!isSuccess(settingsResponse)) return;
+        const settings = settingsResponse.data;
         if (settings.auto_paste === 1) {
             // 如果开启了自动粘贴，检查是否需要显示首次使用提示
             if (!checkFirstAutoPasteUsage()) {
@@ -333,7 +338,7 @@ const handleCardDoubleClick = async () => {
     }
 
     try {
-        await invoke('copy_clip_record', { param: { record_id: props.record.id } });
+        await clipApi.copyRecord(props.record.id);
         emit('click', props.record);
         // 移除成功提示，只保留错误提示
     } catch (err: any) {
@@ -348,7 +353,7 @@ const handleCardDoubleClick = async () => {
 // 复制按钮只复制，不触发自动粘贴
 const handleCopyOnly = async () => {
     try {
-        await invoke('copy_clip_record_no_paste', { param: { record_id: props.record.id } });
+        await clipApi.copyRecordNoPaste(props.record.id);
         // 移除成功提示，只保留错误提示
     } catch (err: any) {
         if (showMessageBar) {
@@ -367,12 +372,7 @@ const handleSmartCopy = (_content: string) => {
 // 复制单个文件
 const handleCopySingleFile = async (filePath: string) => {
     try {
-        await invoke('copy_single_file', { 
-            param: { 
-                record_id: props.record.id, 
-                file_path: filePath 
-            } 
-        });
+        await clipApi.copySingleFile(props.record.id, filePath);
         // 移除成功提示，只保留错误提示
     } catch (err: any) {
         if (showMessageBar) {
@@ -477,8 +477,7 @@ const fileList = computed(() => {
 });
 
 const handleSaveAs = async () => {
-    let param_obj = { record_id: props.record.id };
-    await invoke('image_save_as', { param: param_obj });
+    await clipApi.imageSaveAs(props.record.id);
 };
 
 const handleDelete = async () => {
@@ -486,8 +485,7 @@ const handleDelete = async () => {
 };
 
 const confirmDelete = async () => {
-    let param_obj = { record_id: props.record.id };
-    await invoke('del_record', { param: param_obj });
+    await clipApi.deleteRecord(props.record.id);
     emit('delete', props.record);
     showConfirm.value = false;
 };
@@ -497,8 +495,8 @@ const cancelDelete = () => {
 };
 
 const handlePin = async () => {
-    let param_obj = { record_id: props.record.id, pinned_flag: !props.record.pinned_flag ? 1 : 0 };
-    await invoke('set_pinned', { param: param_obj });
+    const newPinnedFlag = !props.record.pinned_flag ? 1 : 0;
+    await clipApi.setPinned(props.record.id, newPinnedFlag);
     emit('pin', props.record);
 };
 

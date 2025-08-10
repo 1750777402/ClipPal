@@ -70,12 +70,12 @@
 
 
 <script setup lang="ts">
-import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { ref, onMounted, onBeforeUnmount, watch, nextTick } from 'vue';
 import SettingsDialog from './SettingsDialog.vue';
 import ClipCard from './ClipCard.vue';
 import { useWindowAdaptive } from '../utils/responsive';
+import { clipApi, settingsApi, isSuccess } from '../utils/api';
 
 // 简单的防抖函数实现
 function debounce<T extends (...args: any[]) => any>(func: T, wait: number): (...args: Parameters<T>) => void {
@@ -191,23 +191,22 @@ const smartRefresh = () => {
 const silentRefresh = async () => {
   try {
     isRefreshing.value = true;
-    const data: ClipRecord[] = await invoke('get_clip_records', {
-      param: {
-        page: 1,
-        size: pageSize,
-        search: search.value
-      }
+    const response = await clipApi.getClipRecords({
+      page: 1,
+      size: pageSize,
+      search: search.value
     });
     
-    // 平滑更新数据
-    await nextTick();
-    cards.value = [...data];
-    page.value = 2;
-    hasMore.value = data.length >= pageSize;
-    lastFetchTime.value = Date.now();
+    if (isSuccess(response)) {
+      const data = response.data;
+      // 平滑更新数据
+      await nextTick();
+      cards.value = [...data];
+      page.value = 2;
+      hasMore.value = data.length >= pageSize;
+      lastFetchTime.value = Date.now();
+    }
     
-  } catch (error) {
-    console.error('静默刷新失败:', error);
   } finally {
     // 延迟移除刷新状态，让动画更平滑
     setTimeout(() => {
@@ -236,26 +235,28 @@ const fetchClipRecords = async (isRefresh = false) => {
       isFetchingMore.value = true;
     }
 
-    const data: ClipRecord[] = await invoke('get_clip_records', {
-      param: {
-        page: currentPage,
-        size: pageSize,
-        search: search.value
-      }
+    const response = await clipApi.getClipRecords({
+      page: currentPage,
+      size: pageSize,
+      search: search.value
     });
     
-    if (isRefresh || currentPage === 1) {
-      cards.value = [...data];
-    } else {
-      cards.value.push(...data);
+    // 使用新的API封装，静默处理失败
+    if (isSuccess(response)) {
+      const data = response.data;
+      
+      if (isRefresh || currentPage === 1) {
+        cards.value = [...data];
+      } else {
+        cards.value.push(...data);
+      }
+      
+      if (data.length < pageSize) hasMore.value = false;
+      page.value++;
+      lastFetchTime.value = now;
     }
+    // 错误处理由API层自动处理，这里不需要额外逻辑
     
-    if (data.length < pageSize) hasMore.value = false;
-    page.value++;
-    lastFetchTime.value = now;
-    
-  } catch (error) {
-    console.error('获取数据失败:', error);
   } finally {
     isInitialLoading.value = false;
     isFetchingMore.value = false;
@@ -327,24 +328,28 @@ const cloudSyncEnabled = ref(false);
 
 // 页面加载时自动加载设置
 const loadCloudSyncSetting = async () => {
-  try {
-    const settings = await invoke('load_settings') as { cloud_sync: number };
-    cloudSyncEnabled.value = settings.cloud_sync === 1;
-  } catch (e) {
+  const response = await settingsApi.loadSettings();
+  if (isSuccess(response)) {
+    cloudSyncEnabled.value = response.data.cloud_sync === 1;
+  } else {
     cloudSyncEnabled.value = false;
   }
 };
 
 // 顶部云同步按钮点击
 const handleCloudSyncClick = async () => {
-  try {
-    const settings = await invoke('load_settings') as any;
-    const newValue = cloudSyncEnabled.value ? 0 : 1;
-    settings.cloud_sync = newValue;
-    await invoke('save_settings', { settings });
+  const loadResponse = await settingsApi.loadSettings();
+  if (!isSuccess(loadResponse)) return;
+  
+  const settings = loadResponse.data;
+  const newValue = cloudSyncEnabled.value ? 0 : 1;
+  settings.cloud_sync = newValue;
+  
+  const saveResponse = await settingsApi.saveSettings({ settings });
+  if (isSuccess(saveResponse)) {
     cloudSyncEnabled.value = newValue === 1;
     smartRefresh();
-  } catch (e) {}
+  }
 };
 
 // 设置弹窗保存后同步cloudSyncEnabled

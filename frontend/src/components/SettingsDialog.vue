@@ -98,8 +98,8 @@
 
 <script setup lang="ts">
 import { ref, watch, onMounted, onBeforeUnmount, computed } from 'vue';
-import { invoke } from '@tauri-apps/api/core';
 import { useWindowAdaptive, generateResponsiveClasses } from '../utils/responsive';
+import { settingsApi, isSuccess } from '../utils/api';
 
 const props = defineProps<{
   modelValue: boolean
@@ -172,7 +172,9 @@ const convertDisplayToStorage = (displayKey: string): string => {
 watch(() => props.modelValue, async (newVal) => {
   if (newVal) {
     try {
-      const currentSettings = await invoke('load_settings') as Settings;
+      const response = await settingsApi.loadSettings();
+      if (!isSuccess(response)) return;
+      const currentSettings = response.data;
       console.log('当前设置:', currentSettings);
       settings.value = { ...currentSettings };
       // 清除错误状态
@@ -198,7 +200,11 @@ const handleConfirm = async () => {
   
   isSaving.value = true;
   try {
-    await invoke('save_settings', { settings: settings.value });
+    const response = await settingsApi.saveSettings({ settings: settings.value });
+    if (!isSuccess(response)) {
+      console.error('设置保存失败');
+      return;
+    }
     emit('save', settings.value);
     handleClose();
   } catch (error) {
@@ -240,7 +246,8 @@ const validateShortcut = async (shortcut: string) => {
   try {
     // 验证时需要转换为存储格式
     const storageFormat = convertDisplayToStorage(shortcut);
-    const isValid = await invoke('validate_shortcut', { shortcut: storageFormat }) as boolean;
+    const response = await settingsApi.validateShortcut(storageFormat);
+    const isValid = isSuccess(response) && response.data;
     if (!isValid) {
       shortcutError.value = '快捷键不可用或已被占用';
     } else {
