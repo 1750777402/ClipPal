@@ -66,13 +66,17 @@ pub fn init_main_window(app: &App) -> tauri::Result<()> {
 
     // 延迟显示
     std::thread::sleep(std::time::Duration::from_millis(100));
-    if let Err(e) = main_window.show() {
-        log::error!("显示主窗口失败: {}", e);
-        return Err(e);
-    }
-    // 设置主窗口获取焦点
-    if let Err(e) = main_window.set_focus() {
-        log::error!("设置窗口焦点失败: {}", e);
+
+    let args: Vec<String> = std::env::args().collect();
+    if !args.contains(&"--autostart".to_string()) {
+        if let Err(e) = main_window.show() {
+            log::error!("显示主窗口失败: {}", e);
+            return Err(e);
+        }
+        // 设置主窗口获取焦点
+        if let Err(e) = main_window.set_focus() {
+            log::error!("设置窗口焦点失败: {}", e);
+        }
     }
 
     let main1 = main_window.clone();
