@@ -6,6 +6,7 @@ use tokio::time::{Duration, sleep};
 use uuid::Uuid;
 
 use crate::api::cloud_sync_api::{CloudSyncRequest, sync_clipboard, sync_server_time};
+use crate::biz::clip_record::{NOT_SYNCHRONIZED, SYNCHRONIZED};
 use crate::biz::clip_record_clean::try_clean_clip_record;
 use crate::biz::content_search::add_content_to_index;
 use crate::biz::sync_time::SyncTime;
@@ -76,6 +77,7 @@ impl CloudSyncTimer {
 
         let last_sync_time = SyncTime::select_last_time(&self.rb).await;
 
+        // 获取一次服务器时间，代表了本次同步的时间戳版本号
         let server_time = sync_server_time()
             .await
             .map_err(|e| AppError::General(format!("获取服务器时间失败: {}", e)))?
@@ -100,7 +102,6 @@ impl CloudSyncTimer {
             .map_err(|e| AppError::General(format!("云同步请求失败: {}", e)))?;
 
         if let Some(cloud_sync_res) = response {
-            let new_server_time = cloud_sync_res.timestamp;
             if let Some(clips) = cloud_sync_res.clips {
                 log::info!(
                     "云同步定时任务执行完成... 本次上传数据量: {}，拉取数据量：{}",
@@ -130,7 +131,7 @@ impl CloudSyncTimer {
                             os_type: clip.os_type.unwrap_or_default(),
                             sort: 0,
                             pinned_flag: 0,
-                            sync_flag: Some(2), // 设置为已同步
+                            sync_flag: Some(SYNCHRONIZED), // 设置为已同步
                             sync_time: clip.sync_time,
                             device_id: clip.device_id,
                             version: clip.version,
@@ -153,7 +154,7 @@ impl CloudSyncTimer {
                             ClipRecord::sync_del_by_ids(
                                 &self.rb,
                                 &vec![clip.id.unwrap_or_default()],
-                                new_server_time,
+                                server_time,
                             )
                             .await?;
                         }
@@ -161,11 +162,12 @@ impl CloudSyncTimer {
                 }
             }
 
-            ClipRecord::update_sync_flag(&self.rb, &ids, 2, new_server_time).await?;
+            ClipRecord::update_sync_flag(&self.rb, &ids, SYNCHRONIZED, server_time).await?;
             // 在最后的位置更新本次同步的服务器时间版本号   防止上面哪一步出现异常导致数据没同步成功
-            SyncTime::update_last_time(&self.rb, new_server_time).await?;
+            SyncTime::update_last_time(&self.rb, server_time).await?;
 
-            self.notify_frontend_sync_status_batch(&ids, 1).await?;
+            self.notify_frontend_sync_status_batch(&ids, SYNCHRONIZED)
+                .await?;
             // 同步完数据之后，检查是否需要删除过期数据
             tokio::spawn(async {
                 try_clean_clip_record().await;
@@ -179,7 +181,7 @@ impl CloudSyncTimer {
     }
 
     async fn get_unsynced_records(&self) -> AppResult<Vec<ClipRecord>> {
-        let records = ClipRecord::select_by_sync_flag(&self.rb, 0).await?;
+        let records = ClipRecord::select_by_sync_flag(&self.rb, NOT_SYNCHRONIZED).await?;
         Ok(records)
     }
 

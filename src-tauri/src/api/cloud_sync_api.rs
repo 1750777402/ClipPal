@@ -11,7 +11,6 @@ use serde_json::Value;
 // 云同步响应结构体
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CloudSyncResponse {
-    pub timestamp: u64,
     pub clips: Option<Vec<ClipRecordParam>>,
 }
 

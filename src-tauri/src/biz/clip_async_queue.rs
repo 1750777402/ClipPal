@@ -9,7 +9,7 @@ use tokio::time::{Duration, sleep};
 
 use crate::CONTEXT;
 use crate::api::cloud_sync_api::{SingleCloudSyncParam, sync_single_clip_record};
-use crate::biz::clip_record::ClipRecord;
+use crate::biz::clip_record::{ClipRecord, SYNCHRONIZED};
 use crate::errors::{AppError, AppResult};
 use crate::utils::lock_utils::GlobalSyncLock;
 
@@ -168,7 +168,7 @@ async fn handle_sync_inner(param: SingleCloudSyncParam) -> AppResult<()> {
 async fn notify_frontend_sync_status(ids: Vec<String>) {
     let payload = serde_json::json!({
         "clip_ids": ids,
-        "sync_flag": 2
+        "sync_flag": SYNCHRONIZED
     });
     let app_handle = CONTEXT.get::<AppHandle>();
     let _ = app_handle
