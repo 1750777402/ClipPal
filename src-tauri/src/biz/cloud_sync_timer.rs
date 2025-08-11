@@ -162,14 +162,15 @@ impl CloudSyncTimer {
             }
 
             ClipRecord::update_sync_flag(&self.rb, &ids, 2, new_server_time).await?;
+            // 在最后的位置更新本次同步的服务器时间版本号   防止上面哪一步出现异常导致数据没同步成功
+            SyncTime::update_last_time(&self.rb, new_server_time).await?;
+
             self.notify_frontend_sync_status_batch(&ids, 1).await?;
             // 同步完数据之后，检查是否需要删除过期数据
             tokio::spawn(async {
                 try_clean_clip_record().await;
             });
 
-            // 在最后的位置更新本次同步的服务器时间版本号   防止上面哪一步出现异常导致数据没同步成功
-            SyncTime::update_last_time(&self.rb, new_server_time).await?;
             Ok(())
         } else {
             log::warn!("云同步请求未返回数据");

@@ -1,7 +1,7 @@
+use crate::errors::{AppError, AppResult};
 use rbatis::{RBatis, crud, impl_select};
 use rbs::to_value;
 use serde::{Deserialize, Serialize};
-use crate::errors::{AppError, AppResult};
 
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
 pub struct SyncTime {
@@ -19,12 +19,14 @@ impl_select!(SyncTime{select_last() =>"`order by last_time desc`"});
 impl SyncTime {
     pub async fn update_last_time(rb: &RBatis, last_time: u64) -> AppResult<()> {
         let sql = format!(
-            "UPDATE sync_time SET last_time = ? WHERE id = {}",
+            "UPDATE sync_time SET last_time = ? WHERE id = '{}'",
             TABLE_KEY
         );
         let tx = rb.acquire_begin().await?;
         let _ = tx.exec(sql.as_str(), vec![to_value!(last_time)]).await;
-        tx.commit().await.map_err(|e| AppError::Database(rbatis::Error::from(e)))
+        tx.commit()
+            .await
+            .map_err(|e| AppError::Database(rbatis::Error::from(e)))
     }
 
     pub async fn insert_last_time(rb: &RBatis, last_time: u64) -> AppResult<()> {
@@ -34,7 +36,9 @@ impl SyncTime {
         );
         let tx = rb.acquire_begin().await?;
         let _ = tx.exec(sql.as_str(), vec![to_value!(last_time)]).await;
-        tx.commit().await.map_err(|e| AppError::Database(rbatis::Error::from(e)))
+        tx.commit()
+            .await
+            .map_err(|e| AppError::Database(rbatis::Error::from(e)))
     }
 
     pub async fn select_last_time(rb: &RBatis) -> u64 {
