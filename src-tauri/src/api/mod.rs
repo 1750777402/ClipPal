@@ -42,7 +42,7 @@ where
     let api_domain = get_api_domain()?;
     let url = format!("{}/{}", api_domain, path.trim_start_matches('/'));
     // let token = get_jwt_token();
-    let token = "eyJhbGciOiJIUzUxMiJ9.eyJyb2xlIjoiVVNFUiIsInR5cGUiOiJhY2Nlc3MiLCJ1c2VySWQiOjEsInN1YiI6ImFkbWluIiwiaXNzIjoiY2xpcC1wYWwtY2xvdWQiLCJpYXQiOjE3NTQ4OTQ1MzEsImV4cCI6MTc1NDk4MDkzMX0.-Q8hJw24eeX2CMJRvZwu1ZSoyoWXNZsVklFnt2trWnAOXwbWj25k-z3s_JI9UHWeOu6SaLE5NvpuxEDptvAr7Q";
+    let token = "eyJhbGciOiJIUzUxMiJ9.eyJyb2xlIjoiVVNFUiIsInR5cGUiOiJhY2Nlc3MiLCJ1c2VySWQiOjEsInN1YiI6ImFkbWluIiwiaXNzIjoiY2xpcC1wYWwtY2xvdWQiLCJpYXQiOjE3NTQ5ODE2MTcsImV4cCI6MTc1NTA2ODAxN30.fFHBNS3JQ6fyc-nW8Id0nucvJgi88y8AFInYmAtW1hnr6BGLSFROBL73qab9Zcf28v1tjyGmeT3viMOgqn_GKw";
     let headers = get_common_headers(&token);
     let client = HttpClient::new();
     let resp: ApiResponse<T> = client
