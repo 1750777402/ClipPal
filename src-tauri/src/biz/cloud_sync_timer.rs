@@ -5,14 +5,16 @@ use tauri::{AppHandle, Emitter};
 use tokio::time::{Duration, sleep};
 use uuid::Uuid;
 
-use crate::api::cloud_sync_api::{CloudSyncRequest, sync_clipboard, sync_server_time};
+use crate::api::cloud_sync_api::{
+    ClipRecordParam, CloudSyncRequest, sync_clipboard, sync_server_time,
+};
 use crate::biz::clip_record::{NOT_SYNCHRONIZED, SYNCHRONIZED};
 use crate::biz::clip_record_clean::try_clean_clip_record;
 use crate::biz::content_search::add_content_to_index;
 use crate::biz::sync_time::SyncTime;
 use crate::biz::system_setting::{SYNC_INTERVAL_SECONDS, check_cloud_sync_enabled};
 use crate::errors::{AppError, AppResult};
-use crate::utils::device_info::{GLOBAL_DEVICE_ID, GLOBAL_OS_TYPE};
+use crate::utils::device_info::GLOBAL_DEVICE_ID;
 use crate::utils::lock_utils::lock_utils::safe_read_lock;
 use crate::{
     CONTEXT,
@@ -89,12 +91,20 @@ impl CloudSyncTimer {
             .map(|record| record.id.clone())
             .collect();
 
+        let mut params: Vec<ClipRecordParam> = Vec::new();
+        let records = unsynced_record.clone();
+        if !records.is_empty() {
+            records.iter().for_each(|record| {
+                let param: ClipRecordParam = record.clone().into();
+                params.push(param);
+            });
+        }
+
         let sync_request = CloudSyncRequest {
-            clips: unsynced_record.clone(), // 本次需要同步的数据
+            clips: params, // 本次需要同步的数据
             timestamp: server_time,
             last_sync_time,
             device_id: GLOBAL_DEVICE_ID.clone(),
-            os_type: GLOBAL_OS_TYPE.clone(),
         };
 
         let response = sync_clipboard(&sync_request)
@@ -116,8 +126,7 @@ impl CloudSyncTimer {
                         &clip.md5_str.clone().unwrap_or_default(),
                     )
                     .await?;
-
-                    if check_res.is_empty() && clip.del_flag == Some(0) {
+                    if check_res.is_empty() && matches!(clip.del_flag, Some(0)) {
                         // 如果本地没有这条记录 并且这条记录不是已经删除的 那么就插入新记录
                         let new_id = Uuid::new_v4().to_string();
                         let content = clip.content.clone();
@@ -137,7 +146,8 @@ impl CloudSyncTimer {
                             version: clip.version,
                             del_flag: clip.del_flag,
                         };
-                        let _ = ClipRecord::insert_by_created_sort(&self.rb, obj).await?;
+                        let _ = ClipRecord::insert_by_created_sort(&self.rb, obj.clone()).await?;
+                        log::info!("同步数据后拉取到云端新数据，插入新记录: {:?}", obj);
                         // 插入成功后，更新搜索索引
                         tokio::spawn(async move {
                             if let Err(e) =
@@ -150,6 +160,10 @@ impl CloudSyncTimer {
                     } else {
                         // 如果本地有这条记录，那么查看是不是云端同步的是被删除的，如果是那么本地也逻辑删除  并且把同步状态设置为已同步
                         if clip.del_flag.unwrap_or_default() == 1 {
+                            log::info!(
+                                "同步数据后拉取到云端已删除数据，逻辑删除记录: {}",
+                                clip.md5_str.clone().unwrap_or_default()
+                            );
                             // 如果是删除操作，逻辑删除记录
                             ClipRecord::sync_del_by_ids(
                                 &self.rb,

@@ -88,7 +88,7 @@ pub fn consume_clip_record_queue(queue: AsyncQueue<ClipRecord>) {
                                 QueueEvent::Add(item) => {
                                     let param = SingleCloudSyncParam {
                                         r#type: 1,
-                                        clip: item.clone(),
+                                        clip: item.clone().into(),
                                     };
                                     let res = handle_sync_inner(param).await;
                                     if let Ok(_) = res {
@@ -99,7 +99,7 @@ pub fn consume_clip_record_queue(queue: AsyncQueue<ClipRecord>) {
                                 QueueEvent::Delete(item) => {
                                     let param = SingleCloudSyncParam {
                                         r#type: 2,
-                                        clip: item.clone(),
+                                        clip: item.clone().into(),
                                     };
                                     let _ = handle_sync_inner(param).await;
                                 }
@@ -128,14 +128,14 @@ pub fn consume_clip_record_queue(queue: AsyncQueue<ClipRecord>) {
 async fn handle_sync_inner(param: SingleCloudSyncParam) -> AppResult<()> {
     let res = sync_single_clip_record(&param).await;
     log::info!(
-        "同步单个剪贴板记录，粘贴记录：{}，结果：{:?}",
+        "同步单个剪贴板记录，粘贴记录：{:?}，结果：{:?}",
         param.clip.md5_str,
         res
     );
     match res {
         Ok(response) => {
             if let Some(success) = response {
-                let ids = vec![param.clip.id.clone()];
+                let ids = vec![param.clip.id.clone().unwrap_or_default()];
                 let rb: &RBatis = CONTEXT.get::<RBatis>();
 
                 let update_res = ClipRecord::update_sync_flag(rb, &ids, 2, success.timestamp).await;
@@ -143,7 +143,7 @@ async fn handle_sync_inner(param: SingleCloudSyncParam) -> AppResult<()> {
                     Ok(_) => Ok(()),
                     Err(e) => {
                         log::error!(
-                            "云同步单个粘贴板记录成功但更新本地同步状态失败，粘贴记录：{}，错误：{}",
+                            "云同步单个粘贴板记录成功但更新本地同步状态失败，粘贴记录：{:?}，错误：{}",
                             param.clip.id,
                             e
                         );
@@ -156,7 +156,7 @@ async fn handle_sync_inner(param: SingleCloudSyncParam) -> AppResult<()> {
         }
         Err(e) => {
             log::error!(
-                "同步单个剪贴板记录失败，粘贴记录：{}，错误：{}",
+                "同步单个剪贴板记录失败，粘贴记录：{:?}，错误：{}",
                 param.clip.id,
                 e
             );
