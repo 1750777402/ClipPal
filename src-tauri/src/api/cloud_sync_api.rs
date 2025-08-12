@@ -15,7 +15,9 @@ pub struct CloudSyncResponse {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ClipRecordParam {
+    #[serde(skip)]
     pub id: Option<String>,
     // 类型
     pub r#type: Option<String>,
@@ -45,14 +47,34 @@ pub struct ClipRecordParam {
     pub del_flag: Option<i32>,
 }
 
+impl From<ClipRecord> for ClipRecordParam {
+    fn from(record: ClipRecord) -> Self {
+        ClipRecordParam {
+            id: record.id.into(),
+            r#type: Some(record.r#type),
+            content: record.content,
+            md5_str: Some(record.md5_str),
+            created: Some(record.created),
+            user_id: Some(record.user_id),
+            os_type: Some(record.os_type),
+            sort: Some(record.sort),
+            pinned_flag: Some(record.pinned_flag),
+            sync_flag: record.sync_flag.into(),
+            sync_time: record.sync_time,
+            device_id: record.device_id,
+            version: record.version.into(),
+            del_flag: record.del_flag.into(),
+        }
+    }
+}
+
 // 云同步请求结构体
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CloudSyncRequest {
-    pub clips: Vec<ClipRecord>,
+    pub clips: Vec<ClipRecordParam>,
     pub timestamp: u64,
     pub last_sync_time: u64,
     pub device_id: String,
-    pub os_type: String,
 }
 
 // 云同步api
@@ -78,7 +100,7 @@ pub struct SingleCloudSyncResponse {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SingleCloudSyncParam {
     pub r#type: i32,
-    pub clip: ClipRecord,
+    pub clip: ClipRecordParam,
 }
 
 pub async fn sync_single_clip_record(
