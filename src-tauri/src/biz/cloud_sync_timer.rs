@@ -130,22 +130,11 @@ impl CloudSyncTimer {
                         // 如果本地没有这条记录 并且这条记录不是已经删除的 那么就插入新记录
                         let new_id = Uuid::new_v4().to_string();
                         let content = clip.content.clone();
-                        let obj = ClipRecord {
-                            id: new_id.clone(),
-                            user_id: clip.user_id.unwrap_or_default(),
-                            r#type: clip.r#type.unwrap_or_default(),
-                            content: clip.content,
-                            md5_str: clip.md5_str.unwrap_or_default(),
-                            created: clip.created.unwrap_or_default(),
-                            os_type: clip.os_type.unwrap_or_default(),
-                            sort: 0,
-                            pinned_flag: 0,
-                            sync_flag: Some(SYNCHRONIZED), // 设置为已同步
-                            sync_time: clip.sync_time,
-                            device_id: clip.device_id,
-                            version: clip.version,
-                            del_flag: clip.del_flag,
-                        };
+                        let mut obj = clip.to_clip_record();
+                        obj.sort = 0;
+                        obj.id = new_id.clone();
+                        obj.sync_flag = Some(SYNCHRONIZED); // 设置为已同步
+                        obj.pinned_flag = 0; // 默认不置顶
                         let _ = ClipRecord::insert_by_created_sort(&self.rb, obj.clone()).await?;
                         log::info!("同步数据后拉取到云端新数据，插入新记录: {:?}", obj);
                         // 插入成功后，更新搜索索引
