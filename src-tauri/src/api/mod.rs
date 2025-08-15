@@ -2,6 +2,7 @@ use crate::utils::config::get_cloud_sync_domain;
 use crate::utils::http_client::{ApiResponse, HttpClient, HttpError};
 use crate::utils::secure_store::SECURE_STORE;
 use std::collections::HashMap;
+use std::path::Path;
 
 pub mod cloud_sync_api;
 
@@ -42,7 +43,7 @@ where
     let api_domain = get_api_domain()?;
     let url = format!("{}/{}", api_domain, path.trim_start_matches('/'));
     // let token = get_jwt_token();
-    let token = "eyJhbGciOiJIUzUxMiJ9.eyJyb2xlIjoiVVNFUiIsInR5cGUiOiJhY2Nlc3MiLCJ1c2VySWQiOjEsInN1YiI6ImFkbWluIiwiaXNzIjoiY2xpcC1wYWwtY2xvdWQiLCJpYXQiOjE3NTQ5ODE2MTcsImV4cCI6MTc1NTA2ODAxN30.fFHBNS3JQ6fyc-nW8Id0nucvJgi88y8AFInYmAtW1hnr6BGLSFROBL73qab9Zcf28v1tjyGmeT3viMOgqn_GKw";
+    let token = "eyJhbGciOiJIUzUxMiJ9.eyJyb2xlIjoiVVNFUiIsInR5cGUiOiJhY2Nlc3MiLCJ1c2VySWQiOjEsInN1YiI6ImFkbWluIiwiaXNzIjoiY2xpcC1wYWwtY2xvdWQiLCJpYXQiOjE3NTUyNDIxMjIsImV4cCI6MTc1NTMyODUyMn0.-2NlccnuiFTsqDa3oMezUmIyh1dFXAmqplxPwm_k4uIdQuvIEslF-rXNFOIPC-4AeiOoHJ4cjG8U6OujT7g6Xw";
     let headers = get_common_headers(&token);
     let client = HttpClient::new();
     let resp: ApiResponse<T> = client
@@ -83,6 +84,36 @@ where
     } else {
         Err(HttpError::RequestFailed(format!(
             "API请求失败: {}",
+            resp.message
+        )))
+    }
+}
+
+/// 通用文件上传API请求方法，返回 ApiResponse<T> 的 data 字段
+pub async fn api_post_file<T>(
+    path: &str,
+    file_path: &Path,
+    form_data: &HashMap<String, String>,
+) -> Result<Option<T>, HttpError>
+where
+    T: for<'de> serde::Deserialize<'de>,
+{
+    let api_domain = get_api_domain()?;
+    let url = format!("{}/{}", api_domain, path.trim_start_matches('/'));
+    // let token = get_jwt_token();
+    let token = "eyJhbGciOiJIUzUxMiJ9.eyJyb2xlIjoiVVNFUiIsInR5cGUiOiJhY2Nlc3MiLCJ1c2VySWQiOjEsInN1YiI6ImFkbWluIiwiaXNzIjoiY2xpcC1wYWwtY2xvdWQiLCJpYXQiOjE3NTUyNDIxMjIsImV4cCI6MTc1NTMyODUyMn0.-2NlccnuiFTsqDa3oMezUmIyh1dFXAmqplxPwm_k4uIdQuvIEslF-rXNFOIPC-4AeiOoHJ4cjG8U6OujT7g6Xw";
+
+    // 为文件上传准备请求头（不包含Content-Type，让reqwest自动处理multipart）
+    let mut headers = HashMap::new();
+    headers.insert("Authorization".to_string(), format!("Bearer {}", token));
+
+    let client = HttpClient::new().headers(headers);
+    let resp: ApiResponse<T> = client.post_multipart(&url, file_path, form_data).await?;
+    if resp.code == 200 {
+        Ok(resp.data)
+    } else {
+        Err(HttpError::RequestFailed(format!(
+            "API文件上传请求失败: {}",
             resp.message
         )))
     }

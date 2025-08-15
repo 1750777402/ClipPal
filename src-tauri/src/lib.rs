@@ -10,6 +10,7 @@ use crate::{
             copy_clip_record, copy_clip_record_no_paste, copy_single_file, del_record,
             image_save_as, set_pinned,
         },
+        file_sync_timer::start_file_sync_timer,
         query_clip_record::{get_clip_records, get_image_base64},
         system_setting::{init_settings, load_settings, save_settings, validate_shortcut},
     },
@@ -152,6 +153,11 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
                 CONTEXT.set(queue.clone());
                 // 启动队列消费
                 consume_clip_record_queue(queue);
+
+                // 启动文件同步定时任务
+                start_file_sync_timer();
+
+
                 // 开启粘贴板内容监听器
                 manager.start_event_loop();
             }

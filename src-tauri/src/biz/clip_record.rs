@@ -7,6 +7,7 @@ use serde_json::Value;
 pub static NOT_SYNCHRONIZED: i32 = 0; // 未同步
 pub static SYNCHRONIZING: i32 = 1; // 同步中
 pub static SYNCHRONIZED: i32 = 2; // 已同步
+pub static SKIP_SYNC: i32 = 3; // 跳过同步（文件过大等原因）
 
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
 pub struct ClipRecord {
@@ -54,6 +55,8 @@ impl_select!(ClipRecord{check_by_type_and_md5(content_type:&str, md5_str:&str) =
 impl_select!(ClipRecord{select_max_sort(user_id: i32) =>"`where user_id = #{user_id} order by sort desc, created desc limit 1`"});
 // 根据sync_flag查询记录
 impl_select!(ClipRecord{select_by_sync_flag(sync_flag: i32) =>"`where sync_flag = #{sync_flag} order by created desc`"});
+// 根据sync_flag查询记录
+impl_select!(ClipRecord{select_by_sync_flag_limit(sync_flag: i32, limit: i32) =>"`where sync_flag = #{sync_flag} order by created desc limit #{limit}`"});
 // 根据created时间戳查询下一条记录
 impl_select!(ClipRecord{select_order_by_created(created: u64) =>"`where created >= #{created} order by created desc limit 1`"});
 // 查询已经逻辑删除并且已同步的数据

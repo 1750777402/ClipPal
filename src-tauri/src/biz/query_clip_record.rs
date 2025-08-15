@@ -146,34 +146,57 @@ pub async fn get_clip_records(param: QueryParam) -> Result<Vec<ClipRecordDTO>, S
 
 pub fn get_file_info(paths: String) -> Vec<FileInfo> {
     let paths = paths.split(":::").collect::<Vec<&str>>();
+    log::debug!("正在处理文件路径: {:?}", paths);
+    
     paths
         .iter()
         .filter_map(|path| {
             let path = path.trim();
             if path.is_empty() {
+                log::debug!("跳过空路径");
                 return None;
             }
 
             let path_buf = Path::new(path);
-            if !path_buf.exists() {
-                return None;
-            }
-
-            // 获取文件元数据
-            let metadata = match fs::metadata(path_buf) {
-                Ok(meta) => meta,
-                Err(_) => return None,
-            };
-
-            // 获取文件扩展名
+            
+            // 获取文件扩展名（即使文件不存在也能获取）
             let file_type = path_buf
                 .extension()
                 .and_then(|ext| ext.to_str())
                 .unwrap_or("未知")
                 .to_lowercase();
+            
+            if !path_buf.exists() {
+                log::warn!("文件不存在，但仍显示基本信息: {}", path);
+                // 文件不存在时仍然显示基本信息，方便用户了解原始文件
+                return Some(FileInfo {
+                    path: path.to_string(),
+                    size: -1, // 使用-1表示文件不存在，前端可以据此显示特殊状态
+                    r#type: file_type,
+                });
+            }
 
-            // 获取文件大小
-            let size = metadata.len() as i32;
+            // 获取文件元数据
+            let metadata = match fs::metadata(path_buf) {
+                Ok(meta) => meta,
+                Err(e) => {
+                    log::warn!("读取文件元数据失败，但仍显示基本信息: {}, 错误: {}", path, e);
+                    // 读取元数据失败时仍然显示基本信息
+                    return Some(FileInfo {
+                        path: path.to_string(),
+                        size: -2, // 使用-2表示文件存在但无法读取元数据
+                        r#type: file_type,
+                    });
+                }
+            };
+
+            // 获取文件大小，处理大文件的情况
+            let size = if metadata.len() > i32::MAX as u64 {
+                log::warn!("文件大小超过i32范围: {} 字节，文件: {}", metadata.len(), path);
+                i32::MAX // 对于超大文件，使用i32最大值
+            } else {
+                metadata.len() as i32
+            };
 
             Some(FileInfo {
                 path: path.to_string(),

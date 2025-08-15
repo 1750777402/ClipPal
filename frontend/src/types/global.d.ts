@@ -17,7 +17,7 @@ export interface ClipRecord {
     width?: number;
     height?: number;
   };
-  sync_flag?: 0 | 1 | 2; // 0: 未同步, 1: 同步中, 2: 已同步
+  sync_flag?: 0 | 1 | 2 | 3; // 0: 未同步, 1: 同步中, 2: 已同步, 3: 跳过同步
 }
 
 // 文件信息类型

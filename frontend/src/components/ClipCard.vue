@@ -19,6 +19,9 @@
                             <i class="iconfont icon-loading sync-loading"></i>
                         </span>
                         <span v-else-if="record.sync_flag === 2" class="sync-synced" title="已同步"></span>
+                        <span v-else-if="record.sync_flag === 3" class="sync-skipped" title="跳过同步（文件过大）">
+                            <i class="iconfont icon-tishi"></i>
+                        </span>
                     </div>
                 </div>
                 <span class="time-text">{{ formatTime(record.created) }}</span>
@@ -89,6 +92,8 @@
                                 <span class="file-name" :title="file.path">{{ getFileName(file.path) }}</span>
                                 <span class="file-meta">
                                     {{ formatFileSize(file.size) }} · {{ file.type || getFileType(file.path) }}
+                                    <span v-if="file.size === -1" class="file-status file-missing">（文件不存在）</span>
+                                    <span v-else-if="file.size === -2" class="file-status file-error">（无法读取）</span>
                                 </span>
                             </div>
                             <button v-if="fileList.length > 1" class="single-copy-btn" @click.stop="handleCopySingleFile(file.path)" 
@@ -367,11 +372,20 @@ const formatTime = (timestamp: number) => {
 };
 
 const formatFileSize = (bytes: number) => {
+    if (bytes === -1) return '未知'; // 文件不存在
+    if (bytes === -2) return '未知'; // 无法读取元数据
     if (bytes === 0) return '0 B';
     const k = 1024;
     const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
     const i = Math.floor(Math.log(bytes) / Math.log(k));
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+};
+
+// 检查文件大小是否超过云同步限制（5MB）
+const isFileSizeExceeded = (bytes: number) => {
+    if (bytes <= 0) return false; // 特殊状态不算超过限制
+    const maxSizeBytes = 5 * 1024 * 1024; // 5MB in bytes
+    return bytes > maxSizeBytes;
 };
 
 const getFileType = (filename: string) => {
@@ -452,6 +466,19 @@ const fileList = computed(() => {
         }
     }
     return [];
+});
+
+// 检查是否有超过大小限制的文件
+const hasOversizedFiles = computed(() => {
+    return fileList.value.some((file: any) => isFileSizeExceeded(file.size));
+});
+
+// 检查图片是否超过大小限制
+const isImageSizeExceeded = computed(() => {
+    if (props.record.type === 'Image' && props.record.image_info) {
+        return isFileSizeExceeded(Number(props.record.image_info.size));
+    }
+    return false;
 });
 
 const handleSaveAs = async () => {
@@ -550,6 +577,7 @@ onMounted(() => {
 .sync-unsynced { color: #f39c12; }
 .sync-syncing { color: #3498db; }
 .sync-synced { color: #2ecc71; }
+.sync-skipped { color: #95a5a6; }
 
 .sync-loading {
   display: inline-block;
@@ -569,6 +597,7 @@ onMounted(() => {
   animation: pulse-sync 2s ease-in-out infinite;
 }
 .clip-card.sync-flag-2 { border-color: #2ecc71; background: #f0fff0; }
+.clip-card.sync-flag-3 { border-color: #95a5a6; background: #f8f9fa; }
 
 @keyframes pulse-sync {
   0%, 100% { 
@@ -607,6 +636,11 @@ onMounted(() => {
 
 .sync-synced {
   background: #2ecc71;
+  color: white;
+}
+
+.sync-skipped {
+  background: #95a5a6;
   color: white;
 }
 
@@ -983,6 +1017,12 @@ onMounted(() => {
     margin-top: 4px;
 }
 
+.image-size-warning {
+    color: #dd6b20;
+    font-weight: 500;
+    margin-left: 4px;
+}
+
 .image-error {
     width: 100%;
     height: 100%;
@@ -1114,12 +1154,53 @@ onMounted(() => {
     color: var(--text-secondary, #64748b);
 }
 
+.file-status {
+    font-size: 10px;
+    font-weight: 500;
+    margin-left: 4px;
+    padding: 1px 4px;
+    border-radius: 3px;
+}
+
+.file-missing {
+    color: #e53e3e;
+    background: rgba(229, 62, 62, 0.1);
+}
+
+.file-error {
+    color: #d69e2e;
+    background: rgba(214, 158, 46, 0.1);
+}
+
+.file-oversized {
+    color: #dd6b20;
+    background: rgba(221, 107, 32, 0.1);
+}
+
 .file-count {
     margin-top: 10px;
     font-size: 11px;
     color: var(--text-secondary, #64748b);
     text-align: right;
     padding-right: 6px;
+}
+
+.oversized-warning {
+    margin-top: 8px;
+    padding: 6px 8px;
+    background: rgba(221, 107, 32, 0.08);
+    border: 1px solid rgba(221, 107, 32, 0.2);
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    color: #dd6b20;
+}
+
+.oversized-warning .iconfont {
+    font-size: 12px;
+    flex-shrink: 0;
 }
 
 /* 单文件复制按钮样式 */
@@ -1692,6 +1773,19 @@ onMounted(() => {
   height: 6px;
   border-radius: 50%;
   background: #2ecc71;
+}
+
+.sync-skipped {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #95a5a6;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 6px;
+  color: white;
+  position: relative;
 }
 
 .sync-loading {

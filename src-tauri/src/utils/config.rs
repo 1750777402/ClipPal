@@ -18,6 +18,7 @@ pub struct AppSecret {
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct CloudSync {
     pub domain: String,
+    pub max_file_size_kb: u64,
 }
 
 /// 配置管理器
@@ -68,4 +69,10 @@ pub fn get_cloud_sync() -> AppResult<&'static CloudSync> {
 pub fn get_cloud_sync_domain() -> AppResult<&'static str> {
     let secret = get_cloud_sync()?;
     Ok(&secret.domain)
+}
+
+/// 获取全局缓存的文件大小限制（字节）
+pub fn get_max_file_size_bytes() -> AppResult<u64> {
+    let cloud_sync = get_cloud_sync()?;
+    Ok(cloud_sync.max_file_size_kb * 1024)
 }

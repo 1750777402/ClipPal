@@ -119,7 +119,7 @@ interface ClipRecord {
   pinned_flag?: number;
   file_info?: FileInfo[];
   image_info?: ImageInfo;
-  sync_flag?: 0 | 1 | 2; // 0未同步 1同步中 2已同步
+  sync_flag?: 0 | 1 | 2 | 3; // 0未同步 1同步中 2已同步 3跳过同步
 }
 
 interface ImageInfo {
@@ -151,13 +151,13 @@ const initEventListeners = async () => {
     });
     // 单个同步状态更新
     await listen('sync_status_update', (event) => {
-      const { clip_id, sync_flag } = event.payload as { clip_id: string, sync_flag: 0 | 1 | 2 };
+      const { clip_id, sync_flag } = event.payload as { clip_id: string, sync_flag: 0 | 1 | 2 | 3 };
       const card = cards.value.find(c => c.id === clip_id);
       if (card) card.sync_flag = sync_flag;
     });
     // 批量同步状态更新
     await listen('sync_status_update_batch', (event) => {
-      const { clip_ids, sync_flag } = event.payload as { clip_ids: string[], sync_flag: 0 | 1 | 2 };
+      const { clip_ids, sync_flag } = event.payload as { clip_ids: string[], sync_flag: 0 | 1 | 2 | 3 };
       // 批量更新卡片状态
       clip_ids.forEach(clip_id => {
         const card = cards.value.find(c => c.id === clip_id);

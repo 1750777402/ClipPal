@@ -1,10 +1,13 @@
+use std::path::PathBuf;
+
 use crate::{
-    api::{api_get, api_post},
+    api::{api_get, api_post, api_post_file},
     biz::clip_record::ClipRecord,
     utils::http_client::HttpError,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::collections::HashMap;
 
 // ----------------------------------------- 云同步api ------------------------------------------------------
 
@@ -128,4 +131,32 @@ pub async fn sync_single_clip_record(
     record: &SingleCloudSyncParam,
 ) -> Result<Option<SingleCloudSyncResponse>, HttpError> {
     api_post("POST", "cliPal-sync/sync/single", Some(record)).await
+}
+
+// ------------------------------------------上传粘贴记录的文件内容--------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FileCloudSyncResponse {
+    pub timestamp: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FileCloudSyncParam {
+    pub md5_str: String,
+    pub r#type: String,
+    #[serde(skip)]
+    pub file: PathBuf,
+}
+
+pub async fn upload_file_clip_record(
+    record: &FileCloudSyncParam,
+) -> Result<Option<FileCloudSyncResponse>, HttpError> {
+    // 准备form-data参数
+    let mut form_data = HashMap::new();
+    form_data.insert("md5Str".to_string(), record.md5_str.clone());
+    form_data.insert("type".to_string(), record.r#type.clone());
+
+    api_post_file("cliPal-sync/sync/upload", &record.file, &form_data).await
 }
