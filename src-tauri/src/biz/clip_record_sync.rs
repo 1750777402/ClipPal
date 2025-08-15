@@ -223,23 +223,12 @@ async fn handle_image(
 
             match ClipRecord::insert(rb, &record).await {
                 Ok(_) => {
-                    // 无论图片大小是否超过限制，都要保存到资源文件夹
-                    // 大小限制只影响云同步，不影响本地存储
-                    save_img_to_resource(&id, rb, data).await;
-
-                    if is_oversized {
-                        log::info!(
-                            "保存超大图片记录成功（跳过云同步），记录ID: {}, 大小: {} 字节",
-                            id,
-                            data.len()
-                        );
-                    } else {
-                        log::info!(
-                            "保存图片记录成功，记录ID: {}, 大小: {} 字节",
-                            id,
-                            data.len()
-                        );
+                    // 保存图片到资源目录并生成文件名
+                    if let Some(filename) = save_img_to_resource(&id, rb, data).await {
+                        // 更新record的content字段为文件名
+                        record.content = Value::String(filename);
                     }
+
                     Ok(Some(record))
                 }
                 Err(e) => {
@@ -388,7 +377,7 @@ async fn handle_file(
     }
 }
 
-async fn save_img_to_resource(data_id: &str, rb: &RBatis, image: &Vec<u8>) {
+async fn save_img_to_resource(data_id: &str, rb: &RBatis, image: &Vec<u8>) -> Option<String> {
     if let Some(resource_path) = get_resources_dir() {
         // 生成唯一文件名
         let uid = Uuid::new_v4().to_string();
@@ -404,6 +393,7 @@ async fn save_img_to_resource(data_id: &str, rb: &RBatis, image: &Vec<u8>) {
                 if file.write_all(image).is_ok() && file.flush().is_ok() {
                     // 写成功后，记录相对路径到数据库
                     let _ = ClipRecord::update_content(rb, data_id, &filename).await;
+                    return Some(filename);
                 } else {
                     log::error!("写入图片失败");
                 }
@@ -416,4 +406,5 @@ async fn save_img_to_resource(data_id: &str, rb: &RBatis, image: &Vec<u8>) {
     } else {
         log::error!("资源路径获取失败");
     }
+    None
 }

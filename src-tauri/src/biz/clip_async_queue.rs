@@ -146,17 +146,39 @@ async fn handle_sync_inner(param: SingleCloudSyncParam) -> AppResult<()> {
                 let record_type = param.clip.r#type.clone().unwrap_or_default();
                 match record_type.as_str() {
                     "Image" => {
-                        handle_file_type_sync(rb, &ids, &record_id, success.timestamp, 
-                                            check_file_size_for_image(&param.clip).await, "图片").await
+                        handle_file_type_sync(
+                            rb,
+                            &ids,
+                            &record_id,
+                            success.timestamp,
+                            check_file_size_for_image(&param.clip).await,
+                            "图片",
+                        )
+                        .await
                     }
                     "File" => {
-                        handle_file_type_sync(rb, &ids, &record_id, success.timestamp,
-                                            check_file_size_for_files(&param.clip).await, "文件").await
+                        handle_file_type_sync(
+                            rb,
+                            &ids,
+                            &record_id,
+                            success.timestamp,
+                            check_file_size_for_files(&param.clip).await,
+                            "文件",
+                        )
+                        .await
                     }
                     _ => {
                         // 文本类型：直接标记为SYNCHRONIZED
-                        update_sync_flag_with_log(rb, &ids, SYNCHRONIZED, success.timestamp, 
-                                                &record_id, "文本记录已同步", "同步单个剪贴板记录失败").await
+                        update_sync_flag_with_log(
+                            rb,
+                            &ids,
+                            SYNCHRONIZED,
+                            success.timestamp,
+                            &record_id,
+                            "文本记录已同步",
+                            "同步单个剪贴板记录失败",
+                        )
+                        .await
                     }
                 }
             } else {
@@ -198,18 +220,28 @@ async fn handle_file_type_sync(
         Err(_) => {
             // 文件大小超过限制，直接标记为SKIP_SYNC
             update_sync_flag_with_log(
-                rb, ids, SKIP_SYNC, timestamp, record_id,
+                rb,
+                ids,
+                SKIP_SYNC,
+                timestamp,
+                record_id,
                 &format!("{}文件大小超过限制，标记为跳过同步", file_type),
-                &format!("标记{}记录跳过同步失败", file_type)
-            ).await
+                &format!("标记{}记录跳过同步失败", file_type),
+            )
+            .await
         }
         Ok(_) => {
             // 文件大小正常，标记为SYNCHRONIZING
             update_sync_flag_with_log(
-                rb, ids, SYNCHRONIZING, timestamp, record_id,
+                rb,
+                ids,
+                SYNCHRONIZING,
+                timestamp,
+                record_id,
                 &format!("{}记录标记为同步中，等待文件上传队列处理", file_type),
-                &format!("同步{}记录失败", file_type)
-            ).await
+                &format!("同步{}记录失败", file_type),
+            )
+            .await
         }
     }
 }
@@ -294,6 +326,6 @@ fn check_single_file_size(file_path: &PathBuf) -> Result<(), String> {
                 Ok(())
             }
         }
-        Err(e) => Err(format!("读取文件元数据失败: {}", e))
+        Err(e) => Err(format!("读取文件元数据失败: {}", e)),
     }
 }
