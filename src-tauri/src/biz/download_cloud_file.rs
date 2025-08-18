@@ -1,10 +1,8 @@
 use std::path::PathBuf;
 
-use chrono::prelude::*;
 use clipboard_listener::ClipType;
 use tauri::{AppHandle, Emitter};
 use tokio::time::Duration;
-use uuid::Uuid;
 
 use crate::{
     CONTEXT,
@@ -111,7 +109,7 @@ async fn download_cloud_file_for_record(
 
     match download_cloud_file_to_local(
         &download_response.url,
-        &record.md5_str,
+        &download_response.file_name,
         &record.r#type,
         &record.id,
     )
@@ -153,12 +151,12 @@ async fn download_cloud_file_for_record(
 
 async fn download_cloud_file_to_local(
     url: &str,
-    md5_str: &str,
+    cloud_file_name: &str,
     file_type: &str,
     record_id: &str,
 ) -> AppResult<String> {
-    // 确定保存路径
-    let save_path = determine_save_path_simple(file_type, md5_str)?;
+    // 确定保存路径 - 使用云端返回的原始文件名
+    let save_path = determine_save_path_from_cloud(file_type, cloud_file_name)?;
 
     log::debug!(
         "Downloading cloud file: record_id={}, url={}, save_path={:?}",
@@ -178,44 +176,62 @@ async fn download_cloud_file_to_local(
         save_path
     );
 
-    // 返回相对路径
+    // 返回相对路径（与云端存储的格式保持一致）
     if let Some(resources_dir) = get_resources_dir() {
         if let Ok(relative_path) = save_path.strip_prefix(&resources_dir) {
-            Ok(relative_path.to_string_lossy().to_string())
+            let relative_path_str = relative_path.to_string_lossy().to_string();
+            // 标准化路径分隔符，确保跨平台一致性
+            let normalized_path = relative_path_str.replace('\\', "/");
+            Ok(normalized_path)
         } else {
-            Ok(save_path.to_string_lossy().to_string())
+            // 如果无法获取相对路径，返回云端原始文件名（兜底方案）
+            log::warn!("无法计算相对路径，使用原始云端文件名: {}", cloud_file_name);
+            Ok(cloud_file_name.to_string())
         }
     } else {
-        Ok(save_path.to_string_lossy().to_string())
+        // 如果无法获取resources目录，返回云端原始文件名（兜底方案）
+        log::warn!(
+            "无法获取resources目录，使用原始云端文件名: {}",
+            cloud_file_name
+        );
+        Ok(cloud_file_name.to_string())
     }
 }
 
-fn determine_save_path_simple(file_type: &str, md5_str: &str) -> AppResult<PathBuf> {
+fn determine_save_path_from_cloud(file_type: &str, cloud_file_name: &str) -> AppResult<PathBuf> {
     let resources_dir = get_resources_dir()
         .ok_or_else(|| AppError::Config("Failed to get resources directory".to_string()))?;
 
     match file_type {
         x if x == ClipType::Image.to_string() => {
-            // 按照现有逻辑生成图片文件名：{timestamp}_{uuid}.png
-            let now = Local::now().format("%Y%m%d%H%M%S").to_string();
-            let uid = Uuid::new_v4().to_string();
-            let filename = format!("{}_{}.png", now, uid);
-            Ok(resources_dir.join(filename))
+            // 图片文件直接使用云端返回的文件名
+            // 云端的文件名应该已经是相对于resources目录的路径
+            Ok(resources_dir.join(cloud_file_name))
         }
         x if x == ClipType::File.to_string() => {
-            // 混合存储方案：所有云下载的文件都保存到resources/files目录
-            // 使用md5 + uuid确保文件名唯一性，避免冲突
-            // 由于是从云端下载，我们无法获知原始文件扩展名，统一使用.dat
-            let uid = Uuid::new_v4().simple();
-            let filename = format!("{}_{}.dat", md5_str, uid);
+            // 文件类型使用云端返回的路径
+            // 云端存储的应该是 "files/原始文件名" 的格式
+            let file_path = if cloud_file_name.starts_with("files/") {
+                // 如果云端已经包含files/前缀，直接使用
+                cloud_file_name.to_string()
+            } else {
+                // 如果没有前缀，添加files/前缀（兼容性处理）
+                format!("files/{}", cloud_file_name)
+            };
 
-            // 确保files子目录存在
-            let files_dir = resources_dir.join("files");
-            if !files_dir.exists() {
-                std::fs::create_dir_all(&files_dir).map_err(|e| AppError::Io(e))?;
+            let full_path = resources_dir.join(&file_path);
+
+            // 确保父目录存在
+            if let Some(parent_dir) = full_path.parent() {
+                if !parent_dir.exists() {
+                    std::fs::create_dir_all(parent_dir).map_err(|e| {
+                        log::error!("创建目录失败: {:?}, 错误: {}", parent_dir, e);
+                        AppError::Io(e)
+                    })?;
+                }
             }
 
-            Ok(files_dir.join(filename))
+            Ok(full_path)
         }
         _ => Err(AppError::Config("Unsupported file type".to_string())),
     }
