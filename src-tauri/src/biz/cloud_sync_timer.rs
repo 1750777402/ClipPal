@@ -9,22 +9,22 @@ use uuid::Uuid;
 use crate::api::cloud_sync_api::{
     ClipRecordParam, CloudSyncRequest, sync_clipboard, sync_server_time,
 };
-use crate::biz::clip_record::{NOT_SYNCHRONIZED, SYNCHRONIZED, SYNCHRONIZING, SKIP_SYNC};
+use crate::biz::clip_record::{NOT_SYNCHRONIZED, SKIP_SYNC, SYNCHRONIZED, SYNCHRONIZING};
 use crate::biz::clip_record_clean::try_clean_clip_record;
 use crate::biz::content_search::add_content_to_index;
 use crate::biz::sync_time::SyncTime;
 use crate::biz::system_setting::{SYNC_INTERVAL_SECONDS, check_cloud_sync_enabled};
 use crate::errors::{AppError, AppResult};
-use crate::utils::device_info::GLOBAL_DEVICE_ID;
 use crate::utils::config::get_max_file_size_bytes;
+use crate::utils::device_info::GLOBAL_DEVICE_ID;
 use crate::utils::file_dir::get_resources_dir;
-use std::path::PathBuf;
 use crate::utils::lock_utils::lock_utils::safe_read_lock;
 use crate::{
     CONTEXT,
     biz::{clip_record::ClipRecord, system_setting::Settings},
     utils::lock_utils::GlobalSyncLock,
 };
+use std::path::PathBuf;
 
 pub struct CloudSyncTimer {
     app_handle: AppHandle,
@@ -138,7 +138,14 @@ impl CloudSyncTimer {
                         obj.sort = 0;
                         obj.id = new_id.clone();
                         obj.sync_flag = Some(SYNCHRONIZED); // 设置为已同步
+                        if obj.r#type == ClipType::Image.to_string()
+                            || obj.r#type == ClipType::File.to_string()
+                        {
+                            // 如果从云端拉取下来的是图片或者文件类型   设置为同步中  等待拉取文件数据
+                            obj.sync_flag = Some(SYNCHRONIZING);
+                        }
                         obj.pinned_flag = 0; // 默认不置顶
+                        obj.cloud_source = Some(1); // 云端同步下来的设置为1
                         let _ = ClipRecord::insert_by_created_sort(&self.rb, obj.clone()).await?;
                         log::info!("同步数据后拉取到云端新数据，插入新记录: {:?}", obj);
                         // 插入成功后，更新搜索索引
@@ -230,19 +237,43 @@ impl CloudSyncTimer {
 
         // 图片类型：检查文件大小，超过限制的跳过同步，否则标记为同步中
         let (image_sync_ids, image_skip_ids) = self.categorize_image_records(image_records).await;
-        
-        self.batch_update_sync_status(&image_sync_ids, SYNCHRONIZING, server_time,
-                                     "图片", "同步中，等待文件上传队列处理").await?;
-        self.batch_update_sync_status(&image_skip_ids, SKIP_SYNC, server_time,
-                                     "图片", "跳过同步（文件大小超过限制）").await?;
+
+        self.batch_update_sync_status(
+            &image_sync_ids,
+            SYNCHRONIZING,
+            server_time,
+            "图片",
+            "同步中，等待文件上传队列处理",
+        )
+        .await?;
+        self.batch_update_sync_status(
+            &image_skip_ids,
+            SKIP_SYNC,
+            server_time,
+            "图片",
+            "跳过同步（文件大小超过限制）",
+        )
+        .await?;
 
         // 文件类型：检查文件大小，超过限制的跳过同步，否则标记为同步中
         let (file_sync_ids, file_skip_ids) = self.categorize_file_records(file_records).await;
-        
-        self.batch_update_sync_status(&file_sync_ids, SYNCHRONIZING, server_time,
-                                     "文件", "同步中，等待文件上传队列处理").await?;
-        self.batch_update_sync_status(&file_skip_ids, SKIP_SYNC, server_time,
-                                     "文件", "跳过同步（文件大小超过限制）").await?;
+
+        self.batch_update_sync_status(
+            &file_sync_ids,
+            SYNCHRONIZING,
+            server_time,
+            "文件",
+            "同步中，等待文件上传队列处理",
+        )
+        .await?;
+        self.batch_update_sync_status(
+            &file_skip_ids,
+            SKIP_SYNC,
+            server_time,
+            "文件",
+            "跳过同步（文件大小超过限制）",
+        )
+        .await?;
 
         Ok(())
     }
@@ -275,10 +306,13 @@ impl CloudSyncTimer {
     }
 
     /// 分类图片记录
-    async fn categorize_image_records(&self, records: Vec<&ClipRecord>) -> (Vec<String>, Vec<String>) {
+    async fn categorize_image_records(
+        &self,
+        records: Vec<&ClipRecord>,
+    ) -> (Vec<String>, Vec<String>) {
         let mut sync_ids = Vec::new();
         let mut skip_ids = Vec::new();
-        
+
         for record in records {
             if self.check_image_file_size(record).await.is_err() {
                 skip_ids.push(record.id.clone());
@@ -286,15 +320,18 @@ impl CloudSyncTimer {
                 sync_ids.push(record.id.clone());
             }
         }
-        
+
         (sync_ids, skip_ids)
     }
 
     /// 分类文件记录
-    async fn categorize_file_records(&self, records: Vec<&ClipRecord>) -> (Vec<String>, Vec<String>) {
+    async fn categorize_file_records(
+        &self,
+        records: Vec<&ClipRecord>,
+    ) -> (Vec<String>, Vec<String>) {
         let mut sync_ids = Vec::new();
         let mut skip_ids = Vec::new();
-        
+
         for record in records {
             if self.check_files_size(record).await.is_err() {
                 skip_ids.push(record.id.clone());
@@ -302,7 +339,7 @@ impl CloudSyncTimer {
                 sync_ids.push(record.id.clone());
             }
         }
-        
+
         (sync_ids, skip_ids)
     }
 
@@ -317,8 +354,14 @@ impl CloudSyncTimer {
     ) -> AppResult<()> {
         if !ids.is_empty() {
             ClipRecord::update_sync_flag(&self.rb, ids, sync_flag, server_time).await?;
-            self.notify_frontend_sync_status_batch(ids, sync_flag).await?;
-            log::info!("批量更新 {} 条{}记录为{}", ids.len(), record_type, action_desc);
+            self.notify_frontend_sync_status_batch(ids, sync_flag)
+                .await?;
+            log::info!(
+                "批量更新 {} 条{}记录为{}",
+                ids.len(),
+                record_type,
+                action_desc
+            );
         }
         Ok(())
     }
@@ -380,7 +423,7 @@ impl CloudSyncTimer {
                     Ok(())
                 }
             }
-            Err(e) => Err(format!("读取文件元数据失败: {}", e))
+            Err(e) => Err(format!("读取文件元数据失败: {}", e)),
         }
     }
 }

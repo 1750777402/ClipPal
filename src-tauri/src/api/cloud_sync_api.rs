@@ -67,6 +67,7 @@ impl ClipRecordParam {
             device_id: self.device_id.clone(),
             version: self.version,
             del_flag: self.del_flag,
+            cloud_source: Some(0),
         }
     }
 }
@@ -105,7 +106,7 @@ pub struct CloudSyncRequest {
 pub async fn sync_clipboard(
     request: &CloudSyncRequest,
 ) -> Result<Option<CloudSyncResponse>, HttpError> {
-    api_post("POST", "cliPal-sync/sync/complete", Some(request)).await
+    api_post("cliPal-sync/sync/complete", Some(request)).await
 }
 
 // -------------------------------------------获取服务器时间--------------------------------------------------------------
@@ -130,7 +131,7 @@ pub struct SingleCloudSyncParam {
 pub async fn sync_single_clip_record(
     record: &SingleCloudSyncParam,
 ) -> Result<Option<SingleCloudSyncResponse>, HttpError> {
-    api_post("POST", "cliPal-sync/sync/single", Some(record)).await
+    api_post("cliPal-sync/sync/single", Some(record)).await
 }
 
 // ------------------------------------------上传粘贴记录的文件内容--------------------------------------------------------
@@ -159,4 +160,33 @@ pub async fn upload_file_clip_record(
     form_data.insert("type".to_string(), record.r#type.clone());
 
     api_post_file("cliPal-sync/sync/upload", &record.file, &form_data).await
+}
+
+// ----------------------------------------------------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DownloadCloudFileResponse {
+    pub url: String,
+    pub md5_str: String,
+    pub r#type: String,
+    pub file_name: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DownloadCloudFileParam {
+    pub md5_str: String,
+    pub r#type: String,
+}
+
+pub async fn get_dowload_url(
+    record: &DownloadCloudFileParam,
+) -> Result<Option<DownloadCloudFileResponse>, HttpError> {
+    // 准备form-data参数
+    let mut form_data = HashMap::new();
+    form_data.insert("md5Str".to_string(), record.md5_str.clone());
+    form_data.insert("type".to_string(), record.r#type.clone());
+
+    api_post("cliPal-sync/sync/getDownloadUrl", Some(record)).await
 }

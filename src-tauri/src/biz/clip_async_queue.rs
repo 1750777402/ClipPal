@@ -14,6 +14,7 @@ use crate::errors::{AppError, AppResult};
 use crate::utils::config::get_max_file_size_bytes;
 use crate::utils::file_dir::get_resources_dir;
 use crate::utils::lock_utils::GlobalSyncLock;
+use clipboard_listener::ClipType;
 use std::path::PathBuf;
 
 #[derive(Clone, Debug)]
@@ -129,69 +130,39 @@ pub fn consume_clip_record_queue(queue: AsyncQueue<ClipRecord>) {
 }
 
 async fn handle_sync_inner(param: SingleCloudSyncParam) -> AppResult<()> {
-    let res = sync_single_clip_record(&param).await;
-    log::info!(
-        "同步单个剪贴板记录，粘贴记录：{:?}，结果：{:?}",
-        param.clip.md5_str,
-        res
-    );
-    match res {
-        Ok(response) => {
-            if let Some(success) = response {
-                let record_id = param.clip.id.clone().unwrap_or_default();
-                let ids = vec![record_id.clone()];
-                let rb: &RBatis = CONTEXT.get::<RBatis>();
+    let record_id = param.clip.id.clone().unwrap_or_default();
+    let record_type = param.clip.r#type.clone().unwrap_or_default();
 
-                // 检查记录类型，决定同步策略
-                let record_type = param.clip.r#type.clone().unwrap_or_default();
-                match record_type.as_str() {
-                    "Image" => {
-                        handle_file_type_sync(
-                            rb,
-                            &ids,
-                            &record_id,
-                            success.timestamp,
-                            check_file_size_for_image(&param.clip).await,
-                            "图片",
-                        )
-                        .await
-                    }
-                    "File" => {
-                        handle_file_type_sync(
-                            rb,
-                            &ids,
-                            &record_id,
-                            success.timestamp,
-                            check_file_size_for_files(&param.clip).await,
-                            "文件",
-                        )
-                        .await
-                    }
-                    _ => {
-                        // 文本类型：直接标记为SYNCHRONIZED
-                        update_sync_flag_with_log(
-                            rb,
-                            &ids,
-                            SYNCHRONIZED,
-                            success.timestamp,
-                            &record_id,
-                            "文本记录已同步",
-                            "同步单个剪贴板记录失败",
-                        )
-                        .await
-                    }
-                }
-            } else {
-                Err(AppError::General("同步单个剪贴板记录失败".to_string()))
-            }
+    // 先检查文件类型是否应该跳过同步
+    if should_skip_sync(&param.clip, &record_type).await {
+        log::info!("记录 {} ({}) 应跳过云同步", record_id, record_type);
+        let rb: &RBatis = CONTEXT.get::<RBatis>();
+        return update_sync_status(rb, &record_id, SKIP_SYNC, 0).await;
+    }
+
+    // 执行实际同步
+    match sync_single_clip_record(&param).await {
+        Ok(Some(success)) => {
+            let rb: &RBatis = CONTEXT.get::<RBatis>();
+            let final_status = determine_final_sync_status(&record_type, &param.clip).await;
+
+            update_sync_status(rb, &record_id, final_status, success.timestamp).await?;
+
+            log::info!(
+                "同步成功: 记录ID={}, 类型={}, 状态={}",
+                record_id,
+                record_type,
+                sync_status_name(final_status)
+            );
+            Ok(())
+        }
+        Ok(None) => {
+            log::error!("同步返回空结果: 记录ID={}", record_id);
+            Err(AppError::General("同步返回空结果".to_string()))
         }
         Err(e) => {
-            log::error!(
-                "同步单个剪贴板记录失败，粘贴记录：{:?}，错误：{}",
-                param.clip.id,
-                e
-            );
-            Err(AppError::General("同步单个剪贴板记录失败".to_string()))
+            log::error!("同步失败: 记录ID={}, 错误={}", record_id, e);
+            Err(AppError::General(format!("同步失败: {}", e)))
         }
     }
 }
@@ -207,65 +178,55 @@ async fn notify_frontend_sync_status(ids: Vec<String>) {
         .map_err(|e| AppError::General(format!("批量通知前端失败: {}", e)));
 }
 
-/// 处理文件类型同步（图片和文件共用）
-async fn handle_file_type_sync(
-    rb: &RBatis,
-    ids: &Vec<String>,
-    record_id: &str,
-    timestamp: u64,
-    size_check_result: Result<(), String>,
-    file_type: &str,
-) -> AppResult<()> {
-    match size_check_result {
-        Err(_) => {
-            // 文件大小超过限制，直接标记为SKIP_SYNC
-            update_sync_flag_with_log(
-                rb,
-                ids,
-                SKIP_SYNC,
-                timestamp,
-                record_id,
-                &format!("{}文件大小超过限制，标记为跳过同步", file_type),
-                &format!("标记{}记录跳过同步失败", file_type),
-            )
-            .await
+/// 判断记录是否应该跳过同步
+async fn should_skip_sync(clip: &ClipRecordParam, record_type: &str) -> bool {
+    match record_type {
+        x if x == ClipType::Image.to_string() => check_file_size_for_image(clip).await.is_err(),
+        x if x == ClipType::File.to_string() => check_file_size_for_files(clip).await.is_err(),
+        _ => false, // 文本类型不跳过
+    }
+}
+
+/// 确定最终的同步状态
+async fn determine_final_sync_status(record_type: &str, _clip: &ClipRecordParam) -> i32 {
+    match record_type {
+        x if x == ClipType::Image.to_string() || x == ClipType::File.to_string() => {
+            // 文件类型：同步成功后标记为SYNCHRONIZING，等待文件上传
+            SYNCHRONIZING
         }
-        Ok(_) => {
-            // 文件大小正常，标记为SYNCHRONIZING
-            update_sync_flag_with_log(
-                rb,
-                ids,
-                SYNCHRONIZING,
-                timestamp,
-                record_id,
-                &format!("{}记录标记为同步中，等待文件上传队列处理", file_type),
-                &format!("同步{}记录失败", file_type),
-            )
-            .await
+        _ => {
+            // 文本类型：直接标记为SYNCHRONIZED
+            SYNCHRONIZED
         }
     }
 }
 
-/// 更新同步状态并记录日志
-async fn update_sync_flag_with_log(
+/// 更新同步状态
+async fn update_sync_status(
     rb: &RBatis,
-    ids: &Vec<String>,
+    record_id: &str,
     sync_flag: i32,
     timestamp: u64,
-    record_id: &str,
-    success_msg: &str,
-    error_msg: &str,
 ) -> AppResult<()> {
-    let update_res = ClipRecord::update_sync_flag(rb, ids, sync_flag, timestamp).await;
-    match update_res {
-        Ok(_) => {
-            log::info!("{}, 记录ID: {}", success_msg, record_id);
-            Ok(())
-        }
-        Err(e) => {
-            log::error!("{}: {}", error_msg, e);
-            Err(AppError::General(error_msg.to_string()))
-        }
+    let ids = vec![record_id.to_string()];
+    ClipRecord::update_sync_flag(rb, &ids, sync_flag, timestamp)
+        .await
+        .map_err(|e| {
+            log::error!("更新同步状态失败: 记录ID={}, 错误={}", record_id, e);
+            e
+        })
+}
+
+/// 获取同步状态的可读名称
+fn sync_status_name(status: i32) -> &'static str {
+    if status == SYNCHRONIZED {
+        "已同步"
+    } else if status == SYNCHRONIZING {
+        "同步中"
+    } else if status == SKIP_SYNC {
+        "跳过同步"
+    } else {
+        "未知状态"
     }
 }
 
@@ -284,31 +245,59 @@ async fn check_file_size_for_image(clip: &ClipRecordParam) -> Result<(), String>
             if file_path.exists() {
                 check_single_file_size(&file_path)
             } else {
-                Ok(())
+                Err(format!("图片文件不存在: {:?}", file_path))
             }
         } else {
-            Ok(())
+            Err("无法获取resources目录".to_string())
         }
     } else {
         Ok(())
     }
 }
 
-/// 检查文件大小是否超过限制
+/// 检查文件是否应该跳过云同步
+/// 按照新的策略：
+/// 1. 多文件 -> 跳过同步
+/// 2. 单文件但超过大小限制 -> 跳过同步
+/// 3. 单文件且在resources/files/下（相对路径） -> 允许同步
+/// 4. 单文件但绝对路径 -> 跳过同步（向后兼容）
 async fn check_file_size_for_files(clip: &ClipRecordParam) -> Result<(), String> {
     if let Some(content_str) = clip.content.as_str() {
-        let file_paths: Vec<String> = content_str.split(":::").map(|s| s.to_string()).collect();
+        // 检查是否是多文件
+        if content_str.contains(":::") {
+            return Err("多文件不支持云同步".to_string());
+        }
 
-        for file_path_str in &file_paths {
-            let file_path = PathBuf::from(file_path_str);
-            if file_path.exists() {
-                if let Err(e) = check_single_file_size(&file_path) {
-                    return Err(format!("文件 {}: {}", file_path_str, e));
+        // 单文件处理
+        let file_path_str = content_str.trim();
+
+        // 检查是否是相对路径（表示文件已复制到resources目录）
+        if file_path_str.starts_with("files/") {
+            // 这是已经复制到resources/files/的文件，检查大小
+            if let Some(resource_path) = get_resources_dir() {
+                let full_path = resource_path.join(file_path_str);
+                if full_path.exists() {
+                    check_single_file_size(&full_path)
+                } else {
+                    Err(format!("resources中的文件不存在: {:?}", full_path))
                 }
+            } else {
+                Err("无法获取resources目录".to_string())
+            }
+        } else {
+            // 绝对路径的文件，检查文件是否存在
+            let absolute_path = std::path::PathBuf::from(file_path_str);
+            if absolute_path.exists() {
+                // 文件存在但是绝对路径，跳过同步（向后兼容）
+                Err("绝对路径文件不支持云同步".to_string())
+            } else {
+                // 文件不存在，跳过同步
+                Err(format!("绝对路径文件不存在: {:?}", absolute_path))
             }
         }
+    } else {
+        Ok(())
     }
-    Ok(())
 }
 
 /// 检查单个文件大小是否超过限制

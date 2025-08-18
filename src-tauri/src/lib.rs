@@ -10,6 +10,7 @@ use crate::{
             copy_clip_record, copy_clip_record_no_paste, copy_single_file, del_record,
             image_save_as, set_pinned,
         },
+        download_cloud_file::start_cloud_file_download_timer,
         file_sync_timer::start_file_sync_timer,
         query_clip_record::{get_clip_records, get_image_base64},
         system_setting::{init_settings, load_settings, save_settings, validate_shortcut},
@@ -115,6 +116,12 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
             let rb = rb_res.clone();
             tokio::spawn(async move {
                 start_cloud_sync_timer(app_handle, rb).await;
+            });
+
+            // 启动云文件下载定时任务
+            let app_handle_download = app.handle().clone();
+            tokio::spawn(async move {
+                start_cloud_file_download_timer(app_handle_download).await;
             });
             Ok(())
         })

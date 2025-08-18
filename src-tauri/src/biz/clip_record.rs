@@ -38,6 +38,8 @@ pub struct ClipRecord {
     pub version: Option<i32>,
     // 是否逻辑删除 0:未删除 1:已删除
     pub del_flag: Option<i32>,
+    // 是否是云端同步下来的数据
+    pub cloud_source: Option<i32>,
 }
 
 crud!(ClipRecord {}, "clip_record");
@@ -54,9 +56,9 @@ impl_select!(ClipRecord{check_by_type_and_md5(content_type:&str, md5_str:&str) =
 // 取出最大的sort数据
 impl_select!(ClipRecord{select_max_sort(user_id: i32) =>"`where user_id = #{user_id} order by sort desc, created desc limit 1`"});
 // 根据sync_flag查询记录
-impl_select!(ClipRecord{select_by_sync_flag(sync_flag: i32) =>"`where sync_flag = #{sync_flag} order by created desc`"});
+impl_select!(ClipRecord{select_by_sync_flag(sync_flag: i32) =>"`where sync_flag = #{sync_flag} and content IS NOT NULL order by created desc`"});
 // 根据sync_flag查询记录
-impl_select!(ClipRecord{select_by_sync_flag_limit(sync_flag: i32, limit: i32) =>"`where sync_flag = #{sync_flag} order by created desc limit #{limit}`"});
+impl_select!(ClipRecord{select_by_sync_flag_limit(sync_flag: i32, cloud_source:i32, limit: i32) =>"`where sync_flag = #{sync_flag} and cloud_source = #{cloud_source} order by created desc limit #{limit}`"});
 // 根据created时间戳查询下一条记录
 impl_select!(ClipRecord{select_order_by_created(created: u64) =>"`where created >= #{created} order by created desc limit 1`"});
 // 查询已经逻辑删除并且已同步的数据
@@ -123,6 +125,29 @@ impl ClipRecord {
         }
         let tx = rb.acquire_begin().await?;
         tx.exec(&sql, args).await?;
+        tx.commit()
+            .await
+            .map_err(|e| AppError::Database(rbatis::Error::from(e)))
+    }
+
+    /// 更新云文件下载后的记录状态
+    pub async fn update_after_cloud_download(
+        rb: &RBatis,
+        id: &str,
+        local_path: &str,
+    ) -> AppResult<()> {
+        let sql = "UPDATE clip_record SET content = ?, sync_flag = ? WHERE id = ?";
+
+        let tx = rb.acquire_begin().await?;
+        tx.exec(
+            sql,
+            vec![
+                to_value!(local_path),
+                to_value!(SYNCHRONIZED),
+                to_value!(id),
+            ],
+        )
+        .await?;
         tx.commit()
             .await
             .map_err(|e| AppError::Database(rbatis::Error::from(e)))

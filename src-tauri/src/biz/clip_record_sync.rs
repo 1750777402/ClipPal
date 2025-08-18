@@ -109,6 +109,7 @@ fn build_clip_record(
         device_id: Some(GLOBAL_DEVICE_ID.clone()),
         version: Some(1),
         del_flag: Some(0),
+        cloud_source: Some(0),
     }
 }
 
@@ -117,10 +118,17 @@ async fn handle_text(
     content: &str,
     sort: i32,
 ) -> Result<Option<ClipRecord>, AppError> {
-    let encrypt_res = encrypt_content(content);
+    // 过滤空文本，空文本不进行记录
+    let trimmed_content = content.trim();
+    if trimmed_content.is_empty() {
+        log::debug!("跳过空文本记录");
+        return Ok(None);
+    }
+    
+    let encrypt_res = encrypt_content(trimmed_content);
     match encrypt_res {
         Ok(encrypted) => {
-            let md5_str = format!("{:x}", md5::compute(content));
+            let md5_str = format!("{:x}", md5::compute(trimmed_content));
             let existing = ClipRecord::check_by_type_and_md5(
                 rb,
                 ClipType::Text.to_string().as_str(),
@@ -146,7 +154,7 @@ async fn handle_text(
 
                 match ClipRecord::insert(rb, &record).await {
                     Ok(_res) => {
-                        let content_string = content.to_string();
+                        let content_string = trimmed_content.to_string();
                         let record_id = record.id.clone();
                         tokio::spawn(async move {
                             if let Err(e) =
@@ -169,7 +177,7 @@ async fn handle_text(
             log::error!("文本内容加密失败，无法保存记录: {:?}", e);
             log::error!(
                 "失败的文本内容前50个字符: {:?}",
-                &content[..content.len().min(50)]
+                &trimmed_content[..trimmed_content.len().min(50)]
             );
             Err(AppError::Clipboard(format!("文本内容加密失败: {:?}", e)))
         }
@@ -249,132 +257,284 @@ async fn handle_file(
     sort: i32,
 ) -> Result<Option<ClipRecord>, AppError> {
     if let Some(paths) = file_paths {
-        // 检查所有文件大小是否超过限制
         use crate::utils::config::get_max_file_size_bytes;
         let max_file_size = get_max_file_size_bytes().unwrap_or(5 * 1024 * 1024);
 
-        let mut oversized_files = Vec::new();
-        let mut valid_files = Vec::new();
-
-        for path in paths {
-            let file_path = std::path::PathBuf::from(path);
-            if file_path.exists() {
-                match std::fs::metadata(&file_path) {
-                    Ok(metadata) => {
-                        if metadata.len() > max_file_size {
-                            oversized_files.push(path.clone());
-                        } else {
-                            valid_files.push(path.clone());
-                        }
-                    }
-                    Err(e) => {
-                        log::warn!("读取文件元数据失败: {}, 文件: {}", e, path);
-                    }
-                }
-            } else {
-                log::warn!("文件不存在: {}", path);
-            }
+        // 多文件直接跳过云同步
+        if paths.len() > 1 {
+            log::info!(
+                "检测到多文件复制({} 个文件)，跳过云同步，仅保留本地记录",
+                paths.len()
+            );
+            return handle_multiple_files(rb, paths, sort).await;
         }
 
-        if !oversized_files.is_empty() {
-            log::warn!(
-                "发现 {} 个文件超过大小限制 {} 字节，文件: {:?}",
-                oversized_files.len(),
-                max_file_size,
-                oversized_files
-            );
-        }
+        // 单文件处理
+        if let Some(file_path) = paths.first() {
+            let path = std::path::PathBuf::from(file_path);
 
-        // 无论文件大小如何，都保存完整的文件路径列表
-        // 大小限制只影响云同步，不影响本地记录的完整性
-        let files_to_save = paths.clone();
-
-        if !oversized_files.is_empty() {
-            log::warn!(
-                "检测到 {} 个文件超过云同步大小限制，这些文件不会上传到云端但会保留在本地记录中",
-                oversized_files.len()
-            );
-        }
-
-        // 使用原始路径计算MD5，保持兼容性
-        let mut sorted_paths = paths.clone();
-        sorted_paths.sort();
-        let combined = sorted_paths.join("");
-        let md5_str = format!("{:x}", md5::compute(combined.as_bytes()));
-
-        let existing =
-            ClipRecord::check_by_type_and_md5(rb, ClipType::File.to_string().as_str(), &md5_str)
-                .await?;
-
-        if let Some(record) = existing.first() {
-            if let Err(e) = ClipRecord::update_sort(rb, &record.id, sort).await {
-                log::error!("更新文件排序失败: {}", e);
-                return Err(e);
-            }
-            Ok(None)
-        } else {
-            // 保存文件路径（如果所有文件都超限则保存原始路径）
-            let mut record = build_clip_record(
-                Uuid::new_v4().to_string(),
-                0,
-                ClipType::File.to_string(),
-                Value::String(files_to_save.join(":::")),
-                md5_str,
-                sort,
-            );
-
-            // 如果包含任何超过大小限制的文件，设置为跳过同步状态
-            if !oversized_files.is_empty() {
-                record.sync_flag = Some(SKIP_SYNC);
+            if !path.exists() {
+                log::warn!("文件不存在: {}", file_path);
+                return Ok(None);
             }
 
-            match ClipRecord::insert(rb, &record).await {
-                Ok(_res) => {
-                    let file_paths_string = files_to_save.join(":::");
-                    let record_id = record.id.clone();
-                    tokio::spawn(async move {
-                        if let Err(e) =
-                            add_content_to_index(record_id.as_str(), file_paths_string.as_str())
-                                .await
-                        {
-                            log::error!("搜索索引更新失败: {}", e);
-                        }
-                    });
-
-                    if !oversized_files.is_empty() {
-                        if valid_files.is_empty() {
-                            log::info!(
-                                "保存文件记录成功（完全跳过云同步），记录ID: {}, 总文件数: {}, 原因: 所有文件都超过大小限制",
-                                record.id,
-                                files_to_save.len()
-                            );
-                        } else {
-                            log::info!(
-                                "保存文件记录成功（部分跳过云同步），记录ID: {}, 总文件数: {}, 可同步文件数: {}, 超限文件数: {}",
-                                record.id,
-                                files_to_save.len(),
-                                valid_files.len(),
-                                oversized_files.len()
-                            );
-                        }
-                    } else {
-                        log::info!(
-                            "保存文件记录成功，记录ID: {}, 文件数: {}",
-                            record.id,
-                            files_to_save.len()
-                        );
-                    }
-
-                    Ok(Some(record))
-                }
+            let metadata = match std::fs::metadata(&path) {
+                Ok(metadata) => metadata,
                 Err(e) => {
-                    log::error!("插入文件记录失败: {}", e);
-                    Err(AppError::Database(e))
+                    log::warn!("读取文件元数据失败: {}, 文件: {}", e, file_path);
+                    return Ok(None);
                 }
+            };
+
+            // 使用文件路径计算MD5
+            let md5_str = format!("{:x}", md5::compute(file_path.as_bytes()));
+
+            let existing = ClipRecord::check_by_type_and_md5(
+                rb,
+                ClipType::File.to_string().as_str(),
+                &md5_str,
+            )
+            .await?;
+
+            if let Some(record) = existing.first() {
+                if let Err(e) = ClipRecord::update_sort(rb, &record.id, sort).await {
+                    log::error!("更新文件排序失败: {}", e);
+                    return Err(e);
+                }
+                return Ok(None);
+            }
+
+            // 检查文件大小
+            if metadata.len() > max_file_size {
+                log::warn!(
+                    "单文件大小 {} 字节超过限制 {} 字节，跳过云同步: {}",
+                    metadata.len(),
+                    max_file_size,
+                    file_path
+                );
+                return handle_oversized_single_file(rb, file_path, &md5_str, sort).await;
+            }
+
+            // 小文件：复制到resources目录并支持云同步
+            return handle_sync_eligible_file(rb, &path, file_path, &md5_str, sort).await;
+        }
+    }
+    Ok(None)
+}
+
+/// 处理多文件情况（跳过云同步）
+async fn handle_multiple_files(
+    rb: &RBatis,
+    paths: &Vec<String>,
+    sort: i32,
+) -> Result<Option<ClipRecord>, AppError> {
+    // 使用所有路径计算MD5
+    let mut sorted_paths = paths.clone();
+    sorted_paths.sort();
+    let combined = sorted_paths.join("");
+    let md5_str = format!("{:x}", md5::compute(combined.as_bytes()));
+
+    let mut record = build_clip_record(
+        Uuid::new_v4().to_string(),
+        0,
+        ClipType::File.to_string(),
+        Value::String(paths.join(":::")),
+        md5_str,
+        sort,
+    );
+
+    // 多文件直接跳过云同步
+    record.sync_flag = Some(SKIP_SYNC);
+
+    match ClipRecord::insert(rb, &record).await {
+        Ok(_) => {
+            let file_paths_string = paths.join(":::");
+            let record_id = record.id.clone();
+            tokio::spawn(async move {
+                if let Err(e) =
+                    add_content_to_index(record_id.as_str(), file_paths_string.as_str()).await
+                {
+                    log::error!("搜索索引更新失败: {}", e);
+                }
+            });
+
+            log::info!(
+                "保存多文件记录成功（跳过云同步），记录ID: {}, 文件数: {}",
+                record.id,
+                paths.len()
+            );
+            Ok(Some(record))
+        }
+        Err(e) => {
+            log::error!("插入多文件记录失败: {}", e);
+            Err(AppError::Database(e))
+        }
+    }
+}
+
+/// 处理超过大小限制的单文件（跳过云同步）
+async fn handle_oversized_single_file(
+    rb: &RBatis,
+    file_path: &str,
+    md5_str: &str,
+    sort: i32,
+) -> Result<Option<ClipRecord>, AppError> {
+    let mut record = build_clip_record(
+        Uuid::new_v4().to_string(),
+        0,
+        ClipType::File.to_string(),
+        Value::String(file_path.to_string()),
+        md5_str.to_string(),
+        sort,
+    );
+
+    // 超过大小限制，跳过云同步
+    record.sync_flag = Some(SKIP_SYNC);
+
+    match ClipRecord::insert(rb, &record).await {
+        Ok(_) => {
+            let record_id = record.id.clone();
+            let file_path_copy = file_path.to_string();
+            tokio::spawn(async move {
+                if let Err(e) =
+                    add_content_to_index(record_id.as_str(), file_path_copy.as_str()).await
+                {
+                    log::error!("搜索索引更新失败: {}", e);
+                }
+            });
+
+            log::info!(
+                "保存超大单文件记录成功（跳过云同步），记录ID: {}, 文件: {}",
+                record.id,
+                file_path
+            );
+            Ok(Some(record))
+        }
+        Err(e) => {
+            log::error!("插入超大单文件记录失败: {}", e);
+            Err(AppError::Database(e))
+        }
+    }
+}
+
+/// 处理符合云同步条件的单文件（复制到resources目录）
+async fn handle_sync_eligible_file(
+    rb: &RBatis,
+    file_path: &std::path::PathBuf,
+    original_path: &str,
+    md5_str: &str,
+    sort: i32,
+) -> Result<Option<ClipRecord>, AppError> {
+    let record_id = Uuid::new_v4().to_string();
+
+    // 先创建记录，content初始为空
+    let mut record = build_clip_record(
+        record_id.clone(),
+        0,
+        ClipType::File.to_string(),
+        Value::Null, // 初始为空，复制成功后会更新为相对路径
+        md5_str.to_string(),
+        sort,
+    );
+
+    match ClipRecord::insert(rb, &record).await {
+        Ok(_) => {
+            // 复制文件到resources/files目录
+            if let Some(relative_path) = copy_file_to_resources(&record_id, file_path).await {
+                // 更新record的content字段为相对路径
+                let _ = ClipRecord::update_content(rb, &record_id, &relative_path).await;
+                record.content = Value::String(relative_path.clone());
+
+                log::info!(
+                    "保存小文件记录成功（支持云同步），记录ID: {}, 原路径: {}, 新路径: {}",
+                    record_id,
+                    original_path,
+                    relative_path
+                );
+            } else {
+                // 复制失败，回退到跳过云同步
+                log::warn!("文件复制失败，回退到跳过云同步: {}", original_path);
+                record.sync_flag = Some(SKIP_SYNC);
+                record.content = Value::String(original_path.to_string());
+                let _ =
+                    ClipRecord::update_content(rb, &record_id, &original_path.to_string()).await;
+            }
+
+            // 添加到搜索索引
+            let record_id_copy = record_id.clone();
+            let content_for_index = if let Value::String(content) = &record.content {
+                content.clone()
+            } else {
+                original_path.to_string()
+            };
+
+            tokio::spawn(async move {
+                if let Err(e) =
+                    add_content_to_index(record_id_copy.as_str(), content_for_index.as_str()).await
+                {
+                    log::error!("搜索索引更新失败: {}", e);
+                }
+            });
+
+            Ok(Some(record))
+        }
+        Err(e) => {
+            log::error!("插入小文件记录失败: {}", e);
+            Err(AppError::Database(e))
+        }
+    }
+}
+
+/// 复制文件到resources/files目录
+async fn copy_file_to_resources(
+    _record_id: &str,
+    file_path: &std::path::PathBuf,
+) -> Option<String> {
+    if let Some(resources_dir) = get_resources_dir() {
+        let files_dir = resources_dir.join("files");
+
+        // 确保files目录存在
+        if let Err(e) = std::fs::create_dir_all(&files_dir) {
+            log::error!("创建files目录失败: {}", e);
+            return None;
+        }
+
+        // 生成新文件名：保留原扩展名
+        let original_extension = file_path
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .unwrap_or("");
+
+        let now = Local::now().format("%Y%m%d%H%M%S").to_string();
+        let uid = Uuid::new_v4().to_string();
+        let new_filename = if original_extension.is_empty() {
+            format!("{}_{}", now, uid)
+        } else {
+            format!("{}_{}.{}", now, uid, original_extension)
+        };
+
+        let target_path = files_dir.join(&new_filename);
+        let relative_path = format!("files/{}", new_filename);
+
+        // 复制文件
+        match std::fs::copy(file_path, &target_path) {
+            Ok(_) => {
+                log::debug!("文件复制成功: {:?} -> {:?}", file_path, target_path);
+                Some(relative_path)
+            }
+            Err(e) => {
+                log::error!(
+                    "文件复制失败: {:?} -> {:?}, 错误: {}",
+                    file_path,
+                    target_path,
+                    e
+                );
+                None
             }
         }
     } else {
-        Ok(None)
+        log::error!("获取resources目录失败");
+        None
     }
 }
 

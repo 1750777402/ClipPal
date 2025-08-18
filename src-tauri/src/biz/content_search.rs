@@ -6,6 +6,7 @@ use crate::errors::AppResult;
 use crate::utils::lock_utils::lock_utils::safe_read_lock;
 use crate::{CONTEXT, biz::system_setting::Settings};
 use bloomfilter::Bloom;
+use clipboard_listener::ClipType;
 use dashmap::DashMap;
 use once_cell::sync::Lazy;
 use regex::Regex;
@@ -309,7 +310,7 @@ pub async fn initialize_search_index(clips: Vec<ClipRecord>) -> AppResult<()> {
         // 处理记录
         for record in clips {
             let should_index = match record.r#type.as_str() {
-                "Text" => {
+                x if x == ClipType::Text.to_string() => {
                     if let Some(content) = record.content.as_str() {
                         // 解密文本内容
                         match crate::utils::aes_util::decrypt_content(content) {
@@ -330,7 +331,7 @@ pub async fn initialize_search_index(clips: Vec<ClipRecord>) -> AppResult<()> {
                         false
                     }
                 }
-                "File" => {
+                x if x == ClipType::File.to_string() => {
                     if let Some(file_paths) = record.content.as_str() {
                         SEARCH_INDEX.add_record(&record.id, file_paths);
                         true

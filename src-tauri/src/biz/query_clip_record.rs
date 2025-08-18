@@ -2,6 +2,7 @@ use rbatis::RBatis;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
+use clipboard_listener::ClipType;
 
 use crate::{
     CONTEXT,
@@ -97,7 +98,7 @@ pub async fn get_clip_records(param: QueryParam) -> Result<Vec<ClipRecordDTO>, S
     Ok(all_data
         .into_iter()
         .map(|item| {
-            if item.r#type == "File" {
+            if item.r#type == ClipType::File.to_string() {
                 let content_str = item.content.as_str().unwrap_or_default().to_string();
                 let content =
                     ContentProcessor::process_by_clip_type(&item.r#type, item.content.clone());
@@ -112,7 +113,7 @@ pub async fn get_clip_records(param: QueryParam) -> Result<Vec<ClipRecordDTO>, S
                     image_info: None,
                     sync_flag: item.sync_flag,
                 };
-            } else if item.r#type == "Image" {
+            } else if item.r#type == ClipType::Image.to_string() {
                 // 对于图片类型，不转换为base64，而是返回元数据
                 let image_path = item.content.as_str().unwrap_or_default();
                 let image_info = get_image_info(image_path);
@@ -247,7 +248,7 @@ pub async fn get_image_base64(param: GetImageParam) -> Result<ImageBase64Respons
     let record = records.first().ok_or("记录不存在")?;
 
     // 验证是否为图片类型
-    if record.r#type != "Image" {
+    if record.r#type != ClipType::Image.to_string() {
         return Err("记录类型不是图片".to_string());
     }
 

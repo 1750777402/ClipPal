@@ -1,8 +1,8 @@
+use crate::errors::{AppError, AppResult};
 use crate::{
     CONTEXT,
     utils::{file_dir::get_data_dir, path_utils::to_safe_string},
 };
-use crate::errors::{AppError, AppResult};
 use rbatis::RBatis;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -158,6 +158,13 @@ fn get_clip_pal_record_schema(schema: &mut HashMap<String, TableSchema>) {
         },
         ColumnInfo {
             name: "del_flag".to_string(),
+            r#type: "INTEGER".to_string(),
+            not_null: true,
+            default_value: Some("0".to_string()),
+            primary_key: false,
+        },
+        ColumnInfo {
+            name: "cloud_source".to_string(),
             r#type: "INTEGER".to_string(),
             not_null: true,
             default_value: Some("0".to_string()),

@@ -2,10 +2,12 @@
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::fs::File;
+use std::io::Write;
 use tauri_plugin_http::{
     reqwest,
-    reqwest::header::{CONTENT_TYPE, HeaderMap, HeaderName, HeaderValue},
+    reqwest::header::{HeaderMap, HeaderName, HeaderValue},
 };
 
 /// 统一API响应结构体
@@ -30,7 +32,6 @@ pub struct RawResponse<T> {
 #[derive(Debug, Clone)]
 pub struct HttpConfig {
     pub timeout: Option<u64>,
-    pub file_timeout: Option<u64>,
     pub headers: Option<HashMap<String, String>>,
     pub user_agent: Option<String>,
 }
@@ -39,7 +40,6 @@ impl Default for HttpConfig {
     fn default() -> Self {
         Self {
             timeout: Some(30),
-            file_timeout: Some(60),
             headers: None,
             user_agent: Some("ClipPal/1.0".to_string()),
         }
@@ -67,6 +67,16 @@ pub enum HttpError {
     FileError(String),
     #[error("文件大小超过限制: {0}")]
     FileSizeExceeded(String),
+    #[error("文件下载失败: {0}")]
+    DownloadFailed(String),
+}
+
+/// 请求数据类型枚举
+enum RequestData {
+    Json(String),
+    Form(HashMap<String, String>),
+    Multipart(reqwest::multipart::Form),
+    None,
 }
 
 /// HTTP客户端
@@ -87,12 +97,6 @@ impl HttpClient {
         Self { config }
     }
 
-    /// 设置请求配置
-    pub fn set_config(mut self, config: HttpConfig) -> Self {
-        self.config = config;
-        self
-    }
-
     /// 设置超时时间
     pub fn timeout(mut self, timeout: u64) -> Self {
         self.config.timeout = Some(timeout);
@@ -111,12 +115,14 @@ impl HttpClient {
         self
     }
 
+    // ========== ApiResponse格式的请求方法 ==========
+
     /// 发起GET请求（返回ApiResponse格式）
     pub async fn get<T>(&self, url: &str) -> Result<ApiResponse<T>, HttpError>
     where
         T: for<'de> Deserialize<'de>,
     {
-        self.request::<(), T>("GET", url, None, None).await
+        self.execute_api_request("GET", url, RequestData::None, None).await
     }
 
     /// 发起带查询参数的GET请求（返回ApiResponse格式）
@@ -129,8 +135,7 @@ impl HttpClient {
         T: for<'de> Deserialize<'de>,
     {
         let url_with_params = self.build_url_with_params(url, params)?;
-        self.request::<(), T>("GET", &url_with_params, None, None)
-            .await
+        self.execute_api_request("GET", &url_with_params, RequestData::None, None).await
     }
 
     /// 发起POST请求（返回ApiResponse格式）
@@ -139,7 +144,15 @@ impl HttpClient {
         T: Serialize,
         U: for<'de> Deserialize<'de>,
     {
-        self.request("POST", url, data, None).await
+        let request_data = if let Some(data) = data {
+            let json_str = serde_json::to_string(data).map_err(|e| {
+                HttpError::SerializationFailed(format!("序列化请求数据失败: {}", e))
+            })?;
+            RequestData::Json(json_str)
+        } else {
+            RequestData::None
+        };
+        self.execute_api_request("POST", url, request_data, None).await
     }
 
     /// 发起带JSON数据的POST请求（返回ApiResponse格式）
@@ -148,14 +161,16 @@ impl HttpClient {
         T: Serialize,
         U: for<'de> Deserialize<'de>,
     {
+        let json_str = serde_json::to_string(data).map_err(|e| {
+            HttpError::SerializationFailed(format!("序列化请求数据失败: {}", e))
+        })?;
         let mut headers = HashMap::new();
         headers.insert("Content-Type".to_string(), "application/json".to_string());
-        self.request_with_headers("POST", url, Some(data), Some(headers))
-            .await
+        self.execute_api_request("POST", url, RequestData::Json(json_str), Some(headers)).await
     }
 
     /// 发起带表单数据的POST请求（返回ApiResponse格式）
-    pub async fn post_form<T, U>(
+    pub async fn post_form<U>(
         &self,
         url: &str,
         data: &HashMap<String, String>,
@@ -164,12 +179,8 @@ impl HttpClient {
         U: for<'de> Deserialize<'de>,
     {
         let mut headers = HashMap::new();
-        headers.insert(
-            "Content-Type".to_string(),
-            "application/x-www-form-urlencoded".to_string(),
-        );
-        self.request_with_headers("POST", url, Some(data), Some(headers))
-            .await
+        headers.insert("Content-Type".to_string(), "application/x-www-form-urlencoded".to_string());
+        self.execute_api_request("POST", url, RequestData::Form(data.clone()), Some(headers)).await
     }
 
     /// 发起文件上传请求（返回ApiResponse格式）
@@ -182,7 +193,8 @@ impl HttpClient {
     where
         U: for<'de> Deserialize<'de>,
     {
-        self.request_multipart(url, file_path, form_data).await
+        let form = self.build_multipart_form(file_path, form_data)?;
+        self.execute_api_request("POST", url, RequestData::Multipart(form), None).await
     }
 
     /// 发起带自定义请求头的请求（返回ApiResponse格式）
@@ -197,21 +209,25 @@ impl HttpClient {
         T: Serialize,
         U: for<'de> Deserialize<'de>,
     {
-        let mut all_headers = self.config.headers.clone().unwrap_or_default();
-        if let Some(custom_headers) = headers {
-            all_headers.extend(custom_headers);
-        }
-        self.request(method, url, data, Some(all_headers)).await
+        let request_data = if let Some(data) = data {
+            let json_str = serde_json::to_string(data).map_err(|e| {
+                HttpError::SerializationFailed(format!("序列化请求数据失败: {}", e))
+            })?;
+            RequestData::Json(json_str)
+        } else {
+            RequestData::None
+        };
+        self.execute_api_request(method, url, request_data, headers).await
     }
 
-    // ========== 通用HTTP请求方法（返回任意格式） ==========
+    // ========== 原始响应格式的请求方法 ==========
 
     /// 发起GET请求（返回原始响应格式）
     pub async fn get_raw<T>(&self, url: &str) -> Result<RawResponse<T>, HttpError>
     where
         T: for<'de> Deserialize<'de>,
     {
-        self.request_raw::<(), T>("GET", url, None, None).await
+        self.execute_raw_response("GET", url, RequestData::None, None).await
     }
 
     /// 发起带查询参数的GET请求（返回原始响应格式）
@@ -224,8 +240,7 @@ impl HttpClient {
         T: for<'de> Deserialize<'de>,
     {
         let url_with_params = self.build_url_with_params(url, params)?;
-        self.request_raw::<(), T>("GET", &url_with_params, None, None)
-            .await
+        self.execute_raw_response("GET", &url_with_params, RequestData::None, None).await
     }
 
     /// 发起POST请求（返回原始响应格式）
@@ -238,7 +253,15 @@ impl HttpClient {
         T: Serialize,
         U: for<'de> Deserialize<'de>,
     {
-        self.request_raw("POST", url, data, None).await
+        let request_data = if let Some(data) = data {
+            let json_str = serde_json::to_string(data).map_err(|e| {
+                HttpError::SerializationFailed(format!("序列化请求数据失败: {}", e))
+            })?;
+            RequestData::Json(json_str)
+        } else {
+            RequestData::None
+        };
+        self.execute_raw_response("POST", url, request_data, None).await
     }
 
     /// 发起带JSON数据的POST请求（返回原始响应格式）
@@ -251,14 +274,16 @@ impl HttpClient {
         T: Serialize,
         U: for<'de> Deserialize<'de>,
     {
+        let json_str = serde_json::to_string(data).map_err(|e| {
+            HttpError::SerializationFailed(format!("序列化请求数据失败: {}", e))
+        })?;
         let mut headers = HashMap::new();
         headers.insert("Content-Type".to_string(), "application/json".to_string());
-        self.request_with_headers_raw("POST", url, Some(data), Some(headers))
-            .await
+        self.execute_raw_response("POST", url, RequestData::Json(json_str), Some(headers)).await
     }
 
     /// 发起带表单数据的POST请求（返回原始响应格式）
-    pub async fn post_form_raw<T, U>(
+    pub async fn post_form_raw<U>(
         &self,
         url: &str,
         data: &HashMap<String, String>,
@@ -267,311 +292,393 @@ impl HttpClient {
         U: for<'de> Deserialize<'de>,
     {
         let mut headers = HashMap::new();
-        headers.insert(
-            "Content-Type".to_string(),
-            "application/x-www-form-urlencoded".to_string(),
-        );
-        self.request_with_headers_raw("POST", url, Some(data), Some(headers))
-            .await
+        headers.insert("Content-Type".to_string(), "application/x-www-form-urlencoded".to_string());
+        self.execute_raw_response("POST", url, RequestData::Form(data.clone()), Some(headers)).await
     }
 
-    /// 发起带自定义请求头的请求（返回原始响应格式）
-    pub async fn request_with_headers_raw<T, U>(
-        &self,
-        method: &str,
-        url: &str,
-        data: Option<&T>,
-        headers: Option<HashMap<String, String>>,
-    ) -> Result<RawResponse<U>, HttpError>
-    where
-        T: Serialize,
-        U: for<'de> Deserialize<'de>,
-    {
-        let mut all_headers = self.config.headers.clone().unwrap_or_default();
-        if let Some(custom_headers) = headers {
-            all_headers.extend(custom_headers);
+    // ========== 文件下载方法 ==========
+
+    /// 下载文件到指定路径
+    pub async fn download_file(&self, url: &str, save_path: &Path) -> Result<PathBuf, HttpError> {
+        self.download_file_internal(url, save_path).await
+    }
+
+    /// 下载文件并获取响应头信息
+    pub async fn download_file_with_info(&self, url: &str, save_path: &Path) -> Result<(PathBuf, HashMap<String, String>), HttpError> {
+        // 构建HTTP客户端
+        let client = self.build_client()?;
+        let headers = self.build_headers(None)?;
+        
+        // 发送请求获取响应头信息
+        let response = client.get(url).headers(headers).send().await.map_err(|e| {
+            HttpError::NetworkError(format!("网络请求失败: {}", e))
+        })?;
+
+        if !response.status().is_success() {
+            return Err(HttpError::DownloadFailed(format!("下载失败: HTTP {}", response.status())));
         }
-        self.request_raw(method, url, data, Some(all_headers)).await
+
+        // 提取响应头
+        let response_headers = self.extract_headers(&response);
+
+        // 下载文件内容
+        let bytes = response.bytes().await.map_err(|e| {
+            HttpError::NetworkError(format!("读取响应数据失败: {}", e))
+        })?;
+
+        // 确保目录存在并写入文件
+        if let Some(parent_dir) = save_path.parent() {
+            if !parent_dir.exists() {
+                std::fs::create_dir_all(parent_dir).map_err(|e| {
+                    HttpError::FileError(format!("创建目录失败: {}", e))
+                })?;
+            }
+        }
+
+        let mut file = File::create(save_path).map_err(|e| {
+            HttpError::FileError(format!("创建文件失败: {}", e))
+        })?;
+
+        file.write_all(&bytes).map_err(|e| {
+            HttpError::FileError(format!("写入文件失败: {}", e))
+        })?;
+
+        file.flush().map_err(|e| {
+            HttpError::FileError(format!("文件刷新失败: {}", e))
+        })?;
+
+        Ok((save_path.to_path_buf(), response_headers))
     }
 
-    /// 核心请求方法（返回ApiResponse格式）
-    async fn request<T, U>(
+    // ========== 内部实现方法 ==========
+
+    /// 统一的HTTP请求执行方法 - ApiResponse格式
+    async fn execute_api_request<T>(
         &self,
         method: &str,
         url: &str,
-        data: Option<&T>,
-        headers: Option<HashMap<String, String>>,
-    ) -> Result<ApiResponse<U>, HttpError>
+        data: RequestData,
+        custom_headers: Option<HashMap<String, String>>,
+    ) -> Result<ApiResponse<T>, HttpError>
     where
-        T: Serialize,
-        U: for<'de> Deserialize<'de>,
+        T: for<'de> Deserialize<'de>,
     {
-        let response_text = self.execute_request(method, url, data, headers).await?;
-
-        // 直接反序列化为ApiResponse<U>
-        let api_response: ApiResponse<U> = serde_json::from_str(&response_text).map_err(|e| {
+        let response_text = self.execute_raw_request(method, url, data, custom_headers).await?;
+        
+        serde_json::from_str(&response_text).map_err(|e| {
             HttpError::DeserializationFailed(format!(
                 "反序列化ApiResponse失败，请求url：{}，返回结果：{}: {}",
                 url, response_text, e
             ))
-        })?;
-
-        Ok(api_response)
+        })
     }
 
-    /// 核心请求方法（返回原始响应格式）
-    async fn request_raw<T, U>(
+    /// 统一的HTTP请求执行方法 - Raw格式  
+    async fn execute_raw_response<T>(
         &self,
         method: &str,
         url: &str,
-        data: Option<&T>,
-        headers: Option<HashMap<String, String>>,
-    ) -> Result<RawResponse<U>, HttpError>
+        data: RequestData,
+        custom_headers: Option<HashMap<String, String>>,
+    ) -> Result<RawResponse<T>, HttpError>
     where
-        T: Serialize,
-        U: for<'de> Deserialize<'de>,
+        T: for<'de> Deserialize<'de>,
     {
-        let (status, response_url, response_headers, response_text) = self
-            .execute_request_with_response(method, url, data, headers)
-            .await?;
+        log::debug!("=== HTTP请求开始 ===");
+        log::debug!("请求方法: {}, URL: {}", method, url);
 
-        // 读取响应头
-        let mut headers_map = HashMap::new();
-        for (key, value) in response_headers.iter() {
-            if let Ok(value_str) = value.to_str() {
-                headers_map.insert(key.as_str().to_string(), value_str.to_string());
-            }
-        }
+        // 验证URL
+        let _parsed_url = reqwest::Url::parse(url).map_err(|e| {
+            HttpError::InvalidUrl(format!("无效的URL: {}", e))
+        })?;
 
-        // 反序列化响应数据
-        let response_data = if response_text.is_empty() {
+        // 构建HTTP客户端
+        let client = self.build_client()?;
+
+        // 构建请求
+        let mut request_builder = match method.to_uppercase().as_str() {
+            "GET" => client.get(url),
+            "POST" => client.post(url),
+            "PUT" => client.put(url),
+            "DELETE" => client.delete(url),
+            "PATCH" => client.patch(url),
+            _ => return Err(HttpError::RequestFailed(format!("不支持的HTTP方法: {}", method))),
+        };
+
+        // 设置请求体
+        request_builder = self.apply_request_data(request_builder, data)?;
+
+        // 设置请求头
+        let headers = self.build_headers(custom_headers.as_ref())?;
+        request_builder = request_builder.headers(headers);
+
+        // 发送请求
+        let response = request_builder.send().await.map_err(|e| {
+            HttpError::NetworkError(format!("网络请求失败: {}", e))
+        })?;
+
+        let status = response.status().as_u16();
+        let response_url = response.url().to_string();
+        let response_headers = self.extract_headers(&response);
+
+        log::debug!("响应状态码: {}", status);
+
+        // 读取响应体
+        let response_text = response.text().await.map_err(|e| {
+            HttpError::NetworkError(format!("读取响应失败: {}", e))
+        })?;
+
+        let response_data: T = if response_text.is_empty() {
             serde_json::from_str("null").map_err(|e| {
                 HttpError::DeserializationFailed(format!("反序列化空响应失败: {}", e))
             })?
         } else {
-            serde_json::from_str(&response_text)
-                .map_err(|e| HttpError::DeserializationFailed(format!("反序列化响应失败: {}", e)))?
+            serde_json::from_str(&response_text).map_err(|e| {
+                HttpError::DeserializationFailed(format!("反序列化响应失败: {}", e))
+            })?
         };
 
         Ok(RawResponse {
             status,
-            headers: headers_map,
+            headers: response_headers,
             data: response_data,
             url: response_url,
         })
     }
 
-    /// 执行HTTP请求并返回响应文本（公共方法）
-    async fn execute_request<T>(
+    /// 执行原始HTTP请求并返回响应文本
+    async fn execute_raw_request(
         &self,
         method: &str,
         url: &str,
-        data: Option<&T>,
-        headers: Option<HashMap<String, String>>,
-    ) -> Result<String, HttpError>
-    where
-        T: Serialize,
-    {
-        let (_, _, _, response_text) = self
-            .execute_request_with_response(method, url, data, headers)
-            .await?;
-        Ok(response_text)
-    }
-
-    /// 执行HTTP请求并返回响应信息（公共方法）
-    async fn execute_request_with_response<T>(
-        &self,
-        method: &str,
-        url: &str,
-        data: Option<&T>,
-        headers: Option<HashMap<String, String>>,
-    ) -> Result<(u16, String, reqwest::header::HeaderMap, String), HttpError>
-    where
-        T: Serialize,
-    {
-        // 打印请求信息（debug级别）
+        data: RequestData,
+        custom_headers: Option<HashMap<String, String>>,
+    ) -> Result<String, HttpError> {
         log::debug!("=== HTTP请求开始 ===");
-        log::debug!("请求方法: {}", method);
-        log::debug!("请求URL: {}", url);
+        log::debug!("请求方法: {}, URL: {}", method, url);
 
         // 验证URL
         let _parsed_url = reqwest::Url::parse(url).map_err(|e| {
-            let error_msg = format!("无效的URL: {}", e);
-            log::error!("URL验证失败: {}", error_msg);
-            HttpError::InvalidUrl(error_msg)
+            HttpError::InvalidUrl(format!("无效的URL: {}", e))
         })?;
 
-        // 构建请求体
-        let body = if let Some(data) = data {
-            serde_json::to_string(data).map_err(|e| {
-                let error_msg = format!("序列化请求数据失败: {}", e);
-                log::error!("请求数据序列化失败: {}", error_msg);
-                HttpError::SerializationFailed(error_msg)
-            })?
-        } else {
-            String::new()
+        // 构建HTTP客户端
+        let client = self.build_client()?;
+
+        // 构建请求
+        let mut request_builder = match method.to_uppercase().as_str() {
+            "GET" => client.get(url),
+            "POST" => client.post(url),
+            "PUT" => client.put(url),
+            "DELETE" => client.delete(url),
+            "PATCH" => client.patch(url),
+            _ => return Err(HttpError::RequestFailed(format!("不支持的HTTP方法: {}", method))),
         };
 
-        // 打印请求体信息（debug级别）
-        if !body.is_empty() {
-            log::debug!("请求体: {}", body);
-        } else {
-            log::debug!("请求体: 空");
+        // 设置请求体
+        request_builder = self.apply_request_data(request_builder, data)?;
+
+        // 设置请求头
+        let headers = self.build_headers(custom_headers.as_ref())?;
+        request_builder = request_builder.headers(headers);
+
+        // 发送请求
+        let response = request_builder.send().await.map_err(|e| {
+            HttpError::NetworkError(format!("网络请求失败: {}", e))
+        })?;
+
+        log::debug!("响应状态码: {}", response.status());
+
+        // 读取响应体
+        response.text().await.map_err(|e| {
+            HttpError::NetworkError(format!("读取响应失败: {}", e))
+        })
+    }
+
+    /// 实际的文件下载实现
+    async fn download_file_internal(&self, url: &str, save_path: &Path) -> Result<PathBuf, HttpError> {
+        log::debug!("=== HTTP文件下载开始 ===");
+        log::debug!("下载URL: {}, 保存路径: {:?}", url, save_path);
+
+        // 确保目录存在
+        if let Some(parent_dir) = save_path.parent() {
+            if !parent_dir.exists() {
+                std::fs::create_dir_all(parent_dir).map_err(|e| {
+                    HttpError::FileError(format!("创建目录失败: {}", e))
+                })?;
+            }
         }
 
-        // 构建请求头
+        // 构建HTTP客户端和发送请求
+        let client = self.build_client()?;
+        let headers = self.build_headers(None)?;
+        
+        let response = client.get(url).headers(headers).send().await.map_err(|e| {
+            HttpError::NetworkError(format!("网络请求失败: {}", e))
+        })?;
+
+        if !response.status().is_success() {
+            return Err(HttpError::DownloadFailed(format!("下载失败: HTTP {}", response.status())));
+        }
+
+        // 读取响应体并写入文件
+        let bytes = response.bytes().await.map_err(|e| {
+            HttpError::NetworkError(format!("读取响应数据失败: {}", e))
+        })?;
+
+        let mut file = File::create(save_path).map_err(|e| {
+            HttpError::FileError(format!("创建文件失败: {}", e))
+        })?;
+
+        file.write_all(&bytes).map_err(|e| {
+            HttpError::FileError(format!("写入文件失败: {}", e))
+        })?;
+
+        file.flush().map_err(|e| {
+            HttpError::FileError(format!("文件刷新失败: {}", e))
+        })?;
+
+        log::debug!("=== HTTP文件下载完成 ===");
+        log::debug!("已下载 {} 字节到 {:?}", bytes.len(), save_path);
+
+        Ok(save_path.to_path_buf())
+    }
+
+    /// 构建HTTP客户端
+    fn build_client(&self) -> Result<reqwest::Client, HttpError> {
+        let mut client_builder = reqwest::ClientBuilder::new();
+        
+        if let Some(timeout) = self.config.timeout {
+            client_builder = client_builder.timeout(std::time::Duration::from_secs(timeout));
+        }
+        
+        client_builder.build().map_err(|e| {
+            HttpError::RequestFailed(format!("创建HTTP客户端失败: {}", e))
+        })
+    }
+
+    /// 构建请求头
+    fn build_headers(&self, additional_headers: Option<&HashMap<String, String>>) -> Result<HeaderMap, HttpError> {
         let mut header_map = HeaderMap::new();
 
         // 设置默认User-Agent
         if let Some(user_agent) = &self.config.user_agent {
             header_map.insert(
                 "User-Agent",
-                HeaderValue::from_str(user_agent).map_err(|e| {
-                    let error_msg = format!("无效的User-Agent: {}", e);
-                    log::error!("User-Agent设置失败: {}", error_msg);
-                    HttpError::RequestFailed(error_msg)
+                HeaderValue::from_str(user_agent).unwrap_or_else(|_| HeaderValue::from_static("ClipPal/1.0")),
+            );
+        }
+
+        // 设置配置中的请求头
+        if let Some(config_headers) = &self.config.headers {
+            self.apply_headers_to_map(&mut header_map, config_headers)?;
+        }
+
+        // 设置额外的请求头
+        if let Some(additional) = additional_headers {
+            self.apply_headers_to_map(&mut header_map, additional)?;
+        }
+
+        Ok(header_map)
+    }
+
+    /// 将HashMap格式的请求头应用到HeaderMap
+    fn apply_headers_to_map(&self, header_map: &mut HeaderMap, headers: &HashMap<String, String>) -> Result<(), HttpError> {
+        for (key, value) in headers {
+            let header_name = HeaderName::from_lowercase(key.to_lowercase().as_bytes())
+                .map_err(|e| HttpError::RequestFailed(format!("无效的请求头名称: {}", e)))?;
+            header_map.insert(
+                header_name,
+                HeaderValue::from_str(value).map_err(|e| {
+                    HttpError::RequestFailed(format!("无效的请求头值: {}", e))
                 })?,
             );
-            log::debug!("User-Agent: {}", user_agent);
         }
+        Ok(())
+    }
 
-        // 设置Content-Type
-        if !body.is_empty() && method != "GET" {
-            header_map.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
-            log::debug!("Content-Type: application/json");
-        }
-
-        // 设置自定义请求头
-        if let Some(custom_headers) = headers {
-            log::debug!("自定义请求头:");
-            for (key, value) in &custom_headers {
-                let header_name = HeaderName::from_lowercase(key.to_lowercase().as_bytes())
-                    .map_err(|e| {
-                        let error_msg = format!("无效的请求头名称: {}", e);
-                        log::error!("请求头名称无效: {}", error_msg);
-                        HttpError::RequestFailed(error_msg)
-                    })?;
-                header_map.insert(
-                    header_name,
-                    HeaderValue::from_str(value).map_err(|e| {
-                        let error_msg = format!("无效的请求头值: {}", e);
-                        log::error!("请求头值无效: {}", error_msg);
-                        HttpError::RequestFailed(error_msg)
-                    })?,
-                );
-                log::debug!("  {}: {}", key, value);
+    /// 应用请求数据到请求构建器
+    fn apply_request_data(&self, mut builder: reqwest::RequestBuilder, data: RequestData) -> Result<reqwest::RequestBuilder, HttpError> {
+        match data {
+            RequestData::Json(json_str) => {
+                builder = builder.body(json_str);
             }
-        }
-
-        // 构建请求选项
-        let mut options = tauri_plugin_http::reqwest::ClientBuilder::new();
-
-        // 设置超时
-        if let Some(timeout) = self.config.timeout {
-            options = options.timeout(std::time::Duration::from_secs(timeout));
-            log::debug!("请求超时设置: {}秒", timeout);
-        }
-
-        // 发起请求
-        let client = options.build().map_err(|e| {
-            let error_msg = format!("创建HTTP客户端失败: {}", e);
-            log::error!("HTTP客户端创建失败: {}", error_msg);
-            HttpError::RequestFailed(error_msg)
-        })?;
-
-        let request_builder = match method.to_uppercase().as_str() {
-            "GET" => client.get(url),
-            "POST" => client.post(url).body(body),
-            "PUT" => client.put(url).body(body),
-            "DELETE" => client.delete(url),
-            "PATCH" => client.patch(url).body(body),
-            _ => {
-                let error_msg = format!("不支持的HTTP方法: {}", method);
-                log::error!("不支持的HTTP方法: {}", error_msg);
-                return Err(HttpError::RequestFailed(error_msg));
+            RequestData::Form(form_data) => {
+                builder = builder.form(&form_data);
             }
-        };
+            RequestData::Multipart(form) => {
+                builder = builder.multipart(form);
+            }
+            RequestData::None => {}
+        }
+        Ok(builder)
+    }
 
-        let request = request_builder.headers(header_map).build().map_err(|e| {
-            let error_msg = format!("构建请求失败: {}", e);
-            log::error!("请求构建失败: {}", error_msg);
-            HttpError::RequestFailed(error_msg)
+    /// 构建multipart表单
+    fn build_multipart_form(&self, file_path: &Path, form_data: &HashMap<String, String>) -> Result<reqwest::multipart::Form, HttpError> {
+        // 检查文件是否存在
+        if !file_path.exists() {
+            return Err(HttpError::FileError(format!("文件不存在: {:?}", file_path)));
+        }
+
+        // 检查文件大小
+        let file_metadata = std::fs::metadata(file_path).map_err(|e| {
+            HttpError::FileError(format!("读取文件元数据失败: {}", e))
         })?;
 
-        log::debug!("=== 开始执行HTTP请求 ===");
+        // 获取文件大小限制配置
+        use crate::utils::config::get_max_file_size_bytes;
+        let max_file_size = get_max_file_size_bytes().unwrap_or(5 * 1024 * 1024);
 
-        // 执行请求
-        let response = client.execute(request).await.map_err(|e| {
-            let error_msg = format!("网络请求失败: {}", e);
-            log::error!("网络请求执行失败: {}", error_msg);
-            log::error!("错误详情: {:?}", e);
-            HttpError::NetworkError(error_msg)
+        if file_metadata.len() > max_file_size {
+            return Err(HttpError::FileSizeExceeded(format!(
+                "文件大小 {} 字节超过限制 {} 字节",
+                file_metadata.len(),
+                max_file_size
+            )));
+        }
+
+        // 构建multipart表单
+        let mut form = reqwest::multipart::Form::new();
+
+        // 添加表单字段
+        for (key, value) in form_data {
+            form = form.text(key.clone(), value.clone());
+        }
+
+        // 读取文件内容
+        let file_content = std::fs::read(file_path).map_err(|e| {
+            HttpError::FileError(format!("读取文件失败: {}", e))
         })?;
 
-        let status = response.status().as_u16();
-        let response_url = response.url().to_string();
-        let response_headers = response.headers().clone();
+        // 获取文件名和MIME类型
+        let file_name = file_path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("file");
 
-        log::debug!("=== HTTP响应信息 ===");
-        log::debug!("响应状态码: {}", status);
-        log::debug!("响应URL: {}", response_url);
-        log::debug!("响应头数量: {}", response_headers.len());
+        let mime_type = get_mime_type_from_extension(file_path);
 
-        // 打印响应头信息（debug级别）
-        for (name, value) in response_headers.iter() {
+        // 添加文件到表单
+        let file_part = reqwest::multipart::Part::bytes(file_content)
+            .file_name(file_name.to_string())
+            .mime_str(&mime_type)
+            .map_err(|e| HttpError::RequestFailed(format!("设置MIME类型失败: {}", e)))?;
+
+        form = form.part("file", file_part);
+
+        Ok(form)
+    }
+
+    /// 提取响应头
+    fn extract_headers(&self, response: &reqwest::Response) -> HashMap<String, String> {
+        let mut headers = HashMap::new();
+        for (key, value) in response.headers().iter() {
             if let Ok(value_str) = value.to_str() {
-                log::debug!("响应头 {}: {}", name, value_str);
+                headers.insert(key.as_str().to_string(), value_str.to_string());
             }
         }
-
-        let response_text = response.text().await.map_err(|e| {
-            let error_msg = format!("读取响应失败: {}", e);
-            log::error!("响应内容读取失败: {}", error_msg);
-            log::error!("错误详情: {:?}", e);
-            HttpError::NetworkError(error_msg)
-        })?;
-
-        // 根据状态码决定日志级别
-        match status {
-            200..=299 => {
-                // 成功状态码 (2xx)
-                log::debug!("=== HTTP请求成功 ===");
-                log::debug!("状态码: {} (成功)", status);
-                log::debug!("响应内容长度: {} 字符", response_text.len());
-                // 如果响应内容太长，只打印前500个字符
-                if response_text.len() > 500 {
-                    log::debug!("响应内容预览: {}...", &response_text[..500]);
-                } else {
-                    log::debug!("响应内容: {}", response_text);
-                }
-            }
-            300..=399 => {
-                // 重定向状态码 (3xx)
-                log::debug!("=== HTTP请求重定向 ===");
-                log::debug!("状态码: {} (重定向)", status);
-                log::debug!("响应内容: {}", response_text);
-            }
-            400..=499 => {
-                // 客户端错误状态码 (4xx)
-                log::error!("=== HTTP请求失败 (客户端错误) ===");
-                log::error!("状态码: {} (客户端错误)", status);
-                log::error!("响应内容: {}", response_text);
-            }
-            500..=599 => {
-                // 服务器错误状态码 (5xx)
-                log::error!("=== HTTP请求失败 (服务器错误) ===");
-                log::error!("状态码: {} (服务器错误)", status);
-                log::error!("响应内容: {}", response_text);
-            }
-            _ => {
-                // 其他未知状态码
-                log::warn!("=== HTTP请求未知状态 ===");
-                log::warn!("状态码: {} (未知)", status);
-                log::warn!("响应内容: {}", response_text);
-            }
-        }
-
-        Ok((status, response_url, response_headers, response_text))
+        headers
     }
 
     /// 构建带查询参数的URL
@@ -588,216 +695,6 @@ impl HttpClient {
         }
 
         Ok(url.to_string())
-    }
-
-    /// 核心文件上传方法（multipart/form-data）
-    async fn request_multipart<U>(
-        &self,
-        url: &str,
-        file_path: &Path,
-        form_data: &HashMap<String, String>,
-    ) -> Result<ApiResponse<U>, HttpError>
-    where
-        U: for<'de> Deserialize<'de>,
-    {
-        // 打印请求信息（debug级别）
-        log::debug!("=== HTTP文件上传请求开始 ===");
-        log::debug!("请求URL: {}", url);
-        log::debug!("文件路径: {:?}", file_path);
-
-        // 验证URL
-        let _parsed_url = reqwest::Url::parse(url).map_err(|e| {
-            let error_msg = format!("无效的URL: {}", e);
-            log::error!("URL验证失败: {}", error_msg);
-            HttpError::InvalidUrl(error_msg)
-        })?;
-
-        // 检查文件是否存在
-        if !file_path.exists() {
-            let error_msg = format!("文件不存在: {:?}", file_path);
-            log::error!("文件验证失败: {}", error_msg);
-            return Err(HttpError::FileError(error_msg));
-        }
-
-        // 检查文件大小
-        let file_metadata = std::fs::metadata(file_path).map_err(|e| {
-            let error_msg = format!("读取文件元数据失败: {}", e);
-            log::error!("文件元数据读取失败: {}", error_msg);
-            HttpError::FileError(error_msg)
-        })?;
-
-        // 获取文件大小限制配置
-        use crate::utils::config::get_max_file_size_bytes;
-        let max_file_size = get_max_file_size_bytes().unwrap_or(5 * 1024 * 1024); // 默认5MB
-
-        if file_metadata.len() > max_file_size {
-            let error_msg = format!(
-                "文件大小 {} 字节超过限制 {} 字节",
-                file_metadata.len(),
-                max_file_size
-            );
-            log::error!("文件大小超过限制: {}", error_msg);
-            return Err(HttpError::FileSizeExceeded(error_msg));
-        }
-
-        log::debug!("文件大小: {} 字节", file_metadata.len());
-
-        // 构建multipart表单
-        let mut form = reqwest::multipart::Form::new();
-
-        // 添加表单字段
-        for (key, value) in form_data {
-            form = form.text(key.clone(), value.clone());
-            log::debug!("表单字段 {}: {}", key, value);
-        }
-
-        // 读取文件内容
-        let file_content = std::fs::read(file_path).map_err(|e| {
-            let error_msg = format!("读取文件失败: {}", e);
-            log::error!("文件读取失败: {}", error_msg);
-            HttpError::FileError(error_msg)
-        })?;
-
-        // 获取文件名
-        let file_name = file_path
-            .file_name()
-            .and_then(|name| name.to_str())
-            .unwrap_or("file");
-
-        // 根据文件扩展名推断MIME类型
-        let mime_type = get_mime_type_from_extension(file_path);
-        log::debug!("检测到文件MIME类型: {}", mime_type);
-
-        // 添加文件到表单，设置Content-Type
-        let file_part = reqwest::multipart::Part::bytes(file_content)
-            .file_name(file_name.to_string())
-            .mime_str(&mime_type)
-            .map_err(|e| {
-                let error_msg = format!("设置MIME类型失败: {}", e);
-                log::error!("MIME类型设置失败: {}", error_msg);
-                HttpError::RequestFailed(error_msg)
-            })?;
-
-        form = form.part("file", file_part);
-
-        log::debug!("文件添加到表单: {}", file_name);
-
-        // 构建请求头
-        let mut header_map = HeaderMap::new();
-
-        // 设置默认User-Agent
-        if let Some(user_agent) = &self.config.user_agent {
-            header_map.insert(
-                "User-Agent",
-                HeaderValue::from_str(user_agent).map_err(|e| {
-                    let error_msg = format!("无效的User-Agent: {}", e);
-                    log::error!("User-Agent设置失败: {}", error_msg);
-                    HttpError::RequestFailed(error_msg)
-                })?,
-            );
-            log::debug!("User-Agent: {}", user_agent);
-        }
-
-        // 设置自定义请求头（但不设置Content-Type，让reqwest自动处理multipart）
-        if let Some(custom_headers) = &self.config.headers {
-            log::debug!("自定义请求头:");
-            for (key, value) in custom_headers {
-                if key.to_lowercase() != "content-type" {
-                    let header_name = HeaderName::from_lowercase(key.to_lowercase().as_bytes())
-                        .map_err(|e| {
-                            let error_msg = format!("无效的请求头名称: {}", e);
-                            log::error!("请求头名称无效: {}", error_msg);
-                            HttpError::RequestFailed(error_msg)
-                        })?;
-                    header_map.insert(
-                        header_name,
-                        HeaderValue::from_str(value).map_err(|e| {
-                            let error_msg = format!("无效的请求头值: {}", e);
-                            log::error!("请求头值无效: {}", error_msg);
-                            HttpError::RequestFailed(error_msg)
-                        })?,
-                    );
-                    log::debug!("  {}: {}", key, value);
-                }
-            }
-        }
-
-        // 构建请求选项
-        let mut options = tauri_plugin_http::reqwest::ClientBuilder::new();
-
-        // 设置超时
-        if let Some(file_timeout) = self.config.file_timeout {
-            options = options.timeout(std::time::Duration::from_secs(file_timeout));
-            log::debug!("请求超时设置: {}秒", file_timeout);
-        }
-
-        // 发起请求
-        let client = options.build().map_err(|e| {
-            let error_msg = format!("创建HTTP客户端失败: {}", e);
-            log::error!("HTTP客户端创建失败: {}", error_msg);
-            HttpError::RequestFailed(error_msg)
-        })?;
-
-        let request_builder = client.post(url).multipart(form);
-
-        let request = request_builder.headers(header_map).build().map_err(|e| {
-            let error_msg = format!("构建请求失败: {}", e);
-            log::error!("请求构建失败: {}", error_msg);
-            HttpError::RequestFailed(error_msg)
-        })?;
-
-        log::debug!("=== 开始执行HTTP文件上传请求 ===");
-
-        // 执行请求
-        let response = client.execute(request).await.map_err(|e| {
-            let error_msg = format!("网络请求失败: {}", e);
-            log::error!("网络请求执行失败: {}", error_msg);
-            log::error!("错误详情: {:?}", e);
-            HttpError::NetworkError(error_msg)
-        })?;
-
-        let status = response.status().as_u16();
-        let response_url = response.url().to_string();
-
-        log::debug!("=== HTTP响应信息 ===");
-        log::debug!("响应状态码: {}", status);
-        log::debug!("响应URL: {}", response_url);
-
-        let response_text = response.text().await.map_err(|e| {
-            let error_msg = format!("读取响应失败: {}", e);
-            log::error!("响应内容读取失败: {}", error_msg);
-            log::error!("错误详情: {:?}", e);
-            HttpError::NetworkError(error_msg)
-        })?;
-
-        // 根据状态码决定日志级别
-        match status {
-            200..=299 => {
-                log::debug!("=== HTTP文件上传请求成功 ===");
-                log::debug!("状态码: {} (成功)", status);
-                log::debug!("响应内容长度: {} 字符", response_text.len());
-                if response_text.len() > 500 {
-                    log::debug!("响应内容预览: {}...", &response_text[..500]);
-                } else {
-                    log::debug!("响应内容: {}", response_text);
-                }
-            }
-            _ => {
-                log::error!("=== HTTP文件上传请求失败 ===");
-                log::error!("状态码: {}", status);
-                log::error!("响应内容: {}", response_text);
-            }
-        }
-
-        // 直接反序列化为ApiResponse<U>
-        let api_response: ApiResponse<U> = serde_json::from_str(&response_text).map_err(|e| {
-            HttpError::DeserializationFailed(format!(
-                "反序列化ApiResponse失败，请求url：{}，返回结果：{}: {}",
-                url, response_text, e
-            ))
-        })?;
-
-        Ok(api_response)
     }
 }
 
@@ -831,6 +728,16 @@ where
     U: for<'de> Deserialize<'de>,
 {
     HttpClient::new().post_json_raw(url, data).await
+}
+
+/// 便捷的文件下载函数
+pub async fn download_file(url: &str, save_path: &Path) -> Result<PathBuf, HttpError> {
+    HttpClient::new().download_file(url, save_path).await
+}
+
+/// 便捷的文件下载函数（带响应头信息）
+pub async fn download_file_with_info(url: &str, save_path: &Path) -> Result<(PathBuf, HashMap<String, String>), HttpError> {
+    HttpClient::new().download_file_with_info(url, save_path).await
 }
 
 /// 根据文件扩展名推断MIME类型

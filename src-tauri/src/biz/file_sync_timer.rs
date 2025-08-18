@@ -44,8 +44,8 @@ pub fn start_file_sync_timer() {
 async fn process_one_file_sync() -> AppResult<()> {
     let rb: &RBatis = CONTEXT.get::<RBatis>();
 
-    // 查找一条sync_flag为SYNCHRONIZING的记录
-    let pending_records = ClipRecord::select_by_sync_flag_limit(rb, SYNCHRONIZING, 1).await?;
+    // 查找一条sync_flag为SYNCHRONIZING的记录，但是需要是本地自己的记录，而不是云端同步下来的
+    let pending_records = ClipRecord::select_by_sync_flag_limit(rb, SYNCHRONIZING, 0, 1).await?;
 
     if pending_records.is_empty() {
         log::debug!("没有发现待同步文件的记录");
