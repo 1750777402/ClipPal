@@ -57,7 +57,8 @@ bloomfilter = { workspace = true }
 # 文本处理和分词
 regex = { workspace = true }
 bincode = { workspace = true }
-async-channel ={ workspace = true }
+async-channel = { workspace = true }
+chrono = { workspace = true }
 
 # Windows API for auto-paste functionality
 [target.'cfg(windows)'.dependencies]

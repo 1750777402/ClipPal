@@ -23,51 +23,70 @@ too_many_arguments = "allow"
 module_name_repetitions = "allow"
 
 [workspace.dependencies]
-anyhow = "1.0" 
-async-channel = "2.5.0" 
-async-trait = "0.1" 
-aes-gcm = "0.10"        # AES-256-GCM 加解密
-rand = "0.9"
-base64 = "0.22.1" #base64编码
-clipboard-rs = "0.2.1" #粘贴板工具
-directories = "6" #目录操作
-dashmap = "6.1"
-image = "0.25.1" 
-md5 = "0.7.0" 
-rbatis = {version = "=4.5"} 
-rbdc-sqlite = {version = "=4.5"} 
-rbs = {version = "=4.5"} 
-serde = {version = "1", features = ["derive"]} 
-serde_json = "1" 
-state = {version = "0.6.0"} 
-tauri = {version = "=2.6.0", features = ["tray-icon", "image-png"]} 
-tauri-plugin-dialog = "2" 
-tauri-plugin-http = { version = "=2.4.4", features = ["multipart"] } 
-tauri-plugin-opener = "2" 
-tauri-plugin-single-instance = "2" 
-thiserror = "2" 
-tokio = {version = "1.0", features = ["full"]} 
-uuid = "1"
-lazy_static = "1.4"
-once_cell = "1.19.0"
-log = "0.4"
-log4rs = "1.3"
-env_logger = "0.11.8"
-# Bloom filter 用于高效搜索
-bloomfilter = "1.0.12"
-# 文本处理和分词
-regex = "1.10.2"
-bincode = "1.3"
 
-# Platform-specific dependencies (versions only, features defined in individual crates)
-windows = "0.58"
-cocoa = "0.26.0"
-objc = "0.2.7"
-core-graphics = "0.24.0"
-tauri-plugin-autostart = "2"
-tauri-plugin-global-shortcut = "2"
-tauri-plugin-window-state = "2"
+# =========================
+# 核心功能依赖
+# =========================
+anyhow = "1.0"                     # 错误处理（比 Result 更灵活）
+async-channel = "2.5.0"            # 异步通道（消息队列）
+async-trait = "0.1"                # 让 trait 支持 async fn
+aes-gcm = "0.10"                   # AES-256-GCM 加解密
+rand = "0.9"                       # 随机数生成
+base64 = "0.22.1"                  # Base64 编解码
+clipboard-rs = "0.2.1"             # 跨平台粘贴板操作
+directories = "6"                  # 系统目录工具（用户数据/缓存目录）
+dashmap = "6.1"                    # 并发安全 HashMap
+image = "0.25.1"                   # 图片处理（缩放、格式转换）
+md5 = "0.8.0"                      # MD5 哈希
+serde = {version = "1", features = ["derive"]} # 序列化/反序列化
+serde_json = "1"                   # JSON 处理
+state = {version = "0.6.0"}        # 全局状态管理
+thiserror = "2"                    # 自定义错误类型
+tokio = {version = "1.0", features = ["full"]} # 异步运行时
+uuid = "1"                         # UUID 生成
+lazy_static = "1.4"                # 懒加载静态变量
+once_cell = "1.19.0"               # 全局单例/懒初始化
+log = "0.4"                        # 日志接口
+log4rs = "1.3"                     # 基于配置文件的日志框架
+env_logger = "0.11.8"              # 基于环境变量的日志框架
+bloomfilter = "3"             # 布隆过滤器（快速查重/集合判断）
+regex = "1.10.2"                   # 正则表达式
+bincode = "2"                    # 二进制序列化
+chrono = "0.4"                     # 时间日期库
 
-# Build dependencies
-tauri-build = "2"
-tauri-plugin = "2.0.2"
+# =========================
+# 数据库相关
+# =========================
+rbatis = {version = "=4.5"}        # ORM 框架
+rbdc-sqlite = {version = "=4.5"}   # SQLite 驱动
+rbs = {version = "=4.5"}           # RBatis 底层结构支持
+
+# =========================
+# Tauri 核心 & 插件
+# =========================
+tauri = {version = "=2.6.0", features = ["tray-icon", "image-png"]}
+# Tauri 主框架，tray-icon 系统托盘，image-png 图标支持
+
+tauri-plugin-dialog = "2"          # 对话框（文件选择、提示）
+tauri-plugin-http = { version = "=2.4.4", features = ["multipart"] }
+# HTTP 客户端，支持 multipart 上传
+
+tauri-plugin-opener = "2"          # 打开系统文件/URL
+tauri-plugin-single-instance = "2" # 保证单实例运行
+tauri-plugin-autostart = "2"       # 开机自启
+tauri-plugin-global-shortcut = "2" # 全局快捷键
+tauri-plugin-window-state = "2"    # 记忆窗口大小/位置
+
+# =========================
+# 平台相关依赖（系统 API）
+# =========================
+windows = "0.58"                   # Windows API 绑定
+cocoa = "0.26.0"                   # macOS Cocoa 绑定
+objc = "0.2.7"                     # Objective-C 绑定（macOS API）
+core-graphics = "0.24.0"           # macOS 图形 API
+
+# =========================
+# 构建依赖
+# =========================
+tauri-build = "2"                  # Tauri 构建工具
+tauri-plugin = "2.0.2"             # 自定义 Tauri 插件开发

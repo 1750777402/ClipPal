@@ -5,6 +5,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
+use chrono::Local;
 use clipboard_listener::{ClipBoardEventListener, ClipType, ClipboardEvent};
 use rbatis::RBatis;
 use serde_json::Value;
@@ -381,7 +382,8 @@ async fn save_img_to_resource(data_id: &str, rb: &RBatis, image: &Vec<u8>) -> Op
     if let Some(resource_path) = get_resources_dir() {
         // 生成唯一文件名
         let uid = Uuid::new_v4().to_string();
-        let filename = format!("{}.png", uid);
+        let now = Local::now().format("%Y%m%d%H%M%S").to_string();
+        let filename = format!("{}_{}.png", now, uid);
 
         // 拼接完整路径
         let mut full_path: PathBuf = resource_path.clone();
