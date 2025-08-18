@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
-use clipboard_listener::ClipType;
 use chrono::prelude::*;
+use clipboard_listener::ClipType;
 use tauri::{AppHandle, Emitter};
 use tokio::time::Duration;
 use uuid::Uuid;
@@ -208,15 +208,13 @@ fn determine_save_path_simple(file_type: &str, md5_str: &str) -> AppResult<PathB
             // 由于是从云端下载，我们无法获知原始文件扩展名，统一使用.dat
             let uid = Uuid::new_v4().simple();
             let filename = format!("{}_{}.dat", md5_str, uid);
-            
+
             // 确保files子目录存在
             let files_dir = resources_dir.join("files");
             if !files_dir.exists() {
-                std::fs::create_dir_all(&files_dir).map_err(|e| {
-                    AppError::Io(e)
-                })?;
+                std::fs::create_dir_all(&files_dir).map_err(|e| AppError::Io(e))?;
             }
-            
+
             Ok(files_dir.join(filename))
         }
         _ => Err(AppError::Config("Unsupported file type".to_string())),
