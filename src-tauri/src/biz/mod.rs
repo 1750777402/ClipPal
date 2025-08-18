@@ -1,12 +1,13 @@
-pub mod clip_record_sync;
+pub mod clip_async_queue;
 pub mod clip_record;
 pub mod clip_record_clean;
+pub mod clip_record_sync;
 pub mod cloud_sync_timer;
 pub mod content_processor;
 pub mod content_search;
 pub mod copy_clip_record;
+pub mod download_cloud_file;
 pub mod file_sync_timer;
 pub mod query_clip_record;
 pub mod sync_time;
 pub mod system_setting;
-pub mod clip_async_queue;

@@ -2,9 +2,9 @@ use crate::biz::clip_record::ClipRecord;
 use crate::biz::system_setting::{
     DEFAULT_BLOOM_FILTER_TRUST_THRESHOLD, DEFAULT_DIRECT_CONTAINS_THRESHOLD,
 };
+use crate::errors::AppResult;
 use crate::utils::lock_utils::lock_utils::safe_read_lock;
 use crate::{CONTEXT, biz::system_setting::Settings};
-use crate::errors::AppResult;
 use bloomfilter::Bloom;
 use dashmap::DashMap;
 use once_cell::sync::Lazy;
@@ -13,17 +13,14 @@ use std::collections::HashSet;
 use std::sync::{Arc, RwLock};
 
 // 静态编译的正则表达式
-static WORD_REGEX: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"\b[a-z]{2,}\b|\b\d{2,}\b").expect("Valid word regex")
-});
+static WORD_REGEX: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"\b[a-z]{2,}\b|\b\d{2,}\b").expect("Valid word regex"));
 
-static TAG_REGEX: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"</?([a-z][a-z0-9]*)\b").expect("Valid tag regex")
-});
+static TAG_REGEX: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"</?([a-z][a-z0-9]*)\b").expect("Valid tag regex"));
 
-static ATTR_REGEX: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"(\w+)=["']([^"']*)["']"#).expect("Valid attribute regex")
-});
+static ATTR_REGEX: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r#"(\w+)=["']([^"']*)["']"#).expect("Valid attribute regex"));
 
 /// 搜索索引配置
 const BLOOM_FILTER_ITEMS: usize = 1000; // 每个记录预期的词汇数量
@@ -40,7 +37,8 @@ struct RecordSearchData {
 
 impl RecordSearchData {
     fn new(content: String) -> Self {
-        let mut bloom_filter = Bloom::new_for_fp_rate(BLOOM_FILTER_ITEMS, BLOOM_FILTER_FP_RATE);
+        let mut bloom_filter =
+            Bloom::new_for_fp_rate(BLOOM_FILTER_ITEMS, BLOOM_FILTER_FP_RATE).unwrap();
 
         // 将内容的所有可能搜索词汇添加到bloom filter
         let search_terms = Self::extract_search_terms(&content);
