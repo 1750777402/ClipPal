@@ -57,6 +57,7 @@ impl ClipRecordParam {
             r#type: self.r#type.clone().unwrap_or_default(),
             content: self.content.clone(),
             md5_str: self.md5_str.clone().unwrap_or_default(),
+            local_file_path: None,
             created: self.created.unwrap_or(0),
             user_id: self.user_id.unwrap_or(0),
             os_type: self.os_type.clone().unwrap_or_default(),

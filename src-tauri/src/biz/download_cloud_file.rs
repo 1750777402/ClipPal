@@ -1,8 +1,10 @@
 use std::path::PathBuf;
 
+use chrono::Local;
 use clipboard_listener::ClipType;
 use tauri::{AppHandle, Emitter};
 use tokio::time::Duration;
+use uuid::Uuid;
 
 use crate::{
     CONTEXT,
@@ -115,10 +117,10 @@ async fn download_cloud_file_for_record(
     )
     .await
     {
-        Ok(local_path) => {
+        Ok((filename, absolute_path)) => {
             let rb: &RBatis = CONTEXT.get::<RBatis>();
             if let Err(e) =
-                ClipRecord::update_after_cloud_download(rb, &record.id, &local_path).await
+                ClipRecord::update_after_cloud_download(rb, &record.id, &filename, &absolute_path).await
             {
                 log::warn!("Failed to update record status: {}", e);
             }
@@ -129,10 +131,11 @@ async fn download_cloud_file_for_record(
             }
 
             log::info!(
-                "Cloud file download completed: record_id={}, type={}, path={}",
+                "Cloud file download completed: record_id={}, type={}, filename={}, path={}",
                 record.id,
                 record.r#type,
-                local_path
+                filename,
+                absolute_path
             );
         }
         Err(e) => {
@@ -154,7 +157,7 @@ async fn download_cloud_file_to_local(
     cloud_file_name: &str,
     file_type: &str,
     record_id: &str,
-) -> AppResult<String> {
+) -> AppResult<(String, String)> {
     // 确定保存路径 - 使用云端返回的原始文件名
     let save_path = determine_save_path_from_cloud(file_type, cloud_file_name)?;
 
@@ -176,26 +179,52 @@ async fn download_cloud_file_to_local(
         save_path
     );
 
-    // 返回相对路径（与云端存储的格式保持一致）
-    if let Some(resources_dir) = get_resources_dir() {
-        if let Ok(relative_path) = save_path.strip_prefix(&resources_dir) {
-            let relative_path_str = relative_path.to_string_lossy().to_string();
-            // 标准化路径分隔符，确保跨平台一致性
-            let normalized_path = relative_path_str.replace('\\', "/");
-            Ok(normalized_path)
-        } else {
-            // 如果无法获取相对路径，返回云端原始文件名（兜底方案）
-            log::warn!("无法计算相对路径，使用原始云端文件名: {}", cloud_file_name);
-            Ok(cloud_file_name.to_string())
+    // content字段使用云端返回的原始文件名（用户看到的显示名称）
+    let display_filename = cloud_file_name.to_string();
+
+    // local_file_path使用下载后的实际绝对路径（程序访问用的路径）
+    let absolute_path = save_path.to_string_lossy().to_string();
+
+    log::info!(
+        "Cloud file processed: record_id={}, display_filename={}, local_path={}",
+        record_id,
+        display_filename,
+        absolute_path
+    );
+
+    Ok((display_filename, absolute_path))
+}
+
+/// 提取完整的文件扩展名，支持复合扩展名（如 tar.gz, tar.bz2 等）
+fn extract_full_extension_from_str(file_path: &str) -> String {
+    // 已知的复合扩展名列表
+    const COMPOUND_EXTENSIONS: &[&str] = &[
+        "tar.gz", "tar.bz2", "tar.xz", "tar.lz", "tar.Z",
+        "tar.lzma", "tar.lzo", "tar.zst",
+    ];
+    
+    // 先从路径中提取文件名
+    let filename = std::path::Path::new(file_path)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or(file_path);
+    
+    // 转换为小写进行匹配
+    let filename_lower = filename.to_lowercase();
+    
+    // 检查是否匹配复合扩展名
+    for ext in COMPOUND_EXTENSIONS {
+        if filename_lower.ends_with(ext) {
+            return ext.to_string();
         }
-    } else {
-        // 如果无法获取resources目录，返回云端原始文件名（兜底方案）
-        log::warn!(
-            "无法获取resources目录，使用原始云端文件名: {}",
-            cloud_file_name
-        );
-        Ok(cloud_file_name.to_string())
     }
+    
+    // 如果不是复合扩展名，使用标准方法提取单个扩展名
+    std::path::Path::new(filename)
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .unwrap_or("")
+        .to_string()
 }
 
 fn determine_save_path_from_cloud(file_type: &str, cloud_file_name: &str) -> AppResult<PathBuf> {
@@ -204,34 +233,35 @@ fn determine_save_path_from_cloud(file_type: &str, cloud_file_name: &str) -> App
 
     match file_type {
         x if x == ClipType::Image.to_string() => {
-            // 图片文件直接使用云端返回的文件名
-            // 云端的文件名应该已经是相对于resources目录的路径
-            Ok(resources_dir.join(cloud_file_name))
+            // 图片文件生成新的唯一文件名，保持png扩展名
+            let now = Local::now().format("%Y%m%d%H%M%S").to_string();
+            let uid = Uuid::new_v4().to_string();
+            let new_filename = format!("{}_{}.png", now, uid);
+            Ok(resources_dir.join(new_filename))
         }
         x if x == ClipType::File.to_string() => {
-            // 文件类型使用云端返回的路径
-            // 云端存储的应该是 "files/原始文件名" 的格式
-            let file_path = if cloud_file_name.starts_with("files/") {
-                // 如果云端已经包含files/前缀，直接使用
-                cloud_file_name.to_string()
-            } else {
-                // 如果没有前缀，添加files/前缀（兼容性处理）
-                format!("files/{}", cloud_file_name)
-            };
-
-            let full_path = resources_dir.join(&file_path);
-
-            // 确保父目录存在
-            if let Some(parent_dir) = full_path.parent() {
-                if !parent_dir.exists() {
-                    std::fs::create_dir_all(parent_dir).map_err(|e| {
-                        log::error!("创建目录失败: {:?}, 错误: {}", parent_dir, e);
-                        AppError::Io(e)
-                    })?;
-                }
+            // 确保files目录存在
+            let files_dir = resources_dir.join("files");
+            if !files_dir.exists() {
+                std::fs::create_dir_all(&files_dir).map_err(|e| {
+                    log::error!("创建files目录失败: {:?}, 错误: {}", files_dir, e);
+                    AppError::Io(e)
+                })?;
             }
-
-            Ok(full_path)
+            
+            // 提取原文件的扩展名，支持复合扩展名（如 tar.gz, tar.bz2 等）
+            let extension = extract_full_extension_from_str(cloud_file_name);
+            
+            // 生成新的唯一文件名，保留原扩展名
+            let now = Local::now().format("%Y%m%d%H%M%S").to_string();
+            let uid = Uuid::new_v4().to_string();
+            let new_filename = if extension.is_empty() {
+                format!("{}_{}", now, uid)
+            } else {
+                format!("{}_{}.{}", now, uid, extension)
+            };
+            
+            Ok(files_dir.join(new_filename))
         }
         _ => Err(AppError::Config("Unsupported file type".to_string())),
     }

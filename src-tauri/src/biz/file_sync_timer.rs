@@ -76,61 +76,65 @@ async fn process_one_file_sync() -> AppResult<()> {
 
 /// 处理图片同步
 async fn process_image_sync(record: &ClipRecord) -> AppResult<()> {
-    if let Some(content_str) = record.content.as_str() {
-        if content_str.is_empty() || content_str == "null" {
-            // 内容为空，直接标记为已同步
+    // 使用local_file_path字段获取图片文件路径
+    if let Some(local_file_path) = &record.local_file_path {
+        if local_file_path.is_empty() {
+            // 路径为空，直接标记为已同步
             let rb: &RBatis = CONTEXT.get::<RBatis>();
             let ids = vec![record.id.clone()];
             let current_time = current_timestamp();
             ClipRecord::update_sync_flag(rb, &ids, SYNCHRONIZED, current_time).await?;
-            log::warn!("图片记录内容为空，直接标记为已同步: {}", record.id);
+            log::warn!(
+                "图片记录local_file_path为空，直接标记为已同步: {}",
+                record.id
+            );
             return Ok(());
         }
 
-        // 构造图片文件路径
-        if let Some(resource_path) = get_resources_dir() {
-            let mut file_path = resource_path.clone();
-            file_path.push(content_str);
+        let file_path = PathBuf::from(local_file_path);
 
-            // 检查文件是否存在
-            if !file_path.exists() {
-                log::error!("图片文件不存在: {:?}, 记录ID: {}", file_path, record.id);
-                return mark_as_skip_sync(&record.id, "图片文件不存在").await;
-            }
-
-            // 检查文件大小
-            if let Err(e) = check_file_size(&file_path).await {
-                log::warn!("图片文件大小检查失败: {}, 记录ID: {}", e, record.id);
-                return mark_as_skip_sync(&record.id, &e).await;
-            }
-
-            // 上传文件
-            let upload_param = FileCloudSyncParam {
-                md5_str: record.md5_str.clone(),
-                r#type: ClipType::Image.to_string(),
-                file: file_path,
-            };
-
-            upload_file_and_update_status(&record.id, upload_param).await
-        } else {
-            log::error!("获取资源目录失败，无法处理图片记录: {}", record.id);
-            mark_as_skip_sync(&record.id, "获取资源目录失败").await
+        // 检查文件是否存在
+        if !file_path.exists() {
+            log::error!("图片文件不存在: {:?}, 记录ID: {}", file_path, record.id);
+            return mark_as_skip_sync(&record.id, "图片文件不存在").await;
         }
+
+        // 检查文件大小
+        if let Err(e) = check_file_size(&file_path).await {
+            log::warn!("图片文件大小检查失败: {}, 记录ID: {}", e, record.id);
+            return mark_as_skip_sync(&record.id, &e).await;
+        }
+
+        // 上传文件
+        let upload_param = FileCloudSyncParam {
+            md5_str: record.md5_str.clone(),
+            r#type: ClipType::Image.to_string(),
+            file: file_path,
+        };
+
+        upload_file_and_update_status(&record.id, upload_param).await
     } else {
-        // 无法解析内容，直接标记为已同步
+        // local_file_path字段为None，直接标记为已同步
         let rb: &RBatis = CONTEXT.get::<RBatis>();
         let ids = vec![record.id.clone()];
         let current_time = current_timestamp();
         ClipRecord::update_sync_flag(rb, &ids, SYNCHRONIZED, current_time).await?;
-        log::warn!("图片记录无法解析内容，直接标记为已同步: {}", record.id);
+        log::warn!(
+            "图片记录local_file_path字段为None，直接标记为已同步: {}",
+            record.id
+        );
         Ok(())
     }
 }
 
 /// 处理文件同步
 async fn process_file_sync(record: &ClipRecord) -> AppResult<()> {
-    if let Some(content_str) = record.content.as_str() {
-        let file_paths: Vec<String> = content_str.split(":::").map(|s| s.to_string()).collect();
+    // 使用local_file_path字段获取文件路径
+    if let Some(local_file_path) = &record.local_file_path {
+        let file_paths: Vec<String> = local_file_path
+            .split(":::")
+            .map(|s| s.to_string())
+            .collect();
 
         // 检查所有文件是否存在以及大小是否符合要求
         let mut valid_files = Vec::new();
@@ -199,12 +203,15 @@ async fn process_file_sync(record: &ClipRecord) -> AppResult<()> {
 
         Ok(())
     } else {
-        // 无法解析内容，直接标记为已同步
+        // local_file_path字段为None，直接标记为已同步
         let rb: &RBatis = CONTEXT.get::<RBatis>();
         let ids = vec![record.id.clone()];
         let current_time = current_timestamp();
         ClipRecord::update_sync_flag(rb, &ids, SYNCHRONIZED, current_time).await?;
-        log::warn!("文件记录无法解析内容，直接标记为已同步: {}", record.id);
+        log::warn!(
+            "文件记录local_file_path字段为None，直接标记为已同步: {}",
+            record.id
+        );
         Ok(())
     }
 }

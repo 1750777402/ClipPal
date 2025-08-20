@@ -18,6 +18,8 @@ pub struct ClipRecord {
     pub content: Value,
     // 内容md5值
     pub md5_str: String,
+    // 本地文件地址
+    pub local_file_path: Option<String>,
     // 时间戳
     pub created: u64,
     // 用户id
@@ -65,7 +67,7 @@ impl_select!(ClipRecord{select_order_by_created(created: u64) =>"`where created 
 impl_select!(ClipRecord{select_invalid() =>"`where sync_flag = 2 and del_flag = 1`"});
 
 impl ClipRecord {
-    pub async fn update_content(rb: &RBatis, id: &str, content: &String) -> AppResult<()> {
+    pub async fn update_content(rb: &RBatis, id: &str, content: &str) -> AppResult<()> {
         let sql = "UPDATE clip_record SET content = ? WHERE id = ?";
         let tx = rb.acquire_begin().await?;
         let _ = tx.exec(sql, vec![to_value!(content), to_value!(id)]).await;
@@ -130,19 +132,34 @@ impl ClipRecord {
             .map_err(|e| AppError::Database(rbatis::Error::from(e)))
     }
 
+    /// 更新local_file_path字段
+    pub async fn update_local_file_path(rb: &RBatis, id: &str, local_path: &str) -> AppResult<()> {
+        let sql = "UPDATE clip_record SET local_file_path = ? WHERE id = ?";
+        let tx = rb.acquire_begin().await?;
+        let _ = tx
+            .exec(sql, vec![to_value!(local_path), to_value!(id)])
+            .await;
+        tx.commit()
+            .await
+            .map_err(|e| AppError::Database(rbatis::Error::from(e)))
+    }
+
     /// 更新云文件下载后的记录状态
     pub async fn update_after_cloud_download(
         rb: &RBatis,
         id: &str,
-        local_path: &str,
+        filename: &str,
+        absolute_path: &str,
     ) -> AppResult<()> {
-        let sql = "UPDATE clip_record SET content = ?, sync_flag = ? WHERE id = ?";
+        let sql =
+            "UPDATE clip_record SET content = ?, local_file_path = ?, sync_flag = ? WHERE id = ?";
 
         let tx = rb.acquire_begin().await?;
         tx.exec(
             sql,
             vec![
-                to_value!(local_path),
+                to_value!(filename),
+                to_value!(absolute_path),
                 to_value!(SYNCHRONIZED),
                 to_value!(id),
             ],
