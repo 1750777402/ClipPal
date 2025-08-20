@@ -713,15 +713,14 @@ async fn save_img_to_resource(data_id: &str, rb: &RBatis, image: &Vec<u8>) -> Op
         // 拼接完整路径
         let mut full_path: PathBuf = resource_path.clone();
         full_path.push(&filename);
-        let absolute_path = full_path.to_string_lossy().to_string();
+        let _absolute_path = full_path.to_string_lossy().to_string();
 
         // 创建并写入图片
         match File::create(&full_path) {
             Ok(mut file) => {
                 if file.write_all(image).is_ok() && file.flush().is_ok() {
-                    // 写成功后，更新content为文件名，local_file_path为绝对路径
+                    // 写成功后，仅更新content为文件名（图片类型不需要local_file_path）
                     let _ = ClipRecord::update_content(rb, data_id, &filename).await;
-                    let _ = ClipRecord::update_local_file_path(rb, data_id, &absolute_path).await;
                     return Some(filename);
                 } else {
                     log::error!("写入图片失败");

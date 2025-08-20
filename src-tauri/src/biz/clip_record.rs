@@ -170,6 +170,7 @@ impl ClipRecord {
             .map_err(|e| AppError::Database(rbatis::Error::from(e)))
     }
 
+
     /// 获取已逻辑删除且已同步的数据数量
     pub async fn count_invalid(rb: &RBatis) -> i64 {
         let count_res: Result<i64, rbs::Error> = rb

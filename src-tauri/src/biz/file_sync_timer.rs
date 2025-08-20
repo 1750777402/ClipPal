@@ -13,6 +13,7 @@ use crate::biz::clip_record::{ClipRecord, SKIP_SYNC, SYNCHRONIZED, SYNCHRONIZING
 use crate::biz::system_setting::check_cloud_sync_enabled;
 use crate::errors::{AppError, AppResult};
 use crate::utils::config::get_max_file_size_bytes;
+use crate::utils::file_dir::get_resources_dir;
 
 /// 启动文件同步定时任务
 pub fn start_file_sync_timer() {
@@ -75,22 +76,28 @@ async fn process_one_file_sync() -> AppResult<()> {
 
 /// 处理图片同步
 async fn process_image_sync(record: &ClipRecord) -> AppResult<()> {
-    // 使用local_file_path字段获取图片文件路径
-    if let Some(local_file_path) = &record.local_file_path {
-        if local_file_path.is_empty() {
-            // 路径为空，直接标记为已同步
-            let rb: &RBatis = CONTEXT.get::<RBatis>();
-            let ids = vec![record.id.clone()];
-            let current_time = current_timestamp();
-            ClipRecord::update_sync_flag(rb, &ids, SYNCHRONIZED, current_time).await?;
-            log::warn!(
-                "图片记录local_file_path为空，直接标记为已同步: {}",
-                record.id
-            );
-            return Ok(());
-        }
+    // 获取图片文件名（从content字段）
+    let image_filename = record.content.as_str().ok_or(
+        AppError::Config("图片记录content字段无效".to_string())
+    )?;
 
-        let file_path = PathBuf::from(local_file_path);
+    if image_filename.is_empty() {
+        // 文件名为空，直接标记为已同步
+        let rb: &RBatis = CONTEXT.get::<RBatis>();
+        let ids = vec![record.id.clone()];
+        let current_time = current_timestamp();
+        ClipRecord::update_sync_flag(rb, &ids, SYNCHRONIZED, current_time).await?;
+        log::warn!(
+            "图片记录content为空，直接标记为已同步: {}",
+            record.id
+        );
+        return Ok(());
+    }
+
+    // 拼接完整的图片文件路径（resources目录 + 文件名）
+    let resources_dir = get_resources_dir()
+        .ok_or_else(|| AppError::Config("无法获取resources目录".to_string()))?;
+    let file_path = resources_dir.join(image_filename);
 
         // 检查文件是否存在
         if !file_path.exists() {
@@ -112,18 +119,6 @@ async fn process_image_sync(record: &ClipRecord) -> AppResult<()> {
         };
 
         upload_file_and_update_status(&record.id, upload_param).await
-    } else {
-        // local_file_path字段为None，直接标记为已同步
-        let rb: &RBatis = CONTEXT.get::<RBatis>();
-        let ids = vec![record.id.clone()];
-        let current_time = current_timestamp();
-        ClipRecord::update_sync_flag(rb, &ids, SYNCHRONIZED, current_time).await?;
-        log::warn!(
-            "图片记录local_file_path字段为None，直接标记为已同步: {}",
-            record.id
-        );
-        Ok(())
-    }
 }
 
 /// 处理文件同步
