@@ -74,24 +74,43 @@ pub async fn copy_clip_record(param: CopyClipRecord) -> Result<String, String> {
             }
         }
         ClipType::File => {
-            if let Some(paths) = record.local_file_path.as_deref() {
-                let restored: Vec<String> = paths.split(":::").map(|s| s.to_string()).collect();
-                let mut not_found: Vec<String> = vec![];
-                for file_path in &restored {
-                    let file_path = file_path.trim();
-                    if file_path.is_empty() {
-                        continue;
-                    }
-                    if !std::path::Path::new(file_path).exists() {
-                        not_found.push(file_path.to_string());
-                    }
+            // 获取显示名称和实际路径
+            let display_names = record.content.as_str().unwrap_or("");
+            let actual_paths = record.local_file_path.as_deref().unwrap_or("");
+            
+            if display_names.is_empty() || actual_paths.is_empty() {
+                return Err("文件信息无效".to_string());
+            }
+
+            let display_list: Vec<String> = display_names.split(":::").map(|s| s.to_string()).collect();
+            let actual_list: Vec<String> = actual_paths.split(":::").map(|s| s.to_string()).collect();
+
+            // 检查文件是否存在
+            let mut not_found: Vec<String> = vec![];
+            for (i, actual_path) in actual_list.iter().enumerate() {
+                let actual_path = actual_path.trim();
+                if actual_path.is_empty() {
+                    continue;
                 }
-                if !not_found.is_empty() {
-                    return Err(generate_file_not_found_error(&not_found));
+                if !std::path::Path::new(actual_path).exists() {
+                    let display_name = display_list.get(i).cloned().unwrap_or_else(|| actual_path.to_string());
+                    not_found.push(display_name);
                 }
-                let _ = clipboard.write_files_uris(restored);
-            } else {
-                return Err("文件路径无效".to_string());
+            }
+            if !not_found.is_empty() {
+                return Err(generate_file_not_found_error(&not_found));
+            }
+
+            // 创建临时文件链接以使用正确的文件名
+            match create_temp_files_with_correct_names(&display_list, &actual_list).await {
+                Ok(temp_files) => {
+                    let _ = clipboard.write_files_uris(temp_files);
+                }
+                Err(e) => {
+                    log::warn!("创建临时文件失败，使用原始路径: {}", e);
+                    // 回退到使用原始路径
+                    let _ = clipboard.write_files_uris(actual_list);
+                }
             }
         }
         _ => {}
@@ -173,24 +192,43 @@ pub async fn copy_clip_record_no_paste(param: CopyClipRecord) -> Result<String, 
             }
         }
         ClipType::File => {
-            if let Some(paths) = record.local_file_path.as_deref() {
-                let restored: Vec<String> = paths.split(":::").map(|s| s.to_string()).collect();
-                let mut not_found: Vec<String> = vec![];
-                for file_path in &restored {
-                    let file_path = file_path.trim();
-                    if file_path.is_empty() {
-                        continue;
-                    }
-                    if !std::path::Path::new(file_path).exists() {
-                        not_found.push(file_path.to_string());
-                    }
+            // 获取显示名称和实际路径
+            let display_names = record.content.as_str().unwrap_or("");
+            let actual_paths = record.local_file_path.as_deref().unwrap_or("");
+            
+            if display_names.is_empty() || actual_paths.is_empty() {
+                return Err("文件信息无效".to_string());
+            }
+
+            let display_list: Vec<String> = display_names.split(":::").map(|s| s.to_string()).collect();
+            let actual_list: Vec<String> = actual_paths.split(":::").map(|s| s.to_string()).collect();
+
+            // 检查文件是否存在
+            let mut not_found: Vec<String> = vec![];
+            for (i, actual_path) in actual_list.iter().enumerate() {
+                let actual_path = actual_path.trim();
+                if actual_path.is_empty() {
+                    continue;
                 }
-                if !not_found.is_empty() {
-                    return Err(generate_file_not_found_error(&not_found));
+                if !std::path::Path::new(actual_path).exists() {
+                    let display_name = display_list.get(i).cloned().unwrap_or_else(|| actual_path.to_string());
+                    not_found.push(display_name);
                 }
-                let _ = clipboard.write_files_uris(restored);
-            } else {
-                return Err("文件路径无效".to_string());
+            }
+            if !not_found.is_empty() {
+                return Err(generate_file_not_found_error(&not_found));
+            }
+
+            // 创建临时文件链接以使用正确的文件名
+            match create_temp_files_with_correct_names(&display_list, &actual_list).await {
+                Ok(temp_files) => {
+                    let _ = clipboard.write_files_uris(temp_files);
+                }
+                Err(e) => {
+                    log::warn!("创建临时文件失败，使用原始路径: {}", e);
+                    // 回退到使用原始路径
+                    let _ = clipboard.write_files_uris(actual_list);
+                }
             }
         }
         _ => {}
@@ -356,9 +394,137 @@ pub async fn copy_single_file(param: CopySingleFileRecord) -> Result<String, Str
         return Err(format!("文件不存在: {}", safe_path));
     }
 
-    // 复制单个文件（使用实际路径）
-    let _ = clipboard.write_files_uris(vec![actual_file_path.clone()]);
+    // 创建临时文件使用正确的文件名
+    match create_temp_files_with_correct_names(&[param.file_path.clone()], &[actual_file_path.clone()]).await {
+        Ok(temp_files) => {
+            let _ = clipboard.write_files_uris(temp_files);
+        }
+        Err(e) => {
+            log::warn!("创建临时文件失败，使用原始路径: {}", e);
+            // 回退到使用原始路径
+            let _ = clipboard.write_files_uris(vec![actual_file_path.clone()]);
+        }
+    }
 
     log::debug!("已复制单个文件到剪贴板");
     Ok(String::new())
+}
+
+/// 创建临时文件，使用正确的文件名，以便粘贴时显示用户期望的文件名
+async fn create_temp_files_with_correct_names(
+    display_names: &[String],
+    actual_paths: &[String],
+) -> Result<Vec<String>, String> {
+    use std::path::Path;
+    
+    if display_names.len() != actual_paths.len() {
+        return Err("显示名称和实际路径数量不匹配".to_string());
+    }
+
+    let temp_dir = std::env::temp_dir().join("clip_pal_temp");
+    
+    // 创建临时目录
+    if let Err(e) = std::fs::create_dir_all(&temp_dir) {
+        return Err(format!("创建临时目录失败: {}", e));
+    }
+
+    let mut temp_file_paths = Vec::new();
+    
+    for (display_name, actual_path) in display_names.iter().zip(actual_paths.iter()) {
+        let actual_path = actual_path.trim();
+        let display_name = display_name.trim();
+        
+        if actual_path.is_empty() || display_name.is_empty() {
+            continue;
+        }
+
+        let source_path = Path::new(actual_path);
+        if !source_path.exists() {
+            return Err(format!("源文件不存在: {}", actual_path));
+        }
+
+        // 在临时目录中创建目标文件路径，使用显示名称
+        let temp_file_path = temp_dir.join(display_name);
+        
+        // 如果临时文件已存在，先删除它
+        if temp_file_path.exists() {
+            if let Err(e) = std::fs::remove_file(&temp_file_path) {
+                log::warn!("删除已存在的临时文件失败: {:?}, 错误: {}", temp_file_path, e);
+            }
+        }
+
+        // 创建硬链接（Windows和Unix都支持）
+        match std::fs::hard_link(source_path, &temp_file_path) {
+            Ok(_) => {
+                log::debug!("创建硬链接成功: {:?} -> {:?}", source_path, temp_file_path);
+                temp_file_paths.push(temp_file_path.to_string_lossy().to_string());
+            }
+            Err(e) => {
+                log::warn!("创建硬链接失败: {}, 尝试复制文件", e);
+                // 硬链接失败时，复制文件（适用于跨文件系统的情况）
+                match std::fs::copy(source_path, &temp_file_path) {
+                    Ok(_) => {
+                        log::debug!("复制临时文件成功: {:?} -> {:?}", source_path, temp_file_path);
+                        temp_file_paths.push(temp_file_path.to_string_lossy().to_string());
+                    }
+                    Err(e) => {
+                        return Err(format!("创建临时文件失败: {}", e));
+                    }
+                }
+            }
+        }
+    }
+
+    if temp_file_paths.is_empty() {
+        return Err("没有创建任何临时文件".to_string());
+    }
+
+    // 启动后台任务清理临时文件（延迟清理以确保文件复制操作完成）
+    let temp_dir_for_cleanup = temp_dir.clone();
+    tokio::spawn(async move {
+        // 等待一段时间，确保文件操作完成
+        tokio::time::sleep(tokio::time::Duration::from_secs(60)).await;
+        
+        if let Err(e) = cleanup_temp_files(&temp_dir_for_cleanup).await {
+            log::warn!("清理临时文件失败: {}", e);
+        }
+    });
+
+    Ok(temp_file_paths)
+}
+
+/// 清理临时文件
+async fn cleanup_temp_files(temp_dir: &std::path::Path) -> Result<(), String> {
+    if !temp_dir.exists() {
+        return Ok(());
+    }
+
+    match std::fs::read_dir(temp_dir) {
+        Ok(entries) => {
+            for entry in entries {
+                if let Ok(entry) = entry {
+                    let path = entry.path();
+                    if path.is_file() {
+                        if let Err(e) = std::fs::remove_file(&path) {
+                            log::debug!("删除临时文件失败: {:?}, 错误: {}", path, e);
+                        } else {
+                            log::debug!("删除临时文件成功: {:?}", path);
+                        }
+                    }
+                }
+            }
+            
+            // 尝试删除临时目录（只有在空的情况下才会成功）
+            if let Err(e) = std::fs::remove_dir(temp_dir) {
+                log::debug!("删除临时目录失败: {:?}, 错误: {}", temp_dir, e);
+            } else {
+                log::debug!("删除临时目录成功: {:?}", temp_dir);
+            }
+        }
+        Err(e) => {
+            return Err(format!("读取临时目录失败: {}", e));
+        }
+    }
+
+    Ok(())
 }

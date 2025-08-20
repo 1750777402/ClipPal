@@ -157,32 +157,46 @@ async fn compute_sampled_file_md5(
     Ok(format!("{:x}", context.compute()))
 }
 
-/// 计算多文件内容的组合MD5
+/// 计算多文件内容的组合MD5（基于文件名和内容，不包含路径）
 async fn compute_multiple_files_md5(file_paths: &[String]) -> Result<String, std::io::Error> {
     let mut context = md5::Context::new();
 
-    // 对路径排序确保一致性
-    let mut sorted_paths = file_paths.to_vec();
-    sorted_paths.sort();
-
-    for file_path in sorted_paths {
-        let path = std::path::Path::new(&file_path);
+    // 创建文件信息列表：(文件名, 文件路径)
+    let mut file_info: Vec<(String, String)> = Vec::new();
+    
+    for file_path in file_paths {
+        let path = std::path::Path::new(file_path);
         if path.exists() {
-            // 包含文件路径信息（用于区分不同文件组合）
-            context.consume(file_path.as_bytes());
+            // 提取文件名（不包含路径）
+            let filename = path.file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or(file_path)
+                .to_string();
+            
+            file_info.push((filename, file_path.clone()));
+        }
+    }
+    
+    // 按文件名排序确保一致性（不是按路径排序）
+    file_info.sort_by(|a, b| a.0.cmp(&b.0));
 
-            // 包含文件内容MD5
-            match compute_file_content_md5(&path).await {
-                Ok(content_md5) => {
-                    context.consume(content_md5.as_bytes());
-                }
-                Err(e) => {
-                    log::warn!(
-                        "无法读取文件内容生成MD5，跳过文件: {}, 错误: {}",
-                        file_path,
-                        e
-                    );
-                }
+    for (filename, file_path) in file_info {
+        let path = std::path::Path::new(&file_path);
+        
+        // 只包含文件名信息（不包含路径，确保相同文件产生相同MD5）
+        context.consume(filename.as_bytes());
+
+        // 包含文件内容MD5
+        match compute_file_content_md5(&path).await {
+            Ok(content_md5) => {
+                context.consume(content_md5.as_bytes());
+            }
+            Err(e) => {
+                log::warn!(
+                    "无法读取文件内容生成MD5，跳过文件: {}, 错误: {}",
+                    file_path,
+                    e
+                );
             }
         }
     }
@@ -445,10 +459,19 @@ async fn handle_multiple_files(
         Ok(hash) => hash,
         Err(e) => {
             log::error!("无法计算多文件组合MD5: {}", e);
-            // 回退到路径组合MD5
-            let mut sorted_paths = paths.clone();
-            sorted_paths.sort();
-            let combined = sorted_paths.join("");
+            // 回退到文件名组合MD5（不包含路径信息）
+            let mut filenames: Vec<String> = paths
+                .iter()
+                .map(|path| {
+                    std::path::Path::new(path)
+                        .file_name()
+                        .and_then(|name| name.to_str())
+                        .unwrap_or(path)
+                        .to_string()
+                })
+                .collect();
+            filenames.sort();
+            let combined = filenames.join(":::");
             format!("{:x}", md5::compute(combined.as_bytes()))
         }
     };
