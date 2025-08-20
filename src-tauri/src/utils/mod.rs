@@ -3,6 +3,7 @@ pub mod app_secret_key;
 pub mod config;
 pub mod device_info;
 pub mod file_dir;
+pub mod file_ext;
 pub mod http_client;
 pub mod lock_utils;
 pub mod path_utils;

@@ -13,7 +13,6 @@ use crate::biz::clip_record::{ClipRecord, SKIP_SYNC, SYNCHRONIZED, SYNCHRONIZING
 use crate::biz::system_setting::check_cloud_sync_enabled;
 use crate::errors::{AppError, AppResult};
 use crate::utils::config::get_max_file_size_bytes;
-use crate::utils::file_dir::get_resources_dir;
 
 /// 启动文件同步定时任务
 pub fn start_file_sync_timer() {

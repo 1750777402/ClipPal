@@ -11,7 +11,7 @@ use crate::{
     api::cloud_sync_api::{DownloadCloudFileParam, get_dowload_url},
     biz::clip_record::{ClipRecord, SYNCHRONIZING},
     errors::{AppError, AppResult},
-    utils::{file_dir::get_resources_dir, http_client},
+    utils::{file_dir::get_resources_dir, file_ext::extract_full_extension_from_str, http_client},
 };
 use rbatis::RBatis;
 
@@ -195,37 +195,6 @@ async fn download_cloud_file_to_local(
     Ok((display_filename, absolute_path))
 }
 
-/// 提取完整的文件扩展名，支持复合扩展名（如 tar.gz, tar.bz2 等）
-fn extract_full_extension_from_str(file_path: &str) -> String {
-    // 已知的复合扩展名列表
-    const COMPOUND_EXTENSIONS: &[&str] = &[
-        "tar.gz", "tar.bz2", "tar.xz", "tar.lz", "tar.Z",
-        "tar.lzma", "tar.lzo", "tar.zst",
-    ];
-    
-    // 先从路径中提取文件名
-    let filename = std::path::Path::new(file_path)
-        .file_name()
-        .and_then(|name| name.to_str())
-        .unwrap_or(file_path);
-    
-    // 转换为小写进行匹配
-    let filename_lower = filename.to_lowercase();
-    
-    // 检查是否匹配复合扩展名
-    for ext in COMPOUND_EXTENSIONS {
-        if filename_lower.ends_with(ext) {
-            return ext.to_string();
-        }
-    }
-    
-    // 如果不是复合扩展名，使用标准方法提取单个扩展名
-    std::path::Path::new(filename)
-        .extension()
-        .and_then(|ext| ext.to_str())
-        .unwrap_or("")
-        .to_string()
-}
 
 fn determine_save_path_from_cloud(file_type: &str, cloud_file_name: &str) -> AppResult<PathBuf> {
     let resources_dir = get_resources_dir()

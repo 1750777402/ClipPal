@@ -15,7 +15,7 @@ use uuid::Uuid;
 use crate::{
     CONTEXT,
     biz::clip_record::{ClipRecord, SKIP_SYNC},
-    utils::file_dir::get_resources_dir,
+    utils::{file_dir::get_resources_dir, file_ext::extract_full_extension},
 };
 use crate::{
     biz::{
@@ -85,42 +85,10 @@ fn current_timestamp() -> u64 {
         })
 }
 
-/// 提取完整的文件扩展名，支持复合扩展名（如 tar.gz, tar.bz2 等）
-fn extract_full_extension(file_path: &std::path::Path) -> String {
-    // 已知的复合扩展名列表
-    const COMPOUND_EXTENSIONS: &[&str] = &[
-        "tar.gz", "tar.bz2", "tar.xz", "tar.lz", "tar.Z",
-        "tar.lzma", "tar.lzo", "tar.zst",
-    ];
-    
-    // 提取文件名
-    let filename = file_path
-        .file_name()
-        .and_then(|name| name.to_str())
-        .unwrap_or("");
-    
-    // 转换为小写进行匹配
-    let filename_lower = filename.to_lowercase();
-    
-    // 检查是否匹配复合扩展名
-    for ext in COMPOUND_EXTENSIONS {
-        if filename_lower.ends_with(ext) {
-            return ext.to_string();
-        }
-    }
-    
-    // 如果不是复合扩展名，使用标准方法提取单个扩展名
-    file_path
-        .extension()
-        .and_then(|ext| ext.to_str())
-        .unwrap_or("")
-        .to_string()
-}
 
 /// 计算文件内容的MD5值（智能策略：小文件全读，大文件采样）
 async fn compute_file_content_md5(file_path: &std::path::Path) -> Result<String, std::io::Error> {
     const SMALL_FILE_THRESHOLD: u64 = 10 * 1024 * 1024; // 10MB
-    const SAMPLE_SIZE: usize = 1024 * 1024; // 1MB采样大小
 
     let metadata = std::fs::metadata(file_path)?;
     let file_size = metadata.len();
@@ -619,7 +587,7 @@ async fn handle_sync_eligible_file(
             let file_path_buf = std::path::PathBuf::from(file_path);
 
             // 复制文件到resources/files目录
-            if let Some((relative_path, absolute_path)) =
+            if let Some((_relative_path, absolute_path)) =
                 copy_file_to_resources(&record_id, &file_path_buf).await
             {
                 // content存储原文件名（显示用），而不是生成的新文件名
