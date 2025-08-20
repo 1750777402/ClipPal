@@ -100,6 +100,7 @@ pub async fn get_clip_records(param: QueryParam) -> Result<Vec<ClipRecordDTO>, S
         .map(|item| {
             if item.r#type == ClipType::File.to_string() {
                 let content_str = item.content.as_str().unwrap_or_default().to_string();
+                let local_paths = item.local_file_path.as_deref().unwrap_or_default().to_string();
                 let content =
                     ContentProcessor::process_by_clip_type(&item.r#type, item.content.clone());
                 return ClipRecordDTO {
@@ -109,7 +110,7 @@ pub async fn get_clip_records(param: QueryParam) -> Result<Vec<ClipRecordDTO>, S
                     os_type: item.os_type.clone(),
                     created: item.created,
                     pinned_flag: item.pinned_flag,
-                    file_info: get_file_info(content_str),
+                    file_info: get_file_info_with_paths(content_str, local_paths),
                     image_info: None,
                     sync_flag: item.sync_flag,
                 };
@@ -145,33 +146,40 @@ pub async fn get_clip_records(param: QueryParam) -> Result<Vec<ClipRecordDTO>, S
         .collect())
 }
 
-pub fn get_file_info(paths: String) -> Vec<FileInfo> {
-    let paths = paths.split(":::").collect::<Vec<&str>>();
-    log::debug!("正在处理文件路径: {:?}", paths);
+/// 使用content（显示名称）和local_file_path（实际路径）获取文件信息
+pub fn get_file_info_with_paths(content_names: String, local_paths: String) -> Vec<FileInfo> {
+    let display_names = content_names.split(":::").collect::<Vec<&str>>();
+    let actual_paths = local_paths.split(":::").collect::<Vec<&str>>();
     
-    paths
-        .iter()
-        .filter_map(|path| {
-            let path = path.trim();
-            if path.is_empty() {
-                log::debug!("跳过空路径");
+    log::debug!("正在处理文件信息: 显示名称={:?}, 实际路径={:?}", display_names, actual_paths);
+    
+    // 确保显示名称和实际路径数量匹配
+    let min_len = display_names.len().min(actual_paths.len());
+    
+    (0..min_len)
+        .filter_map(|i| {
+            let display_name = display_names[i].trim();
+            let actual_path = actual_paths[i].trim();
+            
+            if display_name.is_empty() || actual_path.is_empty() {
+                log::debug!("跳过空路径或空名称: display={}, path={}", display_name, actual_path);
                 return None;
             }
 
-            let path_buf = Path::new(path);
+            let path_buf = Path::new(actual_path);
             
-            // 获取文件扩展名（即使文件不存在也能获取）
-            let file_type = path_buf
+            // 从显示名称获取文件扩展名
+            let file_type = Path::new(display_name)
                 .extension()
                 .and_then(|ext| ext.to_str())
                 .unwrap_or("未知")
                 .to_lowercase();
             
             if !path_buf.exists() {
-                log::warn!("文件不存在，但仍显示基本信息: {}", path);
+                log::warn!("文件不存在，但仍显示基本信息: display={}, path={}", display_name, actual_path);
                 // 文件不存在时仍然显示基本信息，方便用户了解原始文件
                 return Some(FileInfo {
-                    path: path.to_string(),
+                    path: display_name.to_string(), // 使用显示名称而不是实际路径
                     size: -1, // 使用-1表示文件不存在，前端可以据此显示特殊状态
                     r#type: file_type,
                 });
@@ -181,10 +189,10 @@ pub fn get_file_info(paths: String) -> Vec<FileInfo> {
             let metadata = match fs::metadata(path_buf) {
                 Ok(meta) => meta,
                 Err(e) => {
-                    log::warn!("读取文件元数据失败，但仍显示基本信息: {}, 错误: {}", path, e);
+                    log::warn!("读取文件元数据失败，但仍显示基本信息: display={}, path={}, 错误: {}", display_name, actual_path, e);
                     // 读取元数据失败时仍然显示基本信息
                     return Some(FileInfo {
-                        path: path.to_string(),
+                        path: display_name.to_string(),
                         size: -2, // 使用-2表示文件存在但无法读取元数据
                         r#type: file_type,
                     });
@@ -193,20 +201,21 @@ pub fn get_file_info(paths: String) -> Vec<FileInfo> {
 
             // 获取文件大小，处理大文件的情况
             let size = if metadata.len() > i32::MAX as u64 {
-                log::warn!("文件大小超过i32范围: {} 字节，文件: {}", metadata.len(), path);
+                log::warn!("文件大小超过i32范围: {} 字节，文件: {}", metadata.len(), display_name);
                 i32::MAX // 对于超大文件，使用i32最大值
             } else {
                 metadata.len() as i32
             };
 
             Some(FileInfo {
-                path: path.to_string(),
+                path: display_name.to_string(), // 返回显示名称
                 size,
                 r#type: file_type,
             })
         })
         .collect()
 }
+
 
 // 获取图片元数据信息
 pub fn get_image_info(relative_path: &str) -> Option<ImageInfo> {

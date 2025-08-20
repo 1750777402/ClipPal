@@ -74,7 +74,7 @@ pub async fn copy_clip_record(param: CopyClipRecord) -> Result<String, String> {
             }
         }
         ClipType::File => {
-            if let Some(paths) = record.content.as_str() {
+            if let Some(paths) = record.local_file_path.as_deref() {
                 let restored: Vec<String> = paths.split(":::").map(|s| s.to_string()).collect();
                 let mut not_found: Vec<String> = vec![];
                 for file_path in &restored {
@@ -173,7 +173,7 @@ pub async fn copy_clip_record_no_paste(param: CopyClipRecord) -> Result<String, 
             }
         }
         ClipType::File => {
-            if let Some(paths) = record.content.as_str() {
+            if let Some(paths) = record.local_file_path.as_deref() {
                 let restored: Vec<String> = paths.split(":::").map(|s| s.to_string()).collect();
                 let mut not_found: Vec<String> = vec![];
                 for file_path in &restored {
@@ -332,26 +332,32 @@ pub async fn copy_single_file(param: CopySingleFileRecord) -> Result<String, Str
     let app_handle = CONTEXT.get::<AppHandle>();
     let clipboard = app_handle.state::<ClipboardPal>();
 
-    // 检查指定的文件路径是否存在于记录中
-    if let Some(paths) = record.content.as_str() {
-        let restored: Vec<String> = paths.split(":::").map(|s| s.to_string()).collect();
-
-        // 验证指定的文件路径是否在记录中
-        if !restored.contains(&param.file_path) {
-            return Err("指定的文件路径不在此记录中".to_string());
-        }
-
-        // 检查文件是否存在
-        if !std::path::Path::new(&param.file_path).exists() {
-            let safe_path = str_to_safe_string(&param.file_path);
-            return Err(format!("文件不存在: {}", safe_path));
-        }
-
-        // 复制单个文件
-        let _ = clipboard.write_files_uris(vec![param.file_path]);
-    } else {
-        return Err("文件路径无效".to_string());
+    // 获取显示名称列表和实际路径列表
+    let display_names = record.content.as_str().unwrap_or("");
+    let actual_paths = record.local_file_path.as_deref().unwrap_or("");
+    
+    if display_names.is_empty() || actual_paths.is_empty() {
+        return Err("文件信息无效".to_string());
     }
+
+    let display_list: Vec<String> = display_names.split(":::").map(|s| s.to_string()).collect();
+    let actual_list: Vec<String> = actual_paths.split(":::").map(|s| s.to_string()).collect();
+
+    // 验证指定的显示名称是否在记录中，并找到对应的实际路径
+    let file_index = display_list.iter().position(|name| name == &param.file_path);
+    let actual_file_path = match file_index {
+        Some(index) if index < actual_list.len() => &actual_list[index],
+        _ => return Err("指定的文件不在此记录中".to_string()),
+    };
+
+    // 检查实际文件是否存在
+    if !std::path::Path::new(actual_file_path).exists() {
+        let safe_path = str_to_safe_string(&param.file_path);
+        return Err(format!("文件不存在: {}", safe_path));
+    }
+
+    // 复制单个文件（使用实际路径）
+    let _ = clipboard.write_files_uris(vec![actual_file_path.clone()]);
 
     log::debug!("已复制单个文件到剪贴板");
     Ok(String::new())
