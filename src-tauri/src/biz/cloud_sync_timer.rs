@@ -393,8 +393,17 @@ impl CloudSyncTimer {
 
     /// 检查文件大小是否超过限制
     async fn check_files_size(&self, record: &ClipRecord) -> Result<(), String> {
-        if let Some(content_str) = record.content.as_str() {
-            let file_paths: Vec<String> = content_str.split(":::").map(|s| s.to_string()).collect();
+        if let Some(local_file_path_str) = &record.local_file_path {
+            // 使用 local_file_path 而不是 content，因为 content 存储的是显示用的文件名
+            let file_paths: Vec<String> = local_file_path_str
+                .split(":::")
+                .map(|s| s.to_string())
+                .collect();
+
+            // 检查是否是多文件
+            if file_paths.len() > 1 {
+                return Err("多文件不支持云同步".to_string());
+            }
 
             for file_path_str in &file_paths {
                 let file_path = PathBuf::from(file_path_str);
@@ -402,8 +411,14 @@ impl CloudSyncTimer {
                     if let Err(e) = self.check_single_file_size(&file_path) {
                         return Err(format!("文件 {}: {}", file_path_str, e));
                     }
+                } else {
+                    // 如果文件不存在，也认为需要跳过同步
+                    return Err(format!("文件不存在: {}", file_path_str));
                 }
             }
+        } else {
+            // 如果没有 local_file_path，跳过检查（可能是旧数据或异常情况）
+            return Err("缺少文件路径信息".to_string());
         }
         Ok(())
     }

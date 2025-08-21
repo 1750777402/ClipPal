@@ -48,6 +48,9 @@ pub struct ClipRecordParam {
     pub version: Option<i32>,
     // 是否逻辑删除
     pub del_flag: Option<i32>,
+    // 本地文件地址
+    #[serde(skip)]
+    pub local_file_path: Option<String>,
 }
 
 impl ClipRecordParam {
@@ -90,6 +93,7 @@ impl From<ClipRecord> for ClipRecordParam {
             device_id: record.device_id,
             version: record.version.into(),
             del_flag: record.del_flag.into(),
+            local_file_path: record.local_file_path,
         }
     }
 }

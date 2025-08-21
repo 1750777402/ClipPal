@@ -14,7 +14,7 @@ use uuid::Uuid;
 
 use crate::{
     CONTEXT,
-    biz::clip_record::{ClipRecord, SKIP_SYNC},
+    biz::clip_record::{ClipRecord, NOT_SYNCHRONIZED, SKIP_SYNC},
     utils::{file_dir::get_resources_dir, file_ext::extract_full_extension},
 };
 use crate::{
@@ -62,7 +62,7 @@ impl ClipBoardEventListener<ClipboardEvent> for ClipboardEventTigger {
 
         if let Ok(Some(item)) = record_result {
             // 如果有新增记录，发送到异步队列   前提是开启了云同步开关
-            if check_cloud_sync_enabled().await {
+            if item.sync_flag != Some(SKIP_SYNC) && check_cloud_sync_enabled().await {
                 let async_queue = CONTEXT.get::<AsyncQueue<ClipRecord>>();
                 if !async_queue.is_full() {
                     let send_res = async_queue.send_add(item.clone()).await;
@@ -84,7 +84,6 @@ fn current_timestamp() -> u64 {
             0
         })
 }
-
 
 /// 计算文件内容的MD5值（智能策略：小文件全读，大文件采样）
 async fn compute_file_content_md5(file_path: &std::path::Path) -> Result<String, std::io::Error> {
@@ -163,26 +162,27 @@ async fn compute_multiple_files_md5(file_paths: &[String]) -> Result<String, std
 
     // 创建文件信息列表：(文件名, 文件路径)
     let mut file_info: Vec<(String, String)> = Vec::new();
-    
+
     for file_path in file_paths {
         let path = std::path::Path::new(file_path);
         if path.exists() {
             // 提取文件名（不包含路径）
-            let filename = path.file_name()
+            let filename = path
+                .file_name()
                 .and_then(|name| name.to_str())
                 .unwrap_or(file_path)
                 .to_string();
-            
+
             file_info.push((filename, file_path.clone()));
         }
     }
-    
+
     // 按文件名排序确保一致性（不是按路径排序）
     file_info.sort_by(|a, b| a.0.cmp(&b.0));
 
     for (filename, file_path) in file_info {
         let path = std::path::Path::new(&file_path);
-        
+
         // 只包含文件名信息（不包含路径，确保相同文件产生相同MD5）
         context.consume(filename.as_bytes());
 
@@ -224,13 +224,111 @@ fn build_clip_record(
         os_type: GLOBAL_OS_TYPE.clone(),
         sort,
         pinned_flag: 0,
-        sync_flag: Some(0),
+        sync_flag: Some(NOT_SYNCHRONIZED),
         sync_time: Some(0),
         device_id: Some(GLOBAL_DEVICE_ID.clone()),
         version: Some(1),
         del_flag: Some(0),
         cloud_source: Some(0),
     }
+}
+
+fn build_oversized_file_record(id: &str, file_path: &str, md5_str: &str, sort: i32) -> ClipRecord {
+    let filename = std::path::Path::new(file_path)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or(file_path);
+
+    let mut record = build_clip_record(
+        id.to_string(),
+        0,
+        ClipType::File.to_string(),
+        Value::String(filename.to_string()),
+        md5_str.to_string(),
+        sort,
+    );
+
+    record.sync_flag = Some(SKIP_SYNC);
+    record.local_file_path = Some(file_path.to_string());
+    record
+}
+
+fn build_sync_eligible_file_record(
+    id: &str,
+    file_path: &str,
+    md5_str: &str,
+    sort: i32,
+) -> ClipRecord {
+    let filename = std::path::Path::new(file_path)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or(file_path);
+
+    build_clip_record(
+        id.to_string(),
+        0,
+        ClipType::File.to_string(),
+        Value::String(filename.to_string()),
+        md5_str.to_string(),
+        sort,
+    )
+}
+
+async fn handle_sync_eligible_file_update(
+    rb: &RBatis,
+    record_id: &str,
+    file_path: &str,
+    record: &mut ClipRecord,
+) {
+    let file_path_buf = std::path::PathBuf::from(file_path);
+
+    // 复制文件到resources/files目录
+    if let Some((_relative_path, absolute_path)) =
+        copy_file_to_resources(record_id, &file_path_buf).await
+    {
+        let _ = ClipRecord::update_local_file_path(rb, record_id, &absolute_path).await;
+        record.local_file_path = Some(absolute_path);
+    } else {
+        // 复制失败，设置为不支持云同步
+        log::warn!("文件复制失败，设置为不支持同步: {}", file_path);
+        record.sync_flag = Some(SKIP_SYNC);
+        record.local_file_path = Some(file_path.to_string());
+        let _ = ClipRecord::update_local_file_path(rb, record_id, file_path).await;
+    }
+}
+
+fn build_multiple_files_record(
+    id: &str,
+    paths: &Vec<String>,
+    md5_str: &str,
+    sort: i32,
+) -> ClipRecord {
+    // content存储文件名列表（显示用）
+    let filenames: Vec<String> = paths
+        .iter()
+        .map(|path| {
+            std::path::Path::new(path)
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or(path)
+                .to_string()
+        })
+        .collect();
+    let content_display = filenames.join(":::");
+
+    let mut record = build_clip_record(
+        id.to_string(),
+        0,
+        ClipType::File.to_string(),
+        Value::String(content_display),
+        md5_str.to_string(),
+        sort,
+    );
+
+    // 多文件不支持云同步
+    record.sync_flag = Some(SKIP_SYNC);
+    record.local_file_path = Some(paths.join(":::"));
+    record
 }
 
 async fn handle_text(
@@ -249,6 +347,7 @@ async fn handle_text(
     match encrypt_res {
         Ok(encrypted) => {
             let md5_str = format!("{:x}", md5::compute(trimmed_content));
+            // 单次查询检查是否有相同内容的记录
             let existing = ClipRecord::check_by_type_and_md5(
                 rb,
                 ClipType::Text.to_string().as_str(),
@@ -257,39 +356,71 @@ async fn handle_text(
             .await?;
 
             if let Some(record) = existing.first() {
-                if let Err(e) = ClipRecord::update_sort(rb, &record.id, sort).await {
-                    log::error!("更新排序失败: {}", e);
-                    return Err(e);
-                }
-                Ok(None)
-            } else {
-                let record = build_clip_record(
-                    Uuid::new_v4().to_string(),
-                    0,
-                    ClipType::Text.to_string(),
-                    Value::String(encrypted),
-                    md5_str,
-                    sort,
-                );
+                if record.del_flag == Some(1) {
+                    // 已删除的记录，更新为新记录的所有字段
+                    let new_record = build_clip_record(
+                        record.id.clone(), // 保持原ID
+                        0,
+                        ClipType::Text.to_string(),
+                        Value::String(encrypted),
+                        md5_str,
+                        sort,
+                    );
 
-                match ClipRecord::insert(rb, &record).await {
-                    Ok(_res) => {
-                        let content_string = trimmed_content.to_string();
-                        let record_id = record.id.clone();
-                        tokio::spawn(async move {
-                            if let Err(e) =
-                                add_content_to_index(record_id.as_str(), content_string.as_str())
-                                    .await
-                            {
-                                log::error!("搜索索引更新失败: {}", e);
-                            }
-                        });
-                        Ok(Some(record))
+                    if let Err(e) =
+                        ClipRecord::update_deleted_record_as_new(rb, &record.id, &new_record).await
+                    {
+                        log::error!("更新已删除文本记录失败: {}", e);
+                        return Err(e);
                     }
-                    Err(e) => {
-                        log::error!("插入文本记录失败: {}", e);
-                        Err(AppError::Database(e))
+
+                    // 更新搜索索引
+                    let record_id_copy = record.id.clone();
+                    let content_copy = trimmed_content.to_string();
+                    tokio::spawn(async move {
+                        if let Err(e) = add_content_to_index(&record_id_copy, &content_copy).await {
+                            log::error!("搜索索引更新失败: {}", e);
+                        }
+                    });
+
+                    log::info!("更新已删除的文本记录为新数据: {}", record.id);
+                    return Ok(Some(new_record));
+                } else {
+                    // 活跃记录，只更新排序
+                    if let Err(e) = ClipRecord::update_sort(rb, &record.id, sort).await {
+                        log::error!("更新排序失败: {}", e);
+                        return Err(e);
                     }
+                    return Ok(None);
+                }
+            }
+
+            // 创建新记录
+            let record = build_clip_record(
+                Uuid::new_v4().to_string(),
+                0,
+                ClipType::Text.to_string(),
+                Value::String(encrypted),
+                md5_str,
+                sort,
+            );
+
+            match ClipRecord::insert(rb, &record).await {
+                Ok(_res) => {
+                    let content_string = trimmed_content.to_string();
+                    let record_id = record.id.clone();
+                    tokio::spawn(async move {
+                        if let Err(e) =
+                            add_content_to_index(record_id.as_str(), content_string.as_str()).await
+                        {
+                            log::error!("搜索索引更新失败: {}", e);
+                        }
+                    });
+                    Ok(Some(record))
+                }
+                Err(e) => {
+                    log::error!("插入文本记录失败: {}", e);
+                    Err(AppError::Database(e))
                 }
             }
         }
@@ -324,46 +455,83 @@ async fn handle_image(
         }
 
         let md5_str = format!("{:x}", md5::compute(data));
+
+        // 单次查询检查是否有相同内容的记录
         let existing =
             ClipRecord::check_by_type_and_md5(rb, ClipType::Image.to_string().as_str(), &md5_str)
                 .await?;
 
         if let Some(record) = existing.first() {
-            if let Err(e) = ClipRecord::update_sort(rb, &record.id, sort).await {
-                log::error!("更新图片排序失败: {}", e);
-                return Err(e);
-            }
-            Ok(None)
-        } else {
-            let id = Uuid::new_v4().to_string();
-            let mut record = build_clip_record(
-                id.clone(),
-                0,
-                ClipType::Image.to_string(),
-                Value::Null, // 初始为空，保存图片后会更新为文件名
-                md5_str,
-                sort,
-            );
+            if record.del_flag == Some(1) {
+                // 已删除的记录，更新为新记录的所有字段
+                let id = record.id.clone();
+                let mut new_record = build_clip_record(
+                    id.clone(),
+                    0,
+                    ClipType::Image.to_string(),
+                    Value::Null, // 初始为空，保存图片后会更新为文件名
+                    md5_str,
+                    sort,
+                );
 
-            // 如果图片大小超过限制，设置为不支持同步状态
-            if is_oversized {
-                record.sync_flag = Some(SKIP_SYNC);
-            }
-
-            match ClipRecord::insert(rb, &record).await {
-                Ok(_) => {
-                    // 保存图片到资源目录并生成文件名
-                    if let Some(filename) = save_img_to_resource(&id, rb, data).await {
-                        // 更新record的content字段为文件名
-                        record.content = Value::String(filename);
-                    }
-
-                    Ok(Some(record))
+                // 如果图片大小超过限制，设置为不支持同步状态
+                if is_oversized {
+                    new_record.sync_flag = Some(SKIP_SYNC);
                 }
-                Err(e) => {
-                    log::error!("插入图片记录失败: {}", e);
-                    Err(AppError::Database(e))
+
+                if let Err(e) = ClipRecord::update_deleted_record_as_new(rb, &id, &new_record).await
+                {
+                    log::error!("更新已删除图片记录失败: {}", e);
+                    return Err(e);
                 }
+
+                // 保存图片到资源目录并生成文件名
+                if let Some(filename) = save_img_to_resource(&id, rb, data).await {
+                    // 更新record的content字段为文件名
+                    new_record.content = Value::String(filename);
+                }
+
+                log::info!("更新已删除的图片记录为新数据: {}", id);
+                return Ok(Some(new_record));
+            } else {
+                // 活跃记录，只更新排序
+                if let Err(e) = ClipRecord::update_sort(rb, &record.id, sort).await {
+                    log::error!("更新图片排序失败: {}", e);
+                    return Err(e);
+                }
+                return Ok(None);
+            }
+        }
+
+        // 创建新记录
+        let id = Uuid::new_v4().to_string();
+        let mut record = build_clip_record(
+            id.clone(),
+            0,
+            ClipType::Image.to_string(),
+            Value::Null, // 初始为空，保存图片后会更新为文件名
+            md5_str,
+            sort,
+        );
+
+        // 如果图片大小超过限制，设置为不支持同步状态
+        if is_oversized {
+            record.sync_flag = Some(SKIP_SYNC);
+        }
+
+        match ClipRecord::insert(rb, &record).await {
+            Ok(_) => {
+                // 保存图片到资源目录并生成文件名
+                if let Some(filename) = save_img_to_resource(&id, rb, data).await {
+                    // 更新record的content字段为文件名
+                    record.content = Value::String(filename);
+                }
+
+                Ok(Some(record))
+            }
+            Err(e) => {
+                log::error!("插入图片记录失败: {}", e);
+                Err(AppError::Database(e))
             }
         }
     } else {
@@ -415,6 +583,7 @@ async fn handle_file(
                 }
             };
 
+            // 单次查询检查是否有相同内容的记录
             let existing = ClipRecord::check_by_type_and_md5(
                 rb,
                 ClipType::File.to_string().as_str(),
@@ -423,11 +592,81 @@ async fn handle_file(
             .await?;
 
             if let Some(record) = existing.first() {
-                if let Err(e) = ClipRecord::update_sort(rb, &record.id, sort).await {
-                    log::error!("更新文件排序失败: {}", e);
-                    return Err(e);
+                if record.del_flag == Some(1) {
+                    // 已删除的记录，根据文件大小决定处理方式
+                    if metadata.len() > max_file_size {
+                        // 超大文件：更新为不支持同步的记录
+                        let new_record =
+                            build_oversized_file_record(&record.id, file_path, &md5_str, sort);
+                        if let Err(e) =
+                            ClipRecord::update_deleted_record_as_new(rb, &record.id, &new_record)
+                                .await
+                        {
+                            log::error!("更新已删除超大文件记录失败: {}", e);
+                            return Err(e);
+                        }
+
+                        // 更新搜索索引
+                        let record_id_copy = record.id.clone();
+                        let filename = std::path::Path::new(file_path)
+                            .file_name()
+                            .and_then(|name| name.to_str())
+                            .unwrap_or(file_path)
+                            .to_string();
+                        tokio::spawn(async move {
+                            if let Err(e) = add_content_to_index(&record_id_copy, &filename).await {
+                                log::error!("搜索索引更新失败: {}", e);
+                            }
+                        });
+
+                        log::info!("更新已删除的超大文件记录为新数据: {}", record.id);
+                        return Ok(Some(new_record));
+                    } else {
+                        // 小文件：更新为支持同步的记录
+                        let new_record =
+                            build_sync_eligible_file_record(&record.id, file_path, &md5_str, sort);
+                        if let Err(e) =
+                            ClipRecord::update_deleted_record_as_new(rb, &record.id, &new_record)
+                                .await
+                        {
+                            log::error!("更新已删除小文件记录失败: {}", e);
+                            return Err(e);
+                        }
+
+                        // 处理文件复制和路径更新
+                        let mut updated_record = new_record;
+                        handle_sync_eligible_file_update(
+                            rb,
+                            &record.id,
+                            file_path,
+                            &mut updated_record,
+                        )
+                        .await;
+
+                        // 更新搜索索引
+                        let record_id_copy = record.id.clone();
+                        let filename = std::path::Path::new(file_path)
+                            .file_name()
+                            .and_then(|name| name.to_str())
+                            .unwrap_or(file_path)
+                            .to_string();
+                        tokio::spawn(async move {
+                            if let Err(e) = add_content_to_index(&record_id_copy, &filename).await {
+                                log::error!("搜索索引更新失败: {}", e);
+                            }
+                        });
+
+                        log::info!("更新已删除的小文件记录为新数据: {}", record.id);
+                        return Ok(Some(updated_record));
+                    }
+                } else {
+                    // 活跃记录，只更新排序
+                    if let Err(e) = ClipRecord::update_sort(rb, &record.id, sort).await {
+                        log::error!("更新文件排序失败: {}", e);
+                        return Err(e);
+                    }
+                    return Ok(None);
                 }
-                return Ok(None);
             }
 
             // 检查文件大小
@@ -476,20 +715,41 @@ async fn handle_multiple_files(
         }
     };
 
-    // 检查是否已存在相同的多文件记录
-    let existing = ClipRecord::check_by_type_and_md5(
-        rb,
-        ClipType::File.to_string().as_str(),
-        &md5_str,
-    )
-    .await?;
+    // 单次查询检查是否有相同内容的记录
+    let existing =
+        ClipRecord::check_by_type_and_md5(rb, ClipType::File.to_string().as_str(), &md5_str)
+            .await?;
 
     if let Some(record) = existing.first() {
-        if let Err(e) = ClipRecord::update_sort(rb, &record.id, sort).await {
-            log::error!("更新多文件排序失败: {}", e);
-            return Err(e);
+        if record.del_flag == Some(1) {
+            // 已删除的记录，更新为新记录
+            let new_record = build_multiple_files_record(&record.id, paths, &md5_str, sort);
+            if let Err(e) =
+                ClipRecord::update_deleted_record_as_new(rb, &record.id, &new_record).await
+            {
+                log::error!("更新已删除多文件记录失败: {}", e);
+                return Err(e);
+            }
+
+            // 更新搜索索引
+            let record_id_copy = record.id.clone();
+            let content_copy = new_record.content.as_str().unwrap_or_default().to_string();
+            tokio::spawn(async move {
+                if let Err(e) = add_content_to_index(&record_id_copy, &content_copy).await {
+                    log::error!("搜索索引更新失败: {}", e);
+                }
+            });
+
+            log::info!("更新已删除的多文件记录为新数据: {}", record.id);
+            return Ok(Some(new_record));
+        } else {
+            // 活跃记录，只更新排序
+            if let Err(e) = ClipRecord::update_sort(rb, &record.id, sort).await {
+                log::error!("更新多文件排序失败: {}", e);
+                return Err(e);
+            }
+            return Ok(None);
         }
-        return Ok(None);
     }
 
     let record_id = Uuid::new_v4().to_string();

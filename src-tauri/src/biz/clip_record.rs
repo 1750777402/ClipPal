@@ -36,7 +36,7 @@ pub struct ClipRecord {
     pub sync_time: Option<u64>,
     // 设备标识
     pub device_id: Option<String>,
-    // 云同步版本号
+    // 云同步版本号（预留字段）
     pub version: Option<i32>,
     // 是否逻辑删除 0:未删除 1:已删除
     pub del_flag: Option<i32>,
@@ -52,9 +52,8 @@ impl_select!(ClipRecord{select_where_order_by_limit(content: &str, limit:i32, of
 //  根据limit和offset 查询   获取limit条数据(-1表示全部)   跳过前offset条数据
 impl_select!(ClipRecord{select_order_by_limit(limit:i32, offset:i32) =>"` where del_flag = 0 order by pinned_flag desc, sort desc, created desc limit #{limit} offset #{offset}`"});
 // 根据type和content 查看是否有重复的    有的话取出一个
-impl_select!(ClipRecord{check_by_type_and_content(content_type:&str, content:&str) =>"`where type = #{content_type} and content = #{content} limit 1`"});
-// 根据type和content 查看是否有重复的    有的话取出一个
 impl_select!(ClipRecord{check_by_type_and_md5(content_type:&str, md5_str:&str) =>"`where type = #{content_type} and md5_str = #{md5_str} limit 1`"});
+impl_select!(ClipRecord{check_by_type_and_md5_active(content_type:&str, md5_str:&str) =>"`where type = #{content_type} and md5_str = #{md5_str} and (del_flag is null or del_flag = 0) limit 1`"});
 // 取出最大的sort数据
 impl_select!(ClipRecord{select_max_sort(user_id: i32) =>"`where user_id = #{user_id} order by sort desc, created desc limit 1`"});
 // 根据sync_flag查询记录
@@ -170,7 +169,6 @@ impl ClipRecord {
             .map_err(|e| AppError::Database(rbatis::Error::from(e)))
     }
 
-
     /// 获取已逻辑删除且已同步的数据数量
     pub async fn count_invalid(rb: &RBatis) -> i64 {
         let count_res: Result<i64, rbs::Error> = rb
@@ -208,6 +206,38 @@ impl ClipRecord {
         // 转换ids为Vec<Value>
         let params = ids.into_iter().map(|id| to_value!(id)).collect::<Vec<_>>();
         let _ = tx.exec(&sql, params).await?;
+        tx.commit()
+            .await
+            .map_err(|e| AppError::Database(rbatis::Error::from(e)))
+    }
+
+    /// 更新已删除记录的所有字段（相当于创建新记录但保持原ID）
+    pub async fn update_deleted_record_as_new(
+        rb: &RBatis,
+        id: &str,
+        new_record: &ClipRecord,
+    ) -> AppResult<()> {
+        let sql = "UPDATE clip_record SET type = ?, content = ?, md5_str = ?, local_file_path = ?, created = ?, user_id = ?, os_type = ?, sort = ?, pinned_flag = ?, sync_flag = ?, sync_time = ?, device_id = ?, version = ?, del_flag = ?, cloud_source = ? WHERE id = ?";
+        let tx = rb.acquire_begin().await?;
+        let params = vec![
+            to_value!(&new_record.r#type),
+            to_value!(&new_record.content),
+            to_value!(&new_record.md5_str),
+            to_value!(&new_record.local_file_path),
+            to_value!(new_record.created),
+            to_value!(new_record.user_id),
+            to_value!(&new_record.os_type),
+            to_value!(new_record.sort),
+            to_value!(new_record.pinned_flag),
+            to_value!(&new_record.sync_flag),
+            to_value!(&new_record.sync_time),
+            to_value!(&new_record.device_id),
+            to_value!(&new_record.version),
+            to_value!(&new_record.del_flag),
+            to_value!(&new_record.cloud_source),
+            to_value!(id),
+        ];
+        let _ = tx.exec(sql, params).await?;
         tx.commit()
             .await
             .map_err(|e| AppError::Database(rbatis::Error::from(e)))

@@ -6,10 +6,10 @@
                 <div class="card-type">
                     <i class="iconfont" :class="getTypeIcon" :title="getTypeTitle"></i>
                     <span class="type-text">{{ getTypeTitle }}
-                        <template v-if="record.type === 'File'">
+                        <template v-if="record.type === 'File' && fileList.length > 1">
                             <span class="tip-icon-wrapper" @mouseenter="showTip = true" @mouseleave="showTip = false">
                                 <i class="iconfont icon-tishi"></i>
-                                <span v-if="showTip" class="tip-pop">该条目为文件类型，双击复制全部文件，或点击单个文件的"仅复制此文件"按钮。若有源文件丢失将提示失败</span>
+                                <span v-if="showTip" class="tip-pop">该条目为多文件类型，双击复制全部文件，或点击单个文件的"仅复制此文件"按钮。若有源文件丢失将提示失败</span>
                             </span>
                         </template>
                     </span>
