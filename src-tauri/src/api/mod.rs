@@ -39,7 +39,7 @@ where
     let api_domain = get_api_domain()?;
     let url = format!("{}/{}", api_domain, path.trim_start_matches('/'));
     // let token = get_jwt_token();
-    let token = "eyJhbGciOiJIUzUxMiJ9.eyJyb2xlIjoiVVNFUiIsInR5cGUiOiJhY2Nlc3MiLCJ1c2VySWQiOjEsInN1YiI6ImFkbWluIiwiaXNzIjoiY2xpcC1wYWwtY2xvdWQiLCJpYXQiOjE3NTU2NTYwNTYsImV4cCI6MTc1NTc0MjQ1Nn0.Kmi6HIm6e-adBKcAvdjJU3pf25D1TmXVU6ct0f4Lq9FFQgZFURt5iWU-nMNlROOeXhFelxJQznDh5jpWibIIvA";
+    let token = "eyJhbGciOiJIUzUxMiJ9.eyJyb2xlIjoiVVNFUiIsInR5cGUiOiJhY2Nlc3MiLCJ1c2VySWQiOjEsInN1YiI6ImFkbWluIiwiaXNzIjoiY2xpcC1wYWwtY2xvdWQiLCJpYXQiOjE3NTU3NDI5MzAsImV4cCI6MTc1NTgyOTMzMH0.raNwyl6GiLSJkxJT9vHN077fGEDDVG7shGYBs6UPPt0yaLEK_xh6hSrb1Q9f8gHG6Bb1h5zAg-RH-bRX4SuNKQ";
     let headers = get_common_headers(&token);
     let client = HttpClient::new();
     let resp: ApiResponse<T> = client
@@ -97,7 +97,7 @@ where
     let api_domain = get_api_domain()?;
     let url = format!("{}/{}", api_domain, path.trim_start_matches('/'));
     // let token = get_jwt_token();
-    let token = "eyJhbGciOiJIUzUxMiJ9.eyJyb2xlIjoiVVNFUiIsInR5cGUiOiJhY2Nlc3MiLCJ1c2VySWQiOjEsInN1YiI6ImFkbWluIiwiaXNzIjoiY2xpcC1wYWwtY2xvdWQiLCJpYXQiOjE3NTU2NTYwNTYsImV4cCI6MTc1NTc0MjQ1Nn0.Kmi6HIm6e-adBKcAvdjJU3pf25D1TmXVU6ct0f4Lq9FFQgZFURt5iWU-nMNlROOeXhFelxJQznDh5jpWibIIvA";
+    let token = "eyJhbGciOiJIUzUxMiJ9.eyJyb2xlIjoiVVNFUiIsInR5cGUiOiJhY2Nlc3MiLCJ1c2VySWQiOjEsInN1YiI6ImFkbWluIiwiaXNzIjoiY2xpcC1wYWwtY2xvdWQiLCJpYXQiOjE3NTU3NDI5MzAsImV4cCI6MTc1NTgyOTMzMH0.raNwyl6GiLSJkxJT9vHN077fGEDDVG7shGYBs6UPPt0yaLEK_xh6hSrb1Q9f8gHG6Bb1h5zAg-RH-bRX4SuNKQ";
 
     // 为文件上传准备请求头（不包含Content-Type，让reqwest自动处理multipart）
     let mut headers = HashMap::new();

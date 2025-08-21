@@ -19,7 +19,7 @@
                             <i class="iconfont icon-loading sync-loading"></i>
                         </span>
                         <span v-else-if="record.sync_flag === 2" class="sync-synced" title="已同步"></span>
-                        <span v-else-if="record.sync_flag === 3" class="sync-skipped" title="跳过同步（文件过大）">
+                        <span v-else-if="record.sync_flag === 3" class="sync-skipped" title="不支持同步">
                             <i class="iconfont icon-tishi"></i>
                         </span>
                     </div>

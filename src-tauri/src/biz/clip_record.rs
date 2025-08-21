@@ -7,7 +7,7 @@ use serde_json::Value;
 pub static NOT_SYNCHRONIZED: i32 = 0; // 未同步
 pub static SYNCHRONIZING: i32 = 1; // 同步中
 pub static SYNCHRONIZED: i32 = 2; // 已同步
-pub static SKIP_SYNC: i32 = 3; // 跳过同步（文件过大等原因）
+pub static SKIP_SYNC: i32 = 3; // 不支持同步（多文件、超大文件等）
 
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
 pub struct ClipRecord {

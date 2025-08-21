@@ -317,7 +317,7 @@ async fn handle_image(
         let is_oversized = data.len() as u64 > max_file_size;
         if is_oversized {
             log::warn!(
-                "图片大小 {} 字节超过限制 {} 字节，将创建记录但标记为跳过同步",
+                "图片大小 {} 字节超过限制 {} 字节，将创建记录但标记为不支持同步",
                 data.len(),
                 max_file_size
             );
@@ -345,7 +345,7 @@ async fn handle_image(
                 sort,
             );
 
-            // 如果图片大小超过限制，设置为跳过同步状态
+            // 如果图片大小超过限制，设置为不支持同步状态
             if is_oversized {
                 record.sync_flag = Some(SKIP_SYNC);
             }
@@ -380,10 +380,10 @@ async fn handle_file(
         use crate::utils::config::get_max_file_size_bytes;
         let max_file_size = get_max_file_size_bytes().unwrap_or(5 * 1024 * 1024);
 
-        // 多文件直接跳过云同步
+        // 多文件不支持云同步
         if paths.len() > 1 {
             log::info!(
-                "检测到多文件复制({} 个文件)，跳过云同步，仅保留本地记录",
+                "检测到多文件复制({} 个文件)，不支持云同步，仅保留本地记录",
                 paths.len()
             );
             return handle_multiple_files(rb, paths, sort).await;
@@ -433,7 +433,7 @@ async fn handle_file(
             // 检查文件大小
             if metadata.len() > max_file_size {
                 log::warn!(
-                    "单文件大小 {} 字节超过限制 {} 字节，跳过云同步: {}",
+                    "单文件大小 {} 字节超过限制 {} 字节，设置为不支持同步: {}",
                     metadata.len(),
                     max_file_size,
                     file_path
@@ -448,7 +448,7 @@ async fn handle_file(
     Ok(None)
 }
 
-/// 处理多文件情况（跳过云同步）
+/// 处理多文件情况（不支持云同步）
 async fn handle_multiple_files(
     rb: &RBatis,
     paths: &Vec<String>,
@@ -476,6 +476,22 @@ async fn handle_multiple_files(
         }
     };
 
+    // 检查是否已存在相同的多文件记录
+    let existing = ClipRecord::check_by_type_and_md5(
+        rb,
+        ClipType::File.to_string().as_str(),
+        &md5_str,
+    )
+    .await?;
+
+    if let Some(record) = existing.first() {
+        if let Err(e) = ClipRecord::update_sort(rb, &record.id, sort).await {
+            log::error!("更新多文件排序失败: {}", e);
+            return Err(e);
+        }
+        return Ok(None);
+    }
+
     let record_id = Uuid::new_v4().to_string();
 
     // content存储文件名列表（显示用）
@@ -500,7 +516,7 @@ async fn handle_multiple_files(
         sort,
     );
 
-    // 多文件直接跳过云同步
+    // 多文件不支持云同步
     record.sync_flag = Some(SKIP_SYNC);
     record.local_file_path = Some(paths.join(":::"));
 
@@ -517,7 +533,7 @@ async fn handle_multiple_files(
             });
 
             log::info!(
-                "保存多文件记录成功（跳过云同步），记录ID: {}, 文件数: {}, 文件名: {}",
+                "保存多文件记录成功（不支持同步），记录ID: {}, 文件数: {}, 文件名: {}",
                 record.id,
                 paths.len(),
                 content_display
@@ -531,7 +547,7 @@ async fn handle_multiple_files(
     }
 }
 
-/// 处理超过大小限制的单文件（跳过云同步）
+/// 处理超过大小限制的单文件（不支持云同步）
 async fn handle_oversized_single_file(
     rb: &RBatis,
     file_path: &str,
@@ -555,7 +571,7 @@ async fn handle_oversized_single_file(
         sort,
     );
 
-    // 超过大小限制，跳过云同步
+    // 超过大小限制，不支持云同步
     record.sync_flag = Some(SKIP_SYNC);
     record.local_file_path = Some(file_path.to_string());
 
@@ -572,7 +588,7 @@ async fn handle_oversized_single_file(
             });
 
             log::info!(
-                "保存超大单文件记录成功（跳过云同步），记录ID: {}, 文件路径: {}, 文件名: {}",
+                "保存超大单文件记录成功（不支持同步），记录ID: {}, 文件路径: {}, 文件名: {}",
                 record.id,
                 file_path,
                 filename
@@ -633,8 +649,8 @@ async fn handle_sync_eligible_file(
                     original_filename
                 );
             } else {
-                // 复制失败，回退到跳过云同步
-                log::warn!("文件复制失败，回退到跳过云同步: {}", file_path);
+                // 复制失败，设置为不支持云同步
+                log::warn!("文件复制失败，设置为不支持同步: {}", file_path);
                 record.sync_flag = Some(SKIP_SYNC);
 
                 // content存储原文件名（显示用）

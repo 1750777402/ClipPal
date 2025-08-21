@@ -135,7 +135,7 @@ async fn handle_sync_inner(param: SingleCloudSyncParam) -> AppResult<()> {
 
     // 先检查文件类型是否应该跳过同步
     if should_skip_sync(&param.clip, &record_type).await {
-        log::info!("记录 {} ({}) 应跳过云同步", record_id, record_type);
+        log::info!("记录 {} ({}) 不支持云同步", record_id, record_type);
         let rb: &RBatis = CONTEXT.get::<RBatis>();
         return update_sync_status(rb, &record_id, SKIP_SYNC, 0).await;
     }
@@ -224,7 +224,7 @@ fn sync_status_name(status: i32) -> &'static str {
     } else if status == SYNCHRONIZING {
         "同步中"
     } else if status == SKIP_SYNC {
-        "跳过同步"
+        "不支持同步"
     } else {
         "未知状态"
     }
