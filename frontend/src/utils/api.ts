@@ -15,9 +15,9 @@ const ERROR_SEVERITY_MAP: Record<string, ErrorSeverity> = {
   'get_image_base64': ErrorSeverity.SILENT,
   
   // 用户操作相关 - 需要提示
-  'copy_clip_record': ErrorSeverity.INFO,
-  'copy_clip_record_no_paste': ErrorSeverity.INFO,
-  'copy_single_file': ErrorSeverity.INFO,
+  'copy_clip_record': ErrorSeverity.CRITICAL,
+  'copy_clip_record_no_paste': ErrorSeverity.CRITICAL,
+  'copy_single_file': ErrorSeverity.CRITICAL,
   'image_save_as': ErrorSeverity.WARNING,
   'del_record': ErrorSeverity.WARNING,
   'set_pinned': ErrorSeverity.INFO,

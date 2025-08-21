@@ -15,7 +15,7 @@ import TutorialGuide from './components/TutorialGuide.vue';
 import { useBreakpoint, generateResponsiveClasses } from './utils/responsive';
 import { setErrorHandler, ErrorSeverity, getFriendlyErrorMessage } from './utils/api';
 
-const messageBar = ref({ visible: false, message: '', type: 'success' as 'success' | 'error' });
+const messageBar = ref({ visible: false, message: '', type: 'info' as 'info' | 'warning' | 'error' });
 let closeTimer: ReturnType<typeof setTimeout> | null = null;
 let isHovering = false;
 
@@ -23,14 +23,18 @@ let isHovering = false;
 const breakpoint = useBreakpoint();
 const responsiveClasses = computed(() => generateResponsiveClasses(breakpoint));
 
-function showMessageBar(message: string, type: 'success' | 'error' = 'success') {
+function showMessageBar(message: string, type: 'info' | 'warning' | 'error' = 'info') {
   messageBar.value.message = message;
   messageBar.value.type = type;
   messageBar.value.visible = true;
   if (closeTimer) clearTimeout(closeTimer);
+  
+  // 根据消息类型设置不同的显示时间
+  const displayTime = type === 'error' ? 3000 : type === 'warning' ? 3000 : 2000;
+  
   closeTimer = setTimeout(() => {
     if (!isHovering) messageBar.value.visible = false;
-  }, 2000);
+  }, displayTime);
 }
 
 function onMessageBarEnter() {
@@ -46,6 +50,7 @@ function onMessageBarLeave() {
   }, 1000);
 }
 
+
 provide('showMessageBar', showMessageBar);
 
 // 设置全局错误处理器
@@ -58,7 +63,9 @@ onMounted(() => {
     const friendlyMessage = getFriendlyErrorMessage(error, command);
     
     // 根据严重程度选择显示方式
-    const messageType = severity === ErrorSeverity.CRITICAL || severity === ErrorSeverity.WARNING ? 'error' : 'success';
+    const messageType = severity === ErrorSeverity.CRITICAL ? 'error' 
+                      : severity === ErrorSeverity.WARNING ? 'warning' 
+                      : 'info';
     
     // 显示消息
     showMessageBar(friendlyMessage, messageType);

@@ -184,7 +184,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, inject, shallowRef } from 'vue';
+import { ref, computed, onMounted, onUnmounted, shallowRef } from 'vue';
 import { formatDistanceToNow } from 'date-fns';
 import { zhCN } from 'date-fns/locale';
 import VueEasyLightbox from 'vue-easy-lightbox';
@@ -221,7 +221,7 @@ const imageBase64Data = shallowRef<string>('');
 const isLoadingImage = ref(false);
 const shouldLoadImage = ref(false);
 
-const showMessageBar = inject('showMessageBar') as (msg: string, type?: 'success' | 'error') => void;
+// showMessageBar 现在通过全局错误处理器自动处理，不需要手动注入
 
 // 懒加载图片base64数据
 const loadImageBase64 = async () => {
@@ -284,15 +284,11 @@ const confirmAutoPaste = async () => {
     showAutoPasteWarning.value = false;
     
     // 继续执行自动粘贴
-    try {
-        await clipApi.copyRecord(props.record.id);
+    const response = await clipApi.copyRecord(props.record.id);
+    if (isSuccess(response)) {
         emit('click', props.record);
-        // 移除成功提示，只保留错误提示
-    } catch (err: any) {
-        if (showMessageBar) {
-            showMessageBar(err?.toString() || '复制失败', 'error');
-        }
     }
+    // 错误处理由全局错误处理器自动处理
 };
 
 // 取消自动粘贴，只复制
@@ -305,9 +301,8 @@ const cancelAutoPaste = async () => {
 // 双击卡片触发复制和自动粘贴
 const handleCardDoubleClick = async () => {
     // 检查自动粘贴设置
-    try {
-        const settingsResponse = await settingsApi.loadSettings();
-        if (!isSuccess(settingsResponse)) return;
+    const settingsResponse = await settingsApi.loadSettings();
+    if (isSuccess(settingsResponse)) {
         const settings = settingsResponse.data;
         if (settings.auto_paste === 1) {
             // 如果开启了自动粘贴，检查是否需要显示首次使用提示
@@ -316,35 +311,19 @@ const handleCardDoubleClick = async () => {
                 return;
             }
         }
-    } catch (error) {
-        console.error('获取设置失败:', error);
     }
 
-    try {
-        await clipApi.copyRecord(props.record.id);
+    const response = await clipApi.copyRecord(props.record.id);
+    if (isSuccess(response)) {
         emit('click', props.record);
-        // 移除成功提示，只保留错误提示
-    } catch (err: any) {
-        if (showMessageBar) {
-            showMessageBar(err?.toString() || '复制失败', 'error');
-        } else {
-            alert(err?.toString() || '复制失败');
-        }
     }
+    // 错误处理由全局错误处理器自动处理
 };
 
 // 复制按钮只复制，不触发自动粘贴
 const handleCopyOnly = async () => {
-    try {
-        await clipApi.copyRecordNoPaste(props.record.id);
-        // 移除成功提示，只保留错误提示
-    } catch (err: any) {
-        if (showMessageBar) {
-            showMessageBar(err?.toString() || '复制失败', 'error');
-        } else {
-            alert(err?.toString() || '复制失败');
-        }
-    }
+    await clipApi.copyRecordNoPaste(props.record.id);
+    // 错误处理由全局错误处理器自动处理
 };
 
 // 智能内容复制处理
@@ -354,14 +333,8 @@ const handleSmartCopy = (_content: string) => {
 
 // 复制单个文件
 const handleCopySingleFile = async (filePath: string) => {
-    try {
-        await clipApi.copySingleFile(props.record.id, filePath);
-        // 移除成功提示，只保留错误提示
-    } catch (err: any) {
-        if (showMessageBar) {
-            showMessageBar(err?.toString() || '复制失败', 'error');
-        }
-    }
+    await clipApi.copySingleFile(props.record.id, filePath);
+    // 错误处理由全局错误处理器自动处理
 };
 
 const formatTime = (timestamp: number) => {
@@ -379,13 +352,6 @@ const formatFileSize = (bytes: number) => {
     const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
     const i = Math.floor(Math.log(bytes) / Math.log(k));
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-};
-
-// 检查文件大小是否超过云同步限制（5MB）
-const isFileSizeExceeded = (bytes: number) => {
-    if (bytes <= 0) return false; // 特殊状态不算超过限制
-    const maxSizeBytes = 5 * 1024 * 1024; // 5MB in bytes
-    return bytes > maxSizeBytes;
 };
 
 const getFileType = (filename: string) => {
@@ -466,19 +432,6 @@ const fileList = computed(() => {
         }
     }
     return [];
-});
-
-// 检查是否有超过大小限制的文件
-const hasOversizedFiles = computed(() => {
-    return fileList.value.some((file: any) => isFileSizeExceeded(file.size));
-});
-
-// 检查图片是否超过大小限制
-const isImageSizeExceeded = computed(() => {
-    if (props.record.type === 'Image' && props.record.image_info) {
-        return isFileSizeExceeded(Number(props.record.image_info.size));
-    }
-    return false;
 });
 
 const handleSaveAs = async () => {
