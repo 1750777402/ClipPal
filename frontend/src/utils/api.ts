@@ -26,6 +26,14 @@ const ERROR_SEVERITY_MAP: Record<string, ErrorSeverity> = {
   'save_settings': ErrorSeverity.CRITICAL,
   'load_settings': ErrorSeverity.SILENT,
   'validate_shortcut': ErrorSeverity.WARNING,
+  
+  // 用户认证相关 - 需要提示
+  'user_login': ErrorSeverity.CRITICAL,
+  'user_register': ErrorSeverity.CRITICAL,
+  'user_logout': ErrorSeverity.INFO,
+  'validate_token': ErrorSeverity.SILENT,
+  'get_user_info': ErrorSeverity.SILENT,
+  'update_user_info': ErrorSeverity.WARNING,
 };
 
 // API响应类型
@@ -152,6 +160,54 @@ export const settingsApi = {
   }
 };
 
+// 用户认证相关API
+export const userApi = {
+  // 用户登录
+  async login(params: { account: string; password: string }) {
+    return apiInvoke<{ 
+      userInfo: any; 
+      token: string; 
+      expiresIn?: number; 
+    }>('user_login', { param: params });
+  },
+
+  // 用户注册
+  async register(params: { account: string; password: string }) {
+    return apiInvoke<{ 
+      userInfo: any; 
+      message?: string; 
+    }>('user_register', { param: params });
+  },
+
+  // 用户登出
+  async logout() {
+    return apiInvoke<{ message?: string }>('user_logout');
+  },
+
+  // 验证Token
+  async validateToken() {
+    return apiInvoke<{ 
+      valid: boolean; 
+      userInfo?: any; 
+      expiresIn?: number; 
+    }>('validate_token');
+  },
+
+  // 获取用户信息
+  async getUserInfo() {
+    return apiInvoke<any>('get_user_info');
+  },
+
+  // 更新用户信息
+  async updateUserInfo(params: { 
+    nickname?: string; 
+    email?: string; 
+    avatar?: string; 
+  }) {
+    return apiInvoke<{ userInfo: any; message?: string }>('update_user_info', { param: params });
+  }
+};
+
 // 便捷的成功检查函数
 export function isSuccess<T>(response: ApiResponse<T>): response is ApiResponse<T> & { data: T } {
   return response.success && response.data !== undefined;
@@ -165,7 +221,13 @@ export function getFriendlyErrorMessage(error: string, command: string): string 
     'save_settings': '设置保存失败，请检查配置',
     'copy_clip_record': '复制失败',
     'image_save_as': '图片保存失败',
-    'set_pinned': '置顶操作失败'
+    'set_pinned': '置顶操作失败',
+    'user_login': '登录失败，请检查账号密码',
+    'user_register': '注册失败，请检查输入信息',
+    'user_logout': '登出失败',
+    'validate_token': 'Token验证失败',
+    'get_user_info': '获取用户信息失败',
+    'update_user_info': '更新用户信息失败'
   };
 
   return friendlyMessages[command] || error || '操作失败';

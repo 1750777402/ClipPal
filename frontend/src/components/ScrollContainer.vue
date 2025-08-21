@@ -10,7 +10,13 @@
           type="button"
           @click="handleCloudSyncClick">
         </button>
-        <button class="icon-button iconfont icon-user" title="用户信息" type="button"></button>
+        <button 
+          class="icon-button iconfont icon-user" 
+          :class="{ 'logged-in': userStore.isLoggedIn() }"
+          :title="userButtonTitle" 
+          type="button" 
+          @click="handleUserButtonClick"
+        ></button>
         <button class="icon-button iconfont icon-setting settings-button" title="设置" type="button" @click="showSettings = true"></button>
       </div>
     </header>
@@ -55,6 +61,25 @@
 
     <SettingsDialog v-model="showSettings" @save="handleSettingsSave" />
     
+    <!-- 登录对话框 -->
+    <LoginDialog v-model:visible="showLoginDialog" @login-success="handleLoginSuccess" />
+    
+    <!-- 用户菜单 -->
+    <UserMenu 
+      v-model:visible="showUserMenu" 
+      :user-info="userStore.getUserInfo()" 
+      @logout="handleLogout" 
+      @user-info="handleUserInfo"
+      @settings="handleUserSettings"
+    />
+    
+    <!-- 用户信息对话框 -->
+    <UserInfoDialog 
+      v-model:visible="showUserInfoDialog" 
+      :user-info="userStore.getUserInfo()" 
+      @edit="handleUserInfoEdit"
+    />
+    
     <!-- 回到顶部按钮 -->
     <button 
       v-show="showBackToTop" 
@@ -71,11 +96,15 @@
 
 <script setup lang="ts">
 import { listen } from '@tauri-apps/api/event';
-import { ref, onMounted, onBeforeUnmount, watch, nextTick } from 'vue';
+import { ref, onMounted, onBeforeUnmount, watch, nextTick, computed } from 'vue';
 import SettingsDialog from './SettingsDialog.vue';
 import ClipCard from './ClipCard.vue';
+import LoginDialog from './LoginDialog.vue';
+import UserMenu from './UserMenu.vue';
+import UserInfoDialog from './UserInfoDialog.vue';
 import { useWindowAdaptive } from '../utils/responsive';
 import { clipApi, settingsApi, isSuccess } from '../utils/api';
+import { useUserStore } from '../utils/userStore';
 
 // 简单的防抖函数实现
 function debounce<T extends (...args: any[]) => any>(func: T, wait: number): (...args: Parameters<T>) => void {
@@ -107,6 +136,27 @@ const showBackToTop = ref(false);
 
 // 使用响应式工具
 const responsive = useWindowAdaptive();
+
+// 用户状态管理
+const userStore = useUserStore();
+
+// 登录对话框显示状态
+const showLoginDialog = ref(false);
+
+// 用户菜单显示状态
+const showUserMenu = ref(false);
+
+// 用户信息对话框显示状态
+const showUserInfoDialog = ref(false);
+
+// 用户按钮提示文本
+const userButtonTitle = computed(() => {
+  if (userStore.isLoggedIn()) {
+    const userInfo = userStore.getUserInfo();
+    return `已登录: ${userInfo?.account || '用户'}`;
+  }
+  return '点击登录';
+});
 
 interface ClipRecord {
   id: string;
@@ -366,11 +416,67 @@ const handleDel = () => {
   smartRefresh();
 };
 
-onMounted(() => {
+// 用户按钮点击处理
+const handleUserButtonClick = () => {
+  if (userStore.isLoggedIn()) {
+    // 已登录，显示用户菜单
+    showUserMenu.value = true;
+  } else {
+    // 未登录，显示登录对话框
+    showLoginDialog.value = true;
+  }
+};
+
+// 登录成功处理
+const handleLoginSuccess = (userData: any) => {
+  userStore.setLoginState(userData.userInfo, userData.token);
+  // 登录成功后刷新数据
+  smartRefresh();
+};
+
+// 用户登出处理
+const handleLogout = async () => {
+  try {
+    const success = await userStore.logout();
+    if (success) {
+      // 登出成功后刷新数据
+      smartRefresh();
+      // 可选：显示登出成功消息
+      console.log('用户已登出');
+    }
+  } catch (error) {
+    console.error('登出失败:', error);
+    // 即使登出请求失败，也清除本地状态
+    userStore.clearLoginState();
+    smartRefresh();
+  }
+};
+
+// 用户信息处理
+const handleUserInfo = () => {
+  showUserInfoDialog.value = true;
+};
+
+// 用户设置处理（暂时显示提示）
+const handleUserSettings = () => {
+  // TODO: 这里可以实现用户相关设置功能
+  console.log('用户设置功能，待实现');
+};
+
+// 用户信息编辑处理
+const handleUserInfoEdit = () => {
+  // TODO: 这里可以实现用户信息编辑功能
+  console.log('用户信息编辑功能，待实现');
+};
+
+onMounted(async () => {
   lastSearchValue.value = search.value;
   fetchClipRecords();
   initEventListeners();
   loadCloudSyncSetting();
+  
+  // 初始化用户状态
+  await userStore.initialize();
 });
 
 onBeforeUnmount(() => {
@@ -657,6 +763,17 @@ onBeforeUnmount(() => {
   opacity: 1;
   background-color: rgba(255, 255, 255, 0.12);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+.icon-button.logged-in {
+  background-color: rgba(255, 255, 255, 0.15);
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.3);
+  opacity: 1;
+}
+
+.icon-button.logged-in:hover {
+  background-color: rgba(255, 255, 255, 0.2);
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.4);
 }
 
 /* 回到顶部按钮 */
