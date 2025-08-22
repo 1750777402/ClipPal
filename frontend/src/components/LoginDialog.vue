@@ -61,7 +61,7 @@
               id="register-nickname"
               v-model="registerForm.nickname"
               type="text"
-              placeholder="请输入昵称"
+              placeholder="请输入昵称（不超过10个字符）"
               required
               :disabled="isLoading"
               :class="{ 'error': fieldValidation.nickname.error }"
@@ -77,7 +77,7 @@
               id="register-account"
               v-model="registerForm.account"
               type="text"
-              placeholder="请输入用户名（至少3位）"
+              placeholder="请输入用户名（3-20位，英文数字汉字）"
               required
               :disabled="isLoading"
               :class="{ 'error': fieldValidation.account.error }"
@@ -93,7 +93,7 @@
               id="register-password"
               v-model="registerForm.password"
               type="password"
-              placeholder="请输入密码（至少6位）"
+              placeholder="请输入密码（6-20位，英文数字）"
               required
               :disabled="isLoading"
               :class="{ 'error': fieldValidation.password.error }"
@@ -240,18 +240,23 @@ const captchaButtonText = computed(() => {
 // 字段验证计算属性
 const fieldValidation = computed(() => ({
   nickname: {
-    isValid: registerForm.nickname.trim().length > 0,
-    error: registerForm.nickname.trim().length === 0 && registerForm.nickname !== '' ? '请输入昵称' : ''
+    isValid: registerForm.nickname.trim().length > 0 && registerForm.nickname.trim().length <= 10,
+    error: registerForm.nickname.trim().length === 0 && registerForm.nickname !== '' ? '请输入昵称' : 
+           registerForm.nickname.trim().length > 10 ? '昵称不能超过10个字符' : ''
   },
   account: {
-    isValid: registerForm.account.trim().length >= 3,
-    error: registerForm.account.trim().length > 0 && registerForm.account.trim().length < 3 ? '用户名至少需要3个字符' : 
-           registerForm.account.trim().length === 0 && registerForm.account !== '' ? '请输入用户名' : ''
+    isValid: registerForm.account.trim().length >= 3 && registerForm.account.trim().length <= 20 && isValidAccount(registerForm.account),
+    error: registerForm.account.trim().length === 0 && registerForm.account !== '' ? '请输入用户名' :
+           registerForm.account.trim().length > 0 && registerForm.account.trim().length < 3 ? '用户名至少需要3个字符' :
+           registerForm.account.trim().length > 20 ? '用户名不能超过20个字符' :
+           registerForm.account.trim().length >= 3 && !isValidAccount(registerForm.account) ? '用户名只能包含英文、数字和汉字' : ''
   },
   password: {
-    isValid: registerForm.password.length >= 6,
-    error: registerForm.password.length > 0 && registerForm.password.length < 6 ? '密码至少需要6个字符' : 
-           registerForm.password.length === 0 && registerForm.password !== '' ? '请输入密码' : ''
+    isValid: registerForm.password.length >= 6 && registerForm.password.length <= 20 && isValidPassword(registerForm.password),
+    error: registerForm.password.length === 0 && registerForm.password !== '' ? '请输入密码' :
+           registerForm.password.length > 0 && registerForm.password.length < 6 ? '密码至少需要6个字符' :
+           registerForm.password.length > 20 ? '密码不能超过20个字符' :
+           registerForm.password.length >= 6 && !isValidPassword(registerForm.password) ? '密码只能包含英文和数字' : ''
   },
   confirmPassword: {
     isValid: registerForm.confirmPassword && registerForm.password === registerForm.confirmPassword,
@@ -282,6 +287,18 @@ const isRegisterFormValid = computed(() => {
 const isValidEmail = (email: string): boolean => {
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
   return emailRegex.test(email)
+}
+
+// 用户名验证：只能包含英文、数字和汉字
+const isValidAccount = (account: string): boolean => {
+  const accountRegex = /^[a-zA-Z0-9\u4e00-\u9fa5]+$/
+  return accountRegex.test(account)
+}
+
+// 密码验证：只能包含英文和数字
+const isValidPassword = (password: string): boolean => {
+  const passwordRegex = /^[a-zA-Z0-9]+$/
+  return passwordRegex.test(password)
 }
 
 const close = () => {

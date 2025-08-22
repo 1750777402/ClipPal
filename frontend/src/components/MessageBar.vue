@@ -117,7 +117,7 @@ defineEmits<{
 
 /* 进度条动画 */
 .progress-bar--info {
-  animation: progress-info 4s linear forwards;
+  animation: progress-info 2s linear forwards;
 }
 
 .progress-bar--warning {
@@ -125,7 +125,7 @@ defineEmits<{
 }
 
 .progress-bar--error {
-  animation: progress-error 4s linear forwards;
+  animation: progress-error 3s linear forwards;
 }
 
 @keyframes progress-info {
