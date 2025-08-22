@@ -14,6 +14,7 @@ use crate::{
         file_sync_timer::start_file_sync_timer,
         query_clip_record::{get_clip_records, get_image_base64},
         system_setting::{init_settings, load_settings, save_settings, validate_shortcut},
+        user_auth::{login, user_register, logout, validate_token, get_user_info, check_login_status},
     },
     log_config::init_logging,
     utils::lock_utils::create_global_sync_lock,
@@ -136,7 +137,13 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
             validate_shortcut,
             set_pinned,
             del_record,
-            image_save_as
+            image_save_as,
+            login,
+            user_register,
+            logout,
+            validate_token,
+            get_user_info,
+            check_login_status
         ])
         .build(tauri::generate_context!())
         .unwrap_or_else(|e| {

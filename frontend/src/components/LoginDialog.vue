@@ -56,20 +56,39 @@
         
         <form @submit.prevent="handleRegister" class="form-content">
           <div class="form-group">
-            <label for="register-account">账号</label>
+            <label for="register-nickname">昵称 *</label>
+            <input
+              id="register-nickname"
+              v-model="registerForm.nickname"
+              type="text"
+              placeholder="请输入昵称"
+              required
+              :disabled="isLoading"
+              :class="{ 'error': fieldValidation.nickname.error }"
+            />
+            <div v-if="fieldValidation.nickname.error" class="field-error">
+              {{ fieldValidation.nickname.error }}
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label for="register-account">用户名 *</label>
             <input
               id="register-account"
               v-model="registerForm.account"
               type="text"
-              placeholder="请输入账号（至少3位）"
+              placeholder="请输入用户名（至少3位）"
               required
               :disabled="isLoading"
-              @keypress.enter="handleRegister"
+              :class="{ 'error': fieldValidation.account.error }"
             />
+            <div v-if="fieldValidation.account.error" class="field-error">
+              {{ fieldValidation.account.error }}
+            </div>
           </div>
           
           <div class="form-group">
-            <label for="register-password">密码</label>
+            <label for="register-password">密码 *</label>
             <input
               id="register-password"
               v-model="registerForm.password"
@@ -77,12 +96,15 @@
               placeholder="请输入密码（至少6位）"
               required
               :disabled="isLoading"
-              @keypress.enter="handleRegister"
+              :class="{ 'error': fieldValidation.password.error }"
             />
+            <div v-if="fieldValidation.password.error" class="field-error">
+              {{ fieldValidation.password.error }}
+            </div>
           </div>
           
           <div class="form-group">
-            <label for="register-confirm-password">确认密码</label>
+            <label for="register-confirm-password">确认密码 *</label>
             <input
               id="register-confirm-password"
               v-model="registerForm.confirmPassword"
@@ -90,11 +112,67 @@
               placeholder="请再次输入密码"
               required
               :disabled="isLoading"
-              @keypress.enter="handleRegister"
+              :class="{ 'error': fieldValidation.confirmPassword.error }"
+            />
+            <div v-if="fieldValidation.confirmPassword.error" class="field-error">
+              {{ fieldValidation.confirmPassword.error }}
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label for="register-email">邮箱 *</label>
+            <input
+              id="register-email"
+              v-model="registerForm.email"
+              type="email"
+              placeholder="请输入邮箱地址"
+              required
+              :disabled="isLoading"
+              :class="{ 'error': fieldValidation.email.error }"
+            />
+            <div v-if="fieldValidation.email.error" class="field-error">
+              {{ fieldValidation.email.error }}
+            </div>
+          </div>
+
+          <div class="form-group email-captcha-group">
+            <label for="register-captcha">邮箱验证码 *</label>
+            <div class="captcha-input-group">
+              <input
+                id="register-captcha"
+                v-model="registerForm.captcha"
+                type="text"
+                placeholder="请输入验证码"
+                required
+                :disabled="isLoading"
+                :class="{ 'error': fieldValidation.captcha.error }"
+              />
+              <button
+                type="button"
+                class="captcha-btn"
+                :disabled="isLoading || isCaptchaLoading || captchaCountdown > 0"
+                @click="sendEmailCaptcha"
+              >
+                {{ captchaButtonText }}
+              </button>
+            </div>
+            <div v-if="fieldValidation.captcha.error" class="field-error">
+              {{ fieldValidation.captcha.error }}
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label for="register-phone">手机号</label>
+            <input
+              id="register-phone"
+              v-model="registerForm.phone"
+              type="tel"
+              placeholder="请输入手机号（可选）"
+              :disabled="isLoading"
             />
           </div>
           
-          <button type="submit" class="submit-btn" :disabled="isLoading">
+          <button type="submit" class="submit-btn" :disabled="isLoading || !isRegisterFormValid">
             <span v-if="isLoading" class="loading-spinner"></span>
             {{ isLoading ? '注册中...' : '注册' }}
           </button>
@@ -110,7 +188,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, inject, watch } from 'vue'
+import { ref, reactive, inject, watch, computed } from 'vue'
 import { userApi, isSuccess } from '../utils/api'
 
 interface Props {
@@ -136,13 +214,84 @@ const loginForm = reactive({
 })
 
 const registerForm = reactive({
+  nickname: '',
   account: '',
   password: '',
-  confirmPassword: ''
+  confirmPassword: '',
+  email: '',
+  captcha: '',
+  phone: ''
 })
+
+// 邮箱验证码相关
+const isCaptchaLoading = ref(false)
+const captchaCountdown = ref(0)
+let countdownTimer: ReturnType<typeof setInterval> | null = null
+
+// 计算属性
+const captchaButtonText = computed(() => {
+  if (isCaptchaLoading.value) return '发送中...'
+  if (captchaCountdown.value > 0) return `${captchaCountdown.value}秒后重发`
+  return '发送验证码'
+})
+
+// 字段验证功能已通过计算属性实现
+
+// 字段验证计算属性
+const fieldValidation = computed(() => ({
+  nickname: {
+    isValid: registerForm.nickname.trim().length > 0,
+    error: registerForm.nickname.trim().length === 0 && registerForm.nickname !== '' ? '请输入昵称' : ''
+  },
+  account: {
+    isValid: registerForm.account.trim().length >= 3,
+    error: registerForm.account.trim().length > 0 && registerForm.account.trim().length < 3 ? '用户名至少需要3个字符' : 
+           registerForm.account.trim().length === 0 && registerForm.account !== '' ? '请输入用户名' : ''
+  },
+  password: {
+    isValid: registerForm.password.length >= 6,
+    error: registerForm.password.length > 0 && registerForm.password.length < 6 ? '密码至少需要6个字符' : 
+           registerForm.password.length === 0 && registerForm.password !== '' ? '请输入密码' : ''
+  },
+  confirmPassword: {
+    isValid: registerForm.confirmPassword && registerForm.password === registerForm.confirmPassword,
+    error: registerForm.confirmPassword && registerForm.password !== registerForm.confirmPassword ? '两次输入的密码不一致' :
+           registerForm.confirmPassword === '' && registerForm.password !== '' ? '请确认密码' : ''
+  },
+  email: {
+    isValid: registerForm.email.trim() && isValidEmail(registerForm.email),
+    error: registerForm.email.trim() && !isValidEmail(registerForm.email) ? '请输入有效的邮箱地址' :
+           registerForm.email.trim() === '' && registerForm.email !== '' ? '请输入邮箱地址' : ''
+  },
+  captcha: {
+    isValid: registerForm.captcha.trim().length > 0,
+    error: registerForm.captcha.trim().length === 0 && registerForm.captcha !== '' ? '请输入邮箱验证码' : ''
+  }
+}))
+
+const isRegisterFormValid = computed(() => {
+  return fieldValidation.value.nickname.isValid &&
+         fieldValidation.value.account.isValid &&
+         fieldValidation.value.password.isValid &&
+         fieldValidation.value.confirmPassword.isValid &&
+         fieldValidation.value.email.isValid &&
+         fieldValidation.value.captcha.isValid
+})
+
+// 工具函数
+const isValidEmail = (email: string): boolean => {
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+  return emailRegex.test(email)
+}
 
 const close = () => {
   emit('update:visible', false)
+  // 清除倒计时
+  if (countdownTimer) {
+    clearInterval(countdownTimer)
+    countdownTimer = null
+  }
+  captchaCountdown.value = 0
   // 重置表单
   resetForms()
 }
@@ -154,11 +303,16 @@ const handleOverlayClick = () => {
 const resetForms = () => {
   loginForm.account = ''
   loginForm.password = ''
+  registerForm.nickname = ''
   registerForm.account = ''
   registerForm.password = ''
   registerForm.confirmPassword = ''
+  registerForm.email = ''
+  registerForm.captcha = ''
+  registerForm.phone = ''
   currentView.value = 'login'
   isLoading.value = false
+  isCaptchaLoading.value = false
 }
 
 const switchToRegister = () => {
@@ -167,6 +321,47 @@ const switchToRegister = () => {
 
 const switchToLogin = () => {
   currentView.value = 'login'
+}
+
+// 发送邮箱验证码
+const sendEmailCaptcha = async () => {
+  if (!registerForm.email.trim()) {
+    showMessageBar('请先输入邮箱地址', 'warning')
+    return
+  }
+  
+  if (!isValidEmail(registerForm.email)) {
+    showMessageBar('请输入有效的邮箱地址', 'warning')
+    return
+  }
+  
+  isCaptchaLoading.value = true
+  
+  try {
+    // TODO: 这里需要添加发送验证码的API调用
+    // 暂时模拟发送验证码
+    await new Promise(resolve => setTimeout(resolve, 1000))
+    
+    showMessageBar('验证码已发送到您的邮箱，请查收', 'info')
+    
+    // 开始倒计时
+    captchaCountdown.value = 60
+    countdownTimer = setInterval(() => {
+      captchaCountdown.value--
+      if (captchaCountdown.value <= 0) {
+        if (countdownTimer) {
+          clearInterval(countdownTimer)
+          countdownTimer = null
+        }
+      }
+    }, 1000)
+    
+  } catch (error) {
+    console.error('发送验证码失败:', error)
+    showMessageBar('发送验证码失败，请稍后重试', 'error')
+  } finally {
+    isCaptchaLoading.value = false
+  }
 }
 
 const handleLogin = async () => {
@@ -206,14 +401,19 @@ const handleLogin = async () => {
 const handleRegister = async () => {
   if (isLoading.value) return
   
-  // 表单验证
-  if (!registerForm.account.trim()) {
-    showMessageBar('请输入账号', 'warning')
+  // 详细的表单验证
+  if (!registerForm.nickname.trim()) {
+    showMessageBar('请输入昵称', 'warning')
     return
   }
   
-  if (!registerForm.password) {
-    showMessageBar('请输入密码', 'warning')
+  if (!registerForm.account.trim() || registerForm.account.trim().length < 3) {
+    showMessageBar('用户名至少需要3个字符', 'warning')
+    return
+  }
+  
+  if (!registerForm.password || registerForm.password.length < 6) {
+    showMessageBar('密码至少需要6个字符', 'warning')
     return
   }
   
@@ -222,21 +422,23 @@ const handleRegister = async () => {
     return
   }
   
-  // 验证密码一致性
   if (registerForm.password !== registerForm.confirmPassword) {
     showMessageBar('两次输入的密码不一致', 'warning')
     return
   }
   
-  // 简单的密码强度验证
-  if (registerForm.password.length < 6) {
-    showMessageBar('密码长度不能少于6位', 'warning')
+  if (!registerForm.email.trim()) {
+    showMessageBar('请输入邮箱地址', 'warning')
     return
   }
   
-  // 账号长度验证
-  if (registerForm.account.trim().length < 3) {
-    showMessageBar('账号长度不能少于3位', 'warning')
+  if (!isValidEmail(registerForm.email)) {
+    showMessageBar('请输入有效的邮箱地址', 'warning')
+    return
+  }
+  
+  if (!registerForm.captcha.trim()) {
+    showMessageBar('请输入邮箱验证码', 'warning')
     return
   }
   
@@ -244,8 +446,13 @@ const handleRegister = async () => {
     isLoading.value = true
     
     const response = await userApi.register({
+      nickname: registerForm.nickname.trim(),
       account: registerForm.account.trim(),
-      password: registerForm.password
+      password: registerForm.password,
+      confirmPassword: registerForm.confirmPassword,
+      email: registerForm.email.trim(),
+      captcha: registerForm.captcha.trim(),
+      phone: registerForm.phone.trim() || undefined
     })
     
     if (isSuccess(response)) {
@@ -292,7 +499,7 @@ watch(() => props.visible, (newVisible) => {
   border-radius: var(--radius-lg, 12px);
   box-shadow: 0 20px 40px rgba(0, 0, 0, 0.15);
   width: 100%;
-  max-width: 400px;
+  max-width: 380px;
   margin: 20px;
   animation: slideUp 0.3s ease;
 }
@@ -305,13 +512,13 @@ watch(() => props.visible, (newVisible) => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 24px 24px 0 24px;
+  padding: 16px 20px 0 20px;
   border-bottom: none;
 }
 
 .form-title {
   margin: 0;
-  font-size: 24px;
+  font-size: 20px;
   font-weight: 600;
   color: var(--text-primary, #333);
 }
@@ -337,16 +544,16 @@ watch(() => props.visible, (newVisible) => {
 }
 
 .form-content {
-  padding: 24px;
+  padding: 12px 20px;
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 8px;
 }
 
 .form-group {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 2px;
 }
 
 .form-group label {
@@ -356,7 +563,7 @@ watch(() => props.visible, (newVisible) => {
 }
 
 .form-group input {
-  padding: 12px 16px;
+  padding: 10px 12px;
   border: 2px solid var(--border-color, #e2e8f0);
   border-radius: var(--radius-md, 8px);
   font-size: 14px;
@@ -377,12 +584,12 @@ watch(() => props.visible, (newVisible) => {
 }
 
 .submit-btn {
-  padding: 12px;
+  padding: 10px;
   background: linear-gradient(135deg, var(--header-bg, #2c7a7b), #319795);
   color: white;
   border: none;
   border-radius: var(--radius-md, 8px);
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 500;
   cursor: pointer;
   transition: all 0.2s ease;
@@ -390,7 +597,7 @@ watch(() => props.visible, (newVisible) => {
   align-items: center;
   justify-content: center;
   gap: 8px;
-  min-height: 48px;
+  min-height: 42px;
 }
 
 .submit-btn:hover:not(:disabled) {
@@ -415,7 +622,7 @@ watch(() => props.visible, (newVisible) => {
 }
 
 .form-footer {
-  padding: 16px 24px 24px;
+  padding: 8px 20px 16px;
   text-align: center;
   color: var(--text-secondary, #666);
   font-size: 14px;
@@ -465,20 +672,185 @@ watch(() => props.visible, (newVisible) => {
   }
 }
 
+/* 验证码相关样式 */
+.email-captcha-group .captcha-input-group {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.email-captcha-group input {
+  flex: 1;
+  margin-bottom: 0;
+}
+
+.captcha-btn {
+  background: var(--primary-color, #2c7a7b);
+  color: white;
+  border: none;
+  border-radius: var(--radius-md, 8px);
+  padding: 0 12px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+  min-width: 80px;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.captcha-btn:hover:not(:disabled) {
+  background: var(--primary-hover, #319795);
+  transform: translateY(-1px);
+}
+
+.captcha-btn:disabled {
+  background: var(--bg-disabled, #e2e8f0);
+  color: var(--text-disabled, #a0a0a0);
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* 字段验证样式 */
+.form-group input.error {
+  border-color: #ef4444 !important;
+  box-shadow: 0 0 0 1px rgba(239, 68, 68, 0.1) !important;
+}
+
+.form-group input.error:focus {
+  border-color: #ef4444 !important;
+  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.1) !important;
+}
+
+.field-error {
+  color: #ef4444;
+  font-size: 11px;
+  margin-top: 2px;
+  display: flex;
+  align-items: center;
+  animation: slideInError 0.2s ease;
+  min-height: 14px; /* 固定最小高度 */
+  line-height: 1.2;
+}
+
+@keyframes slideInError {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 /* 响应式适配 */
+@media (max-width: 768px) {
+  .login-container {
+    max-width: 500px;
+    margin: 15px;
+    max-height: 85vh;
+  }
+  
+  .form-title {
+    font-size: 22px;
+  }
+  
+  .captcha-btn {
+    min-width: 90px;
+    font-size: 13px;
+    padding: 0 12px;
+  }
+  
+  .captcha-input-group {
+    gap: 6px;
+  }
+}
+
 @media (max-width: 480px) {
   .login-container {
     margin: 10px;
     max-width: none;
+    border-radius: var(--radius-md, 8px);
   }
   
   .form-header, .form-content, .form-footer {
-    padding-left: 20px;
-    padding-right: 20px;
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+  
+  .form-header {
+    padding-top: 20px;
   }
   
   .form-title {
     font-size: 20px;
+  }
+  
+  .form-group input {
+    font-size: 16px; /* 防止iOS缩放 */
+    padding: 10px 12px;
+  }
+  
+  .captcha-btn {
+    min-width: 70px;
+    font-size: 11px;
+    padding: 0 8px;
+    height: 32px;
+  }
+  
+  .captcha-input-group {
+    gap: 4px;
+  }
+  
+  .field-error {
+    font-size: 10px;
+  }
+}
+
+/* 只在极低屏幕高度时添加滚动 */
+@media (max-height: 500px) {
+  .login-container {
+    max-height: 95vh;
+    overflow-y: auto;
+  }
+}
+
+@media (max-width: 360px) {
+  .login-container {
+    margin: 5px;
+    border-radius: var(--radius-sm, 6px);
+    max-height: 95vh;
+    overflow-y: auto;
+  }
+  
+  .form-header, .form-content, .form-footer {
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+  
+  .form-title {
+    font-size: 18px;
+  }
+  
+  .form-group input {
+    padding: 10px 12px;
+    font-size: 16px;
+  }
+  
+  .captcha-input-group {
+    flex-direction: column;
+    gap: 8px;
+  }
+  
+  .captcha-btn {
+    width: 100%;
+    min-width: auto;
+    height: 36px;
   }
 }
 

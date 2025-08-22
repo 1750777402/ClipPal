@@ -31,13 +31,8 @@
           </div>
           
           <div class="detail-item">
-            <label>创建时间</label>
-            <span>{{ formatDate(userInfo?.created_at) || '未知' }}</span>
-          </div>
-          
-          <div class="detail-item">
-            <label>最后登录</label>
-            <span>{{ formatDate(userInfo?.last_login_time) || '未知' }}</span>
+            <label>手机号</label>
+            <span>{{ userInfo?.phone || '未设置' }}</span>
           </div>
         </div>
         
@@ -67,7 +62,7 @@ interface Emits {
   (e: 'edit'): void
 }
 
-const props = defineProps<Props>()
+defineProps<Props>()
 const emit = defineEmits<Emits>()
 
 const close = () => {
@@ -83,23 +78,22 @@ const handleEdit = () => {
   close()
 }
 
-// 格式化日期
-const formatDate = (dateString: string | undefined): string => {
-  if (!dateString) return '未知'
-  
-  try {
-    const date = new Date(dateString)
-    return date.toLocaleString('zh-CN', {
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit'
-    })
-  } catch (error) {
-    return '格式错误'
-  }
-}
+// 格式化日期 (暂未使用，预留功能)
+// const formatDate = (dateString: string | undefined): string => {
+//   if (!dateString) return '未知'
+//   try {
+//     const date = new Date(dateString)
+//     return date.toLocaleString('zh-CN', {
+//       year: 'numeric',
+//       month: '2-digit',
+//       day: '2-digit',
+//       hour: '2-digit',
+//       minute: '2-digit'
+//     })
+//   } catch (error) {
+//     return '格式错误'
+//   }
+// }
 </script>
 
 <style scoped>
@@ -126,6 +120,8 @@ const formatDate = (dateString: string | undefined): string => {
   max-width: 480px;
   margin: 20px;
   animation: slideUp 0.3s ease;
+  max-height: 90vh;
+  overflow-y: auto;
 }
 
 .dialog-header {

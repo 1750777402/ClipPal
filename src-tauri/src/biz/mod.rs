@@ -11,3 +11,4 @@ pub mod file_sync_timer;
 pub mod query_clip_record;
 pub mod sync_time;
 pub mod system_setting;
+pub mod user_auth;

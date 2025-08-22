@@ -15,7 +15,10 @@ const STORE_FILE: &str = "clipPal_store.dat";
 
 #[derive(Serialize, Deserialize, Default, Clone)]
 pub struct SecureData {
-    pub jwt_token: Option<String>,
+    pub access_token: Option<String>,
+    pub refresh_token: Option<String>,
+    pub user_info: Option<String>,
+    pub token_expires: Option<i32>,
 }
 
 pub struct SecureStore {
@@ -90,14 +93,75 @@ impl SecureStore {
         if !self.loaded {
             self.load()?;
         }
-        Ok(self.data.jwt_token.clone())
+        Ok(self.data.access_token.clone())
     }
     /// 设置jwt_token并自动保存
     pub fn set_jwt_token(&mut self, token: String) -> AppResult<()> {
         if !self.loaded {
             self.load()?;
         }
-        self.data.jwt_token = Some(token);
+        self.data.access_token = Some(token);
+        self.save()
+    }
+    /// 获取refresh_token
+    pub fn get_refresh_token(&mut self) -> AppResult<Option<String>> {
+        if !self.loaded {
+            self.load()?;
+        }
+        Ok(self.data.refresh_token.clone())
+    }
+    /// 设置refresh_token并自动保存
+    pub fn set_refresh_token(&mut self, token: String) -> AppResult<()> {
+        if !self.loaded {
+            self.load()?;
+        }
+        self.data.refresh_token = Some(token);
+        self.save()
+    }
+
+    /// 获取用户信息
+    pub fn get_user_info(&mut self) -> AppResult<Option<String>> {
+        if !self.loaded {
+            self.load()?;
+        }
+        Ok(self.data.user_info.clone())
+    }
+
+    /// 设置用户信息并自动保存
+    pub fn set_user_info(&mut self, user_info: String) -> AppResult<()> {
+        if !self.loaded {
+            self.load()?;
+        }
+        self.data.user_info = Some(user_info);
+        self.save()
+    }
+
+    /// 获取令牌过期时间
+    pub fn get_token_expires(&mut self) -> AppResult<Option<i32>> {
+        if !self.loaded {
+            self.load()?;
+        }
+        Ok(self.data.token_expires.clone())
+    }
+
+    /// 设置令牌过期时间并自动保存
+    pub fn set_token_expires(&mut self, expires: i32) -> AppResult<()> {
+        if !self.loaded {
+            self.load()?;
+        }
+        self.data.token_expires = Some(expires);
+        self.save()
+    }
+
+    /// 清除所有认证数据
+    pub fn clear_auth_data(&mut self) -> AppResult<()> {
+        if !self.loaded {
+            self.load()?;
+        }
+        self.data.access_token = None;
+        self.data.refresh_token = None;
+        self.data.user_info = None;
+        self.data.token_expires = None;
         self.save()
     }
 }

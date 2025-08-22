@@ -1,0 +1,330 @@
+use serde::{Deserialize, Serialize};
+
+use crate::{
+    api::user_auth_api::{
+        AuthResponse, LoginRequestParam, RegisterRequestParam, UserInfo as ApiUserInfo, user_login,
+        user_register as api_user_register,
+    },
+    utils::secure_store::SECURE_STORE,
+};
+
+// 前端需要的用户信息结构
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UserInfo {
+    pub id: u64,
+    pub account: String,
+    pub nickname: Option<String>,
+    pub email: Option<String>,
+    pub phone: Option<String>,
+}
+
+// 前端登录响应结构
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LoginResponse {
+    pub user_info: UserInfo,
+    pub token: String,
+    pub expires_in: i32,
+}
+
+// 前端登录请求结构（适配API参数）
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FrontendLoginRequest {
+    pub account: String,
+    pub password: String,
+}
+
+// 前端注册请求结构（适配API参数）
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FrontendRegisterRequest {
+    pub nickname: String,
+    pub account: String,
+    pub password: String,
+    pub confirm_password: String,
+    pub email: String,
+    pub captcha: String,
+    pub phone: Option<String>,
+}
+
+impl From<FrontendLoginRequest> for LoginRequestParam {
+    fn from(request: FrontendLoginRequest) -> Self {
+        LoginRequestParam {
+            username: request.account,
+            password: request.password,
+        }
+    }
+}
+
+impl From<FrontendRegisterRequest> for RegisterRequestParam {
+    fn from(request: FrontendRegisterRequest) -> Self {
+        RegisterRequestParam {
+            username: request.account,
+            password: request.password,
+            confirm_password: request.confirm_password,
+            nick_name: request.nickname,
+            email: request.email,
+            captcha: request.captcha,
+            phone: request.phone,
+        }
+    }
+}
+
+impl From<ApiUserInfo> for UserInfo {
+    fn from(api_user: ApiUserInfo) -> Self {
+        UserInfo {
+            id: api_user.id,
+            account: api_user.username,
+            nickname: api_user.nick_name,
+            email: api_user.email,
+            phone: api_user.phone,
+        }
+    }
+}
+
+#[tauri::command]
+pub async fn login(param: FrontendLoginRequest) -> Result<LoginResponse, String> {
+    log::info!("用户登录请求: {}", param.account);
+
+    // 转换为API请求参数
+    let api_param: LoginRequestParam = param.into();
+
+    let login_res = user_login(&api_param).await;
+    match login_res {
+        Ok(response) => {
+            if let Some(auth_response) = response {
+                log::info!("用户登录成功: {}", auth_response.user_info.username);
+
+                // 存储token到加密文件
+                if let Err(e) = store_auth_data(&auth_response).await {
+                    log::error!("存储认证数据失败: {}", e);
+                    return Err(format!("存储认证数据失败: {}", e));
+                }
+
+                // 构造前端响应
+                let login_response = LoginResponse {
+                    user_info: auth_response.user_info.into(),
+                    token: auth_response.access_token,
+                    expires_in: auth_response.expires_in,
+                };
+
+                log::info!("用户登录完成: {}", login_response.user_info.account);
+                Ok(login_response)
+            } else {
+                log::warn!("登录响应为空");
+                Err("登录响应为空".to_string())
+            }
+        }
+        Err(e) => {
+            log::error!("用户登录失败: {}", e);
+            Err(format!("登录失败: {}", e))
+        }
+    }
+}
+
+#[tauri::command]
+pub async fn user_register(param: FrontendRegisterRequest) -> Result<UserInfo, String> {
+    log::info!("用户注册请求: {}", param.account);
+
+    // 转换为API请求参数
+    let api_param: RegisterRequestParam = param.into();
+
+    let register_res = api_user_register(&api_param).await;
+    match register_res {
+        Ok(response) => {
+            if let Some(user_info) = response {
+                log::info!("用户注册成功: {}", user_info.username);
+
+                // 转换为前端用户信息结构
+                let frontend_user_info: UserInfo = user_info.into();
+
+                log::info!("用户注册完成: {}", frontend_user_info.account);
+                Ok(frontend_user_info)
+            } else {
+                log::warn!("注册响应为空");
+                Err("注册响应为空".to_string())
+            }
+        }
+        Err(e) => {
+            log::error!("用户注册失败: {}", e);
+            Err(format!("注册失败: {}", e))
+        }
+    }
+}
+
+/// 存储认证数据到加密文件
+async fn store_auth_data(auth_response: &AuthResponse) -> Result<(), String> {
+    // 获取写锁并存储所有认证数据
+    let mut store = SECURE_STORE
+        .write()
+        .map_err(|e| format!("获取存储写锁失败: {}", e))?;
+
+    // 存储访问令牌
+    store
+        .set_jwt_token(auth_response.access_token.clone())
+        .map_err(|e| format!("存储访问令牌失败: {}", e))?;
+
+    // 存储刷新令牌
+    store
+        .set_refresh_token(auth_response.refresh_token.clone())
+        .map_err(|e| format!("存储刷新令牌失败: {}", e))?;
+
+    // 存储用户信息
+    let user_info_json = serde_json::to_string(&auth_response.user_info)
+        .map_err(|e| format!("序列化用户信息失败: {}", e))?;
+    store
+        .set_user_info(user_info_json)
+        .map_err(|e| format!("存储用户信息失败: {}", e))?;
+
+    // 存储过期时间
+    store
+        .set_token_expires(auth_response.expires_in.clone())
+        .map_err(|e| format!("存储过期时间失败: {}", e))?;
+
+    log::info!("认证数据已安全存储");
+    Ok(())
+}
+
+/// 获取存储的访问令牌
+pub fn get_stored_access_token() -> Option<String> {
+    match SECURE_STORE.write() {
+        Ok(mut store) => match store.get_jwt_token() {
+            Ok(token) => token,
+            Err(e) => {
+                log::debug!("获取存储的访问令牌失败: {}", e);
+                None
+            }
+        },
+        Err(e) => {
+            log::debug!("获取存储写锁失败: {}", e);
+            None
+        }
+    }
+}
+
+/// 获取存储的刷新令牌
+pub fn get_stored_refresh_token() -> Option<String> {
+    match SECURE_STORE.write() {
+        Ok(mut store) => match store.get_refresh_token() {
+            Ok(token) => token,
+            Err(e) => {
+                log::debug!("获取存储的刷新令牌失败: {}", e);
+                None
+            }
+        },
+        Err(e) => {
+            log::debug!("获取存储写锁失败: {}", e);
+            None
+        }
+    }
+}
+
+/// 获取存储的用户信息
+pub fn get_stored_user_info() -> Option<UserInfo> {
+    match SECURE_STORE.write() {
+        Ok(mut store) => match store.get_user_info() {
+            Ok(Some(user_info_json)) => {
+                match serde_json::from_str::<ApiUserInfo>(&user_info_json) {
+                    Ok(api_user_info) => Some(api_user_info.into()),
+                    Err(e) => {
+                        log::debug!("反序列化用户信息失败: {}", e);
+                        None
+                    }
+                }
+            }
+            Ok(None) => None,
+            Err(e) => {
+                log::debug!("获取存储的用户信息失败: {}", e);
+                None
+            }
+        },
+        Err(e) => {
+            log::debug!("获取存储写锁失败: {}", e);
+            None
+        }
+    }
+}
+
+/// 清除所有存储的认证数据
+pub fn clear_stored_auth_data() -> Result<(), String> {
+    let mut store = SECURE_STORE
+        .write()
+        .map_err(|e| format!("获取存储写锁失败: {}", e))?;
+
+    store
+        .clear_auth_data()
+        .map_err(|e| format!("清除认证数据失败: {}", e))?;
+
+    log::info!("认证数据已清除");
+    Ok(())
+}
+
+/// 用户登出
+#[tauri::command]
+pub async fn logout() -> Result<String, String> {
+    log::info!("用户登出请求");
+
+    // 清除存储的认证数据
+    if let Err(e) = clear_stored_auth_data() {
+        log::error!("清除认证数据失败: {}", e);
+        return Err(e);
+    }
+
+    log::info!("用户登出成功");
+    Ok("登出成功".to_string())
+}
+
+/// 验证当前Token是否有效
+#[tauri::command]
+pub async fn validate_token() -> Result<bool, String> {
+    match get_stored_access_token() {
+        Some(_token) => {
+            log::debug!("找到存储的token，验证有效性");
+            // 这里可以添加token有效性验证逻辑
+            // 比如检查过期时间或者向服务器验证
+            Ok(true)
+        }
+        None => {
+            log::debug!("未找到存储的token");
+            Ok(false)
+        }
+    }
+}
+
+/// 获取当前用户信息
+#[tauri::command]
+pub async fn get_user_info() -> Result<UserInfo, String> {
+    match get_stored_user_info() {
+        Some(user_info) => {
+            log::debug!("获取用户信息成功: {}", user_info.account);
+            Ok(user_info)
+        }
+        None => {
+            log::debug!("未找到用户信息");
+            Err("用户未登录".to_string())
+        }
+    }
+}
+
+/// 检查是否有有效的登录状态（应用启动时调用）
+#[tauri::command]
+pub async fn check_login_status() -> Result<Option<UserInfo>, String> {
+    match get_stored_access_token() {
+        Some(_token) => {
+            // 有token，尝试获取用户信息
+            match get_stored_user_info() {
+                Some(user_info) => {
+                    log::info!("应用启动时检测到用户登录状态: {}", user_info.account);
+                    Ok(Some(user_info))
+                }
+                None => {
+                    log::warn!("有token但没有用户信息，清除认证数据");
+                    let _ = clear_stored_auth_data();
+                    Ok(None)
+                }
+            }
+        }
+        None => {
+            log::debug!("应用启动时未检测到登录状态");
+            Ok(None)
+        }
+    }
+}

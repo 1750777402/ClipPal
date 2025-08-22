@@ -429,7 +429,8 @@ const handleUserButtonClick = () => {
 
 // 登录成功处理
 const handleLoginSuccess = (userData: any) => {
-  userStore.setLoginState(userData.userInfo, userData.token);
+  // 后端已经存储了token，只需要更新前端显示状态
+  userStore.setLoginState(userData.user_info);
   // 登录成功后刷新数据
   smartRefresh();
 };

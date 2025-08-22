@@ -165,40 +165,70 @@ export const userApi = {
   // 用户登录
   async login(params: { account: string; password: string }) {
     return apiInvoke<{ 
-      userInfo: any; 
+      user_info: any; 
       token: string; 
-      expiresIn?: number; 
-    }>('user_login', { param: params });
+      expires_in: string; 
+    }>('login', { param: params });
   },
 
   // 用户注册
-  async register(params: { account: string; password: string }) {
-    return apiInvoke<{ 
-      userInfo: any; 
-      message?: string; 
-    }>('user_register', { param: params });
+  async register(params: { 
+    nickname: string; 
+    account: string; 
+    password: string; 
+    confirmPassword: string; 
+    email: string; 
+    captcha: string; 
+    phone?: string; 
+  }) {
+    // 转换参数名称匹配后端
+    const backendParams = {
+      nickname: params.nickname,
+      account: params.account,
+      password: params.password,
+      confirm_password: params.confirmPassword, // 转换为下划线命名
+      email: params.email,
+      captcha: params.captcha,
+      phone: params.phone
+    };
+    return apiInvoke<any>('user_register', { param: backendParams });
   },
 
   // 用户登出
   async logout() {
-    return apiInvoke<{ message?: string }>('user_logout');
+    return apiInvoke<string>('logout');
   },
 
   // 验证Token
   async validateToken() {
-    return apiInvoke<{ 
-      valid: boolean; 
-      userInfo?: any; 
-      expiresIn?: number; 
-    }>('validate_token');
+    return apiInvoke<boolean>('validate_token');
   },
 
   // 获取用户信息
   async getUserInfo() {
-    return apiInvoke<any>('get_user_info');
+    return apiInvoke<{
+      id: number;
+      account: string;
+      nickname: string;
+      email: string;
+      phone: string;
+      role: string;
+    }>('get_user_info');
   },
 
-  // 更新用户信息
+  // 检查登录状态（应用启动时调用）
+  async checkLoginStatus() {
+    return apiInvoke<{
+      id: number;
+      account: string;
+      nickname: string;
+      email: string;
+      phone: string;
+      role: string;
+    } | null>('check_login_status');
+  },
+
+  // 更新用户信息（暂时保留，后续实现）
   async updateUserInfo(params: { 
     nickname?: string; 
     email?: string; 

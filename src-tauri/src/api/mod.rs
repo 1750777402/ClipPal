@@ -5,6 +5,7 @@ use std::collections::HashMap;
 use std::path::Path;
 
 pub mod cloud_sync_api;
+pub mod user_auth_api;
 
 /// 获取 API 域名
 fn get_api_domain() -> Result<String, HttpError> {
@@ -18,7 +19,16 @@ fn get_jwt_token() -> String {
     SECURE_STORE
         .read()
         .ok()
-        .and_then(|store| store.data().jwt_token.clone())
+        .and_then(|store| store.data().access_token.clone())
+        .unwrap_or_default()
+}
+
+/// 安全获取refresh token，获取不到时返回空字符串
+fn get_refresh_token() -> String {
+    SECURE_STORE
+        .read()
+        .ok()
+        .and_then(|store| store.data().refresh_token.clone())
         .unwrap_or_default()
 }
 
@@ -39,7 +49,7 @@ where
     let api_domain = get_api_domain()?;
     let url = format!("{}/{}", api_domain, path.trim_start_matches('/'));
     // let token = get_jwt_token();
-    let token = "eyJhbGciOiJIUzUxMiJ9.eyJyb2xlIjoiVVNFUiIsInR5cGUiOiJhY2Nlc3MiLCJ1c2VySWQiOjEsInN1YiI6ImFkbWluIiwiaXNzIjoiY2xpcC1wYWwtY2xvdWQiLCJpYXQiOjE3NTU3NDI5MzAsImV4cCI6MTc1NTgyOTMzMH0.raNwyl6GiLSJkxJT9vHN077fGEDDVG7shGYBs6UPPt0yaLEK_xh6hSrb1Q9f8gHG6Bb1h5zAg-RH-bRX4SuNKQ";
+    let token = "eyJhbGciOiJIUzUxMiJ9.eyJyb2xlIjoiVVNFUiIsInR5cGUiOiJhY2Nlc3MiLCJ1c2VySWQiOjEsInN1YiI6ImFkbWluIiwiaXNzIjoiY2xpcC1wYWwtY2xvdWQiLCJpYXQiOjE3NTU4MjYwMjYsImV4cCI6MTc1NTkxMjQyNn0.TeMLk9sdmyC8M7dQlVV84RUeWLcqJ3bRprl7HONaczqoHYfn3MJGRPV83GRlF28i_qiDmou1ryxgcW2TH_4KlQ";
     let headers = get_common_headers(&token);
     let client = HttpClient::new();
     let resp: ApiResponse<T> = client
@@ -97,7 +107,7 @@ where
     let api_domain = get_api_domain()?;
     let url = format!("{}/{}", api_domain, path.trim_start_matches('/'));
     // let token = get_jwt_token();
-    let token = "eyJhbGciOiJIUzUxMiJ9.eyJyb2xlIjoiVVNFUiIsInR5cGUiOiJhY2Nlc3MiLCJ1c2VySWQiOjEsInN1YiI6ImFkbWluIiwiaXNzIjoiY2xpcC1wYWwtY2xvdWQiLCJpYXQiOjE3NTU3NDI5MzAsImV4cCI6MTc1NTgyOTMzMH0.raNwyl6GiLSJkxJT9vHN077fGEDDVG7shGYBs6UPPt0yaLEK_xh6hSrb1Q9f8gHG6Bb1h5zAg-RH-bRX4SuNKQ";
+    let token = "eyJhbGciOiJIUzUxMiJ9.eyJyb2xlIjoiVVNFUiIsInR5cGUiOiJhY2Nlc3MiLCJ1c2VySWQiOjEsInN1YiI6ImFkbWluIiwiaXNzIjoiY2xpcC1wYWwtY2xvdWQiLCJpYXQiOjE3NTU4MjYwMjYsImV4cCI6MTc1NTkxMjQyNn0.TeMLk9sdmyC8M7dQlVV84RUeWLcqJ3bRprl7HONaczqoHYfn3MJGRPV83GRlF28i_qiDmou1ryxgcW2TH_4KlQ";
 
     // 为文件上传准备请求头（不包含Content-Type，让reqwest自动处理multipart）
     let mut headers = HashMap::new();
