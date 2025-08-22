@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::{api::api_post, utils::http_client::HttpError};
+use crate::{api::{api_post_public, api_post}, utils::http_client::HttpError};
 
 /// -------------------------------------用户登录api---------------------------------------------------------
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -30,9 +30,9 @@ pub struct UserInfo {
     pub phone: Option<String>,
 }
 
-/// 用户登录接口
+/// 用户登录接口（公共接口，不需要认证）
 pub async fn user_login(request: &LoginRequestParam) -> Result<Option<AuthResponse>, HttpError> {
-    api_post("cliPal-sync/auth/login", Some(request)).await
+    api_post_public("cliPal-sync/auth/login", Some(request)).await
 }
 
 /// -----------------------------------------------注册api--------------------------------------------------------------------
@@ -48,7 +48,28 @@ pub struct RegisterRequestParam {
     pub phone: Option<String>,
 }
 
-/// 用户注册接口
+/// 用户注册接口（公共接口，不需要认证）
 pub async fn user_register(request: &RegisterRequestParam) -> Result<Option<UserInfo>, HttpError> {
-    api_post("cliPal-sync/auth/register", Some(request)).await
+    api_post_public("cliPal-sync/auth/register", Some(request)).await
+}
+
+/// ---------------------------------------------刷新身份令牌-------------------------------------------------------------------
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RefreshTokenRequestParam {
+    pub refresh_token: String,
+}
+
+/// 刷新身份令牌（公共接口，使用refresh token，不需要access token）
+pub async fn refresh_token(
+    request: &RefreshTokenRequestParam,
+) -> Result<Option<AuthResponse>, HttpError> {
+    api_post_public("cliPal-sync/auth/refresh", Some(request)).await
+}
+
+/// ---------------------------------------------退出登录-------------------------------------------------------------------
+
+/// 用户退出登录（需要认证）
+pub async fn user_logout() -> Result<Option<String>, HttpError> {
+    api_post("cliPal-sync/auth/logout", Some(&String::new())).await
 }

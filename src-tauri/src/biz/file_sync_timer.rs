@@ -11,6 +11,7 @@ use crate::CONTEXT;
 use crate::api::cloud_sync_api::{FileCloudSyncParam, upload_file_clip_record};
 use crate::biz::clip_record::{ClipRecord, SKIP_SYNC, SYNCHRONIZED, SYNCHRONIZING};
 use crate::biz::system_setting::check_cloud_sync_enabled;
+use crate::utils::token_manager::has_valid_auth;
 use crate::errors::{AppError, AppResult};
 use crate::utils::config::get_max_file_size_bytes;
 use crate::utils::file_dir::get_resources_dir;
@@ -24,6 +25,13 @@ pub fn start_file_sync_timer() {
             // 检查云同步是否开启
             if !check_cloud_sync_enabled().await {
                 log::debug!("云同步未开启，跳过文件同步任务");
+                sleep(Duration::from_secs(5)).await;
+                continue;
+            }
+
+            // 检查用户登录状态
+            if !has_valid_auth() {
+                log::debug!("用户未登录或认证已过期，跳过文件同步任务");
                 sleep(Duration::from_secs(5)).await;
                 continue;
             }

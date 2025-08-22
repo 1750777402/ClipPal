@@ -8,12 +8,14 @@
 </template>
 
 <script setup lang="ts">
-import { ref, provide, computed, onMounted } from 'vue';
+import { ref, provide, computed, onMounted, onUnmounted } from 'vue';
+import { listen } from '@tauri-apps/api/event';
 import MessageBar from './components/MessageBar.vue';
 import ScrollContainer from './components/ScrollContainer.vue';
 import TutorialGuide from './components/TutorialGuide.vue';
 import { useBreakpoint, generateResponsiveClasses } from './utils/responsive';
 import { setErrorHandler, ErrorSeverity, getFriendlyErrorMessage } from './utils/api';
+import { useUserStore } from './utils/userStore';
 
 const messageBar = ref({ visible: false, message: '', type: 'info' as 'info' | 'warning' | 'error' });
 let closeTimer: ReturnType<typeof setTimeout> | null = null;
@@ -53,8 +55,13 @@ function onMessageBarLeave() {
 
 provide('showMessageBar', showMessageBar);
 
-// 设置全局错误处理器
-onMounted(() => {
+const userStore = useUserStore();
+let authExpiredListener: (() => void) | null = null;
+let authClearedListener: (() => void) | null = null;
+let cloudSyncDisabledListener: (() => void) | null = null;
+
+// 设置全局错误处理器和事件监听
+onMounted(async () => {
   setErrorHandler((error: string, severity: ErrorSeverity, command: string) => {
     // 根据错误严重程度决定是否显示
     if (severity === ErrorSeverity.SILENT) return;
@@ -70,6 +77,40 @@ onMounted(() => {
     // 显示消息
     showMessageBar(friendlyMessage, messageType);
   });
+
+  // 监听认证过期事件
+  authExpiredListener = await listen('auth-expired', () => {
+    console.log('收到认证过期事件');
+    userStore.clearUser();
+    showMessageBar('登录已过期，请重新登录', 'warning');
+    // TODO: 关闭云同步功能
+  });
+
+  // 监听认证清除事件
+  authClearedListener = await listen('auth-cleared', () => {
+    console.log('收到认证清除事件');
+    userStore.clearUser();
+  });
+
+  // 监听云同步禁用事件
+  cloudSyncDisabledListener = await listen('cloud-sync-disabled', () => {
+    console.log('收到云同步禁用事件');
+    showMessageBar('云同步功能已关闭', 'info');
+    // TODO: 更新前端云同步状态
+  });
+});
+
+// 清理事件监听器
+onUnmounted(() => {
+  if (authExpiredListener) {
+    authExpiredListener();
+  }
+  if (authClearedListener) {
+    authClearedListener();
+  }
+  if (cloudSyncDisabledListener) {
+    cloudSyncDisabledListener();
+  }
 });
 </script>
 

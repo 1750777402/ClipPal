@@ -14,6 +14,7 @@ use crate::biz::clip_record_clean::try_clean_clip_record;
 use crate::biz::content_search::add_content_to_index;
 use crate::biz::sync_time::SyncTime;
 use crate::biz::system_setting::{SYNC_INTERVAL_SECONDS, check_cloud_sync_enabled};
+use crate::utils::token_manager::has_valid_auth;
 use crate::errors::{AppError, AppResult};
 use crate::utils::config::get_max_file_size_bytes;
 use crate::utils::device_info::GLOBAL_DEVICE_ID;
@@ -55,6 +56,13 @@ impl CloudSyncTimer {
             // 检查云同步是否开启
             if !check_cloud_sync_enabled().await {
                 log::debug!("云同步未开启，跳过定时任务");
+                sleep(Duration::from_secs(cloud_sync_interval as u64)).await;
+                continue;
+            }
+
+            // 检查用户登录状态
+            if !has_valid_auth() {
+                log::debug!("用户未登录或认证已过期，跳过云同步任务");
                 sleep(Duration::from_secs(cloud_sync_interval as u64)).await;
                 continue;
             }

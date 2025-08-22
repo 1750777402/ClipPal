@@ -378,3 +378,33 @@ pub async fn check_cloud_sync_enabled() -> bool {
     }
     false
 }
+
+/// 禁用云同步功能（用户退出登录或认证失效时调用）
+pub async fn disable_cloud_sync() -> Result<(), String> {
+    log::info!("禁用云同步功能");
+    
+    let settings_lock = CONTEXT.get::<Arc<RwLock<Settings>>>();
+    
+    // 获取当前设置
+    let mut current_settings = match safe_read_lock(&settings_lock) {
+        Ok(settings) => settings.clone(),
+        Err(e) => {
+            return Err(format!("获取设置失败: {}", e));
+        }
+    };
+    
+    // 如果已经是关闭状态，无需修改
+    if current_settings.cloud_sync == 0 {
+        log::debug!("云同步已经处于关闭状态");
+        return Ok(());
+    }
+    
+    // 设置云同步为关闭状态
+    current_settings.cloud_sync = 0;
+    
+    // 保存设置
+    save_settings(current_settings).await.map_err(|e| format!("保存设置失败: {}", e))?;
+    
+    log::info!("云同步功能已被禁用");
+    Ok(())
+}

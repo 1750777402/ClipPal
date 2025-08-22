@@ -1,6 +1,6 @@
 use crate::utils::config::get_cloud_sync_domain;
 use crate::utils::http_client::{ApiResponse, HttpClient, HttpError};
-use crate::utils::secure_store::SECURE_STORE;
+use crate::utils::token_manager::{get_valid_access_token, refresh_access_token};
 use std::collections::HashMap;
 use std::path::Path;
 
@@ -14,22 +14,67 @@ fn get_api_domain() -> Result<String, HttpError> {
         .map_err(|e| HttpError::RequestFailed(format!("获取云同步请求域名失败: {}", e)))
 }
 
-/// 安全获取JWT token，获取不到时返回空字符串
-fn get_jwt_token() -> String {
-    SECURE_STORE
-        .read()
-        .ok()
-        .and_then(|store| store.data().access_token.clone())
-        .unwrap_or_default()
-}
+/// 执行API请求的内部实现
+async fn execute_api_request<P, T>(
+    method: &str,
+    path: &str,
+    payload: Option<&P>,
+    retry_on_401: bool,
+) -> Result<Option<T>, HttpError>
+where
+    P: serde::Serialize + Sized,
+    T: for<'de> serde::Deserialize<'de>,
+{
+    let api_domain = get_api_domain()?;
+    let url = format!("{}/{}", api_domain, path.trim_start_matches('/'));
+    
+    // 获取访问令牌
+    let token = match get_valid_access_token().await {
+        Ok(Some(token)) => token,
+        Ok(None) => {
+            return Err(HttpError::RequestFailed("用户未登录或令牌已过期".to_string()));
+        }
+        Err(e) => {
+            return Err(HttpError::RequestFailed(format!("获取访问令牌失败: {}", e)));
+        }
+    };
 
-/// 安全获取refresh token，获取不到时返回空字符串
-fn get_refresh_token() -> String {
-    SECURE_STORE
-        .read()
-        .ok()
-        .and_then(|store| store.data().refresh_token.clone())
-        .unwrap_or_default()
+    let headers = get_common_headers(&token);
+    let client = HttpClient::new();
+    
+    let resp: ApiResponse<T> = match method {
+        "GET" => {
+            let headers = get_common_headers_without_content_type(&token);
+            client.request_with_headers("GET", &url, None::<&()>, Some(headers)).await?
+        }
+        "POST" => {
+            client.request_with_headers("POST", &url, payload, Some(headers)).await?
+        }
+        _ => {
+            return Err(HttpError::RequestFailed("不支持的HTTP方法".to_string()));
+        }
+    };
+
+    match resp.code {
+        200 => Ok(resp.data),
+        401 if retry_on_401 => {
+            // 令牌可能过期，尝试刷新
+            log::info!("API返回401，尝试刷新令牌后重试");
+            match refresh_access_token().await {
+                Ok(Some(_new_token)) => {
+                    // 使用新令牌重试请求（不再重试401）
+                    Box::pin(execute_api_request(method, path, payload, false)).await
+                }
+                Ok(None) | Err(_) => {
+                    Err(HttpError::RequestFailed("用户认证已过期，需要重新登录".to_string()))
+                }
+            }
+        }
+        _ => Err(HttpError::RequestFailed(format!(
+            "API请求失败: {}",
+            resp.message
+        ))),
+    }
 }
 
 /// 获取通用请求头
@@ -40,17 +85,24 @@ fn get_common_headers(token: &str) -> HashMap<String, String> {
     headers
 }
 
-/// 通用POST API请求方法，返回 ApiResponse<T> 的 data 字段
+/// 通用POST API请求方法（需要认证）
 pub async fn api_post<P, T>(path: &str, payload: Option<&P>) -> Result<Option<T>, HttpError>
+where
+    P: serde::Serialize + Sized,
+    T: for<'de> serde::Deserialize<'de>,
+{
+    execute_api_request("POST", path, payload, true).await
+}
+
+/// 公共API POST请求方法（不需要认证，如登录、注册等）
+pub async fn api_post_public<P, T>(path: &str, payload: Option<&P>) -> Result<Option<T>, HttpError>
 where
     P: serde::Serialize + Sized,
     T: for<'de> serde::Deserialize<'de>,
 {
     let api_domain = get_api_domain()?;
     let url = format!("{}/{}", api_domain, path.trim_start_matches('/'));
-    // let token = get_jwt_token();
-    let token = "eyJhbGciOiJIUzUxMiJ9.eyJyb2xlIjoiVVNFUiIsInR5cGUiOiJhY2Nlc3MiLCJ1c2VySWQiOjEsInN1YiI6ImFkbWluIiwiaXNzIjoiY2xpcC1wYWwtY2xvdWQiLCJpYXQiOjE3NTU4MjYwMjYsImV4cCI6MTc1NTkxMjQyNn0.TeMLk9sdmyC8M7dQlVV84RUeWLcqJ3bRprl7HONaczqoHYfn3MJGRPV83GRlF28i_qiDmou1ryxgcW2TH_4KlQ";
-    let headers = get_common_headers(&token);
+    let headers = get_public_headers();
     let client = HttpClient::new();
     let resp: ApiResponse<T> = client
         .request_with_headers("POST", &url, payload, Some(headers))
@@ -72,30 +124,22 @@ fn get_common_headers_without_content_type(token: &str) -> HashMap<String, Strin
     headers
 }
 
-/// 通用GET API请求方法，返回 ApiResponse<T> 的 data 字段
+/// 通用GET API请求方法（需要认证）
 pub async fn api_get<T>(path: &str) -> Result<Option<T>, HttpError>
 where
     T: for<'de> serde::Deserialize<'de>,
 {
-    let api_domain = get_api_domain()?;
-    let url = format!("{}/{}", api_domain, path.trim_start_matches('/'));
-    let token = get_jwt_token();
-    let headers = get_common_headers_without_content_type(&token);
-    let client = HttpClient::new();
-    let resp: ApiResponse<T> = client
-        .request_with_headers("GET", &url, None::<&()>, Some(headers))
-        .await?;
-    if resp.code == 200 {
-        Ok(resp.data)
-    } else {
-        Err(HttpError::RequestFailed(format!(
-            "API请求失败: {}",
-            resp.message
-        )))
-    }
+    execute_api_request::<(), T>("GET", path, None, true).await
 }
 
-/// 通用文件上传API请求方法，返回 ApiResponse<T> 的 data 字段
+/// 获取公共API请求头（不需要认证）
+fn get_public_headers() -> HashMap<String, String> {
+    let mut headers = HashMap::new();
+    headers.insert("Content-Type".to_string(), "application/json".to_string());
+    headers
+}
+
+/// 通用文件上传API请求方法（需要认证）
 pub async fn api_post_file<T>(
     path: &str,
     file_path: &Path,
@@ -104,10 +148,32 @@ pub async fn api_post_file<T>(
 where
     T: for<'de> serde::Deserialize<'de>,
 {
+    execute_file_upload_request(path, file_path, form_data, true).await
+}
+
+/// 执行文件上传请求的内部实现
+async fn execute_file_upload_request<T>(
+    path: &str,
+    file_path: &Path,
+    form_data: &HashMap<String, String>,
+    retry_on_401: bool,
+) -> Result<Option<T>, HttpError>
+where
+    T: for<'de> serde::Deserialize<'de>,
+{
     let api_domain = get_api_domain()?;
     let url = format!("{}/{}", api_domain, path.trim_start_matches('/'));
-    // let token = get_jwt_token();
-    let token = "eyJhbGciOiJIUzUxMiJ9.eyJyb2xlIjoiVVNFUiIsInR5cGUiOiJhY2Nlc3MiLCJ1c2VySWQiOjEsInN1YiI6ImFkbWluIiwiaXNzIjoiY2xpcC1wYWwtY2xvdWQiLCJpYXQiOjE3NTU4MjYwMjYsImV4cCI6MTc1NTkxMjQyNn0.TeMLk9sdmyC8M7dQlVV84RUeWLcqJ3bRprl7HONaczqoHYfn3MJGRPV83GRlF28i_qiDmou1ryxgcW2TH_4KlQ";
+    
+    // 获取访问令牌
+    let token = match get_valid_access_token().await {
+        Ok(Some(token)) => token,
+        Ok(None) => {
+            return Err(HttpError::RequestFailed("用户未登录或令牌已过期".to_string()));
+        }
+        Err(e) => {
+            return Err(HttpError::RequestFailed(format!("获取访问令牌失败: {}", e)));
+        }
+    };
 
     // 为文件上传准备请求头（不包含Content-Type，让reqwest自动处理multipart）
     let mut headers = HashMap::new();
@@ -115,12 +181,25 @@ where
 
     let client = HttpClient::new().headers(headers);
     let resp: ApiResponse<T> = client.post_multipart(&url, file_path, form_data).await?;
-    if resp.code == 200 {
-        Ok(resp.data)
-    } else {
-        Err(HttpError::RequestFailed(format!(
+    
+    match resp.code {
+        200 => Ok(resp.data),
+        401 if retry_on_401 => {
+            // 令牌可能过期，尝试刷新
+            log::info!("文件上传API返回401，尝试刷新令牌后重试");
+            match refresh_access_token().await {
+                Ok(Some(_new_token)) => {
+                    // 使用新令牌重试请求（不再重试401）
+                    Box::pin(execute_file_upload_request(path, file_path, form_data, false)).await
+                }
+                Ok(None) | Err(_) => {
+                    Err(HttpError::RequestFailed("用户认证已过期，需要重新登录".to_string()))
+                }
+            }
+        }
+        _ => Err(HttpError::RequestFailed(format!(
             "API文件上传请求失败: {}",
             resp.message
-        )))
+        ))),
     }
 }

@@ -97,7 +97,8 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, onMounted, onBeforeUnmount, computed } from 'vue';
+import { ref, watch, onMounted, onBeforeUnmount, computed, inject } from 'vue';
+import { listen } from '@tauri-apps/api/event';
 import { useWindowAdaptive, generateResponsiveClasses } from '../utils/responsive';
 import { settingsApi, isSuccess } from '../utils/api';
 
@@ -130,6 +131,9 @@ const isRecording = ref(false);
 const isSaving = ref(false);
 const shortcutError = ref('');
 const pressedKeys = ref<string[]>([]);
+
+const showMessageBar = inject('showMessageBar') as (message: string, type?: 'info' | 'warning' | 'error') => void;
+let cloudSyncDisabledListener: (() => void) | null = null;
 
 // 使用响应式工具
 const responsive = useWindowAdaptive();
@@ -165,24 +169,27 @@ const convertDisplayToStorage = (displayKey: string): string => {
   return displayKey.replace(/\bCmd\b/g, 'Meta');
 };
 
+// 加载设置的统一函数
+const loadSettings = async () => {
+  try {
+    const response = await settingsApi.loadSettings();
+    if (!isSuccess(response)) return;
+    const currentSettings = response.data;
+    console.log('当前设置:', currentSettings);
+    settings.value = { ...currentSettings };
+    // 清除错误状态
+    shortcutError.value = '';
+  } catch (error) {
+    console.error('加载设置失败:', error);
+  }
+};
+
 
 
 // 监听弹窗打开时加载设置
 watch(() => props.modelValue, async (newVal) => {
   if (newVal) {
-    try {
-      const response = await settingsApi.loadSettings();
-      if (!isSuccess(response)) return;
-      const currentSettings = response.data;
-      console.log('当前设置:', currentSettings);
-      settings.value = { ...currentSettings };
-      // 清除错误状态
-      shortcutError.value = '';
-      
-
-    } catch (error) {
-      console.error('加载设置失败:', error);
-    }
+    await loadSettings();
   }
 });
 
@@ -410,16 +417,32 @@ const handleClickOutside = (e: MouseEvent) => {
   }
 };
 
-onMounted(() => {
+onMounted(async () => {
   window.addEventListener('keydown', handleKeyDown);
   window.addEventListener('keyup', handleKeyUp);
   window.addEventListener('click', handleClickOutside);
+
+  // 监听云同步禁用事件
+  cloudSyncDisabledListener = await listen('cloud-sync-disabled', async () => {
+    console.log('设置页面收到云同步禁用事件，重新加载设置');
+    // 重新加载设置以反映云同步已被禁用
+    await loadSettings();
+    // 如果设置页面当前可见，显示提示信息
+    if (props.modelValue && showMessageBar) {
+      showMessageBar('云同步已被关闭', 'info');
+    }
+  });
 });
 
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', handleKeyDown);
   window.removeEventListener('keyup', handleKeyUp);
   window.removeEventListener('click', handleClickOutside);
+  
+  // 清理云同步事件监听器
+  if (cloudSyncDisabledListener) {
+    cloudSyncDisabledListener();
+  }
 });
 </script>
 

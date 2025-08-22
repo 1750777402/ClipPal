@@ -375,6 +375,7 @@ watch(search, (newValue) => {
 const showSettings = ref(false);
 
 const cloudSyncEnabled = ref(false);
+let cloudSyncDisabledListener: (() => void) | null = null;
 
 // 页面加载时自动加载设置
 const loadCloudSyncSetting = async () => {
@@ -478,10 +479,22 @@ onMounted(async () => {
   
   // 初始化用户状态
   await userStore.initialize();
+
+  // 监听云同步禁用事件
+  cloudSyncDisabledListener = await listen('cloud-sync-disabled', async () => {
+    console.log('主页面收到云同步禁用事件，更新云同步状态');
+    // 重新加载云同步设置状态
+    await loadCloudSyncSetting();
+  });
 });
 
 onBeforeUnmount(() => {
   // 响应式监听器在useWindowAdaptive中自动清理
+  
+  // 清理云同步事件监听器
+  if (cloudSyncDisabledListener) {
+    cloudSyncDisabledListener();
+  }
 });
 </script>
 

@@ -11,7 +11,7 @@ use crate::{
     api::cloud_sync_api::{DownloadCloudFileParam, get_dowload_url},
     biz::clip_record::{ClipRecord, SYNCHRONIZING},
     errors::{AppError, AppResult},
-    utils::{file_dir::get_resources_dir, file_ext::extract_full_extension_from_str, http_client},
+    utils::{file_dir::get_resources_dir, file_ext::extract_full_extension_from_str, http_client, token_manager::has_valid_auth},
 };
 use rbatis::RBatis;
 
@@ -25,6 +25,12 @@ pub async fn start_cloud_file_download_timer(app_handle: AppHandle) {
             interval_timer.tick().await;
 
             if !crate::biz::system_setting::check_cloud_sync_enabled().await {
+                continue;
+            }
+
+            // 检查用户登录状态
+            if !has_valid_auth() {
+                log::debug!("用户未登录或认证已过期，跳过云文件下载任务");
                 continue;
             }
 

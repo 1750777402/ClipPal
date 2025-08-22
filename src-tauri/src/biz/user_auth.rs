@@ -3,10 +3,13 @@ use serde::{Deserialize, Serialize};
 use crate::{
     api::user_auth_api::{
         AuthResponse, LoginRequestParam, RegisterRequestParam, UserInfo as ApiUserInfo, user_login,
-        user_register as api_user_register,
+        user_register as api_user_register, user_logout as api_user_logout,
     },
     utils::secure_store::SECURE_STORE,
+    utils::token_manager::has_valid_auth,
+    CONTEXT,
 };
+use tauri::Emitter;
 
 // 前端需要的用户信息结构
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -200,22 +203,6 @@ pub fn get_stored_access_token() -> Option<String> {
     }
 }
 
-/// 获取存储的刷新令牌
-pub fn get_stored_refresh_token() -> Option<String> {
-    match SECURE_STORE.write() {
-        Ok(mut store) => match store.get_refresh_token() {
-            Ok(token) => token,
-            Err(e) => {
-                log::debug!("获取存储的刷新令牌失败: {}", e);
-                None
-            }
-        },
-        Err(e) => {
-            log::debug!("获取存储写锁失败: {}", e);
-            None
-        }
-    }
-}
 
 /// 获取存储的用户信息
 pub fn get_stored_user_info() -> Option<UserInfo> {
@@ -262,13 +249,37 @@ pub fn clear_stored_auth_data() -> Result<(), String> {
 pub async fn logout() -> Result<String, String> {
     log::info!("用户登出请求");
 
-    // 清除存储的认证数据
+    // 如果有有效的认证状态，先调用后端退出登录接口
+    if has_valid_auth() {
+        match api_user_logout().await {
+            Ok(_) => {
+                log::info!("后端退出登录成功");
+            }
+            Err(e) => {
+                log::warn!("后端退出登录失败，继续清除本地数据: {}", e);
+                // 不返回错误，继续清除本地数据
+            }
+        }
+    }
+
+    // 清除本地存储的认证数据
     if let Err(e) = clear_stored_auth_data() {
-        log::error!("清除认证数据失败: {}", e);
+        log::error!("清除本地认证数据失败: {}", e);
         return Err(e);
     }
 
-    log::info!("用户登出成功");
+    // 通知前端登录状态已清除
+    notify_auth_cleared().await;
+
+    // 实际禁用云同步设置
+    if let Err(e) = crate::biz::system_setting::disable_cloud_sync().await {
+        log::error!("禁用云同步设置失败: {}", e);
+    }
+
+    // 通知前端云同步功能状态已更新
+    notify_cloud_sync_disabled().await;
+    
+    log::info!("用户登出完成");
     Ok("登出成功".to_string())
 }
 
@@ -325,6 +336,30 @@ pub async fn check_login_status() -> Result<Option<UserInfo>, String> {
         None => {
             log::debug!("应用启动时未检测到登录状态");
             Ok(None)
+        }
+    }
+}
+
+/// 通知前端认证状态已清除
+async fn notify_auth_cleared() {
+    log::info!("通知前端认证状态已清除");
+    
+    // 通过Tauri事件系统通知前端
+    if let Some(app_handle) = CONTEXT.try_get::<tauri::AppHandle>() {
+        if let Err(e) = app_handle.emit("auth-cleared", ()) {
+            log::error!("发送认证清除事件失败: {}", e);
+        }
+    }
+}
+
+/// 通知前端云同步已被禁用
+async fn notify_cloud_sync_disabled() {
+    log::info!("通知前端云同步已被禁用");
+    
+    // 通过Tauri事件系统通知前端
+    if let Some(app_handle) = CONTEXT.try_get::<tauri::AppHandle>() {
+        if let Err(e) = app_handle.emit("cloud-sync-disabled", ()) {
+            log::error!("发送云同步禁用事件失败: {}", e);
         }
     }
 }
