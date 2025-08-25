@@ -49,6 +49,13 @@
 
     <!-- 正常数据显示 -->
     <div class="clip-list" v-else @scroll.passive="handleScroll" ref="scrollContainer">
+      <!-- 空状态显示 -->
+      <div v-if="cards.length === 0 && !isInitialLoading && !isRefreshing" class="empty-state">
+        <div class="empty-text">暂无数据</div>
+        <div class="empty-subtitle">剪贴板记录为空</div>
+      </div>
+      
+      <!-- 数据列表 -->
       <ClipCard v-for="item in cards" :key="item.id" :record="item" :is-mobile="responsive.isMobile.value" 
                 :cloud-sync-enabled="cloudSyncEnabled" @click="handleCardClick" @pin="handlePin" @delete="handleDel" />
 
@@ -728,6 +735,30 @@ onBeforeUnmount(() => {
   }
 }
 
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: var(--spacing-3xl) var(--spacing-xl);
+  text-align: center;
+  color: var(--text-secondary, #666);
+  min-height: 300px;
+}
+
+.empty-text {
+  font-size: 18px;
+  font-weight: 600;
+  margin-bottom: var(--spacing-sm);
+  color: var(--text-primary, #333);
+}
+
+.empty-subtitle {
+  font-size: 14px;
+  color: var(--text-secondary, #666);
+  opacity: 0.8;
+}
+
 .bottom-loading {
   padding: 16px;
   text-align: center;
@@ -872,6 +903,20 @@ onBeforeUnmount(() => {
     padding: 12px;
   }
 
+  /* 空状态响应式调整 */
+  .empty-state {
+    padding: var(--spacing-2xl) var(--spacing-md);
+    min-height: 250px;
+  }
+
+  .empty-text {
+    font-size: 16px;
+  }
+
+  .empty-subtitle {
+    font-size: 13px;
+  }
+
   /* 平板尺寸回到顶部按钮调整 */
   .back-to-top-btn {
     width: 44px;
@@ -1006,6 +1051,20 @@ onBeforeUnmount(() => {
     font-size: 13px;
   }
 
+  /* 小屏幕空状态调整 */
+  .empty-state {
+    padding: var(--spacing-xl) var(--spacing-sm);
+    min-height: 200px;
+  }
+
+  .empty-text {
+    font-size: 15px;
+  }
+
+  .empty-subtitle {
+    font-size: 12px;
+  }
+
   /* 小屏幕回到顶部按钮调整 */
   .back-to-top-btn {
     width: 38px;
@@ -1081,6 +1140,21 @@ onBeforeUnmount(() => {
   
   .skeleton-content {
     height: 50px;
+  }
+
+  /* 极小屏幕空状态调整 */
+  .empty-state {
+    padding: var(--spacing-lg) var(--spacing-xs);
+    min-height: 180px;
+  }
+
+  .empty-text {
+    font-size: 14px;
+    margin-bottom: calc(var(--spacing-xs) * 0.8);
+  }
+
+  .empty-subtitle {
+    font-size: 11px;
   }
 
   /* 极小屏幕回到顶部按钮调整 */
@@ -1267,6 +1341,15 @@ onBeforeUnmount(() => {
   .back-to-top-btn:hover {
     background: linear-gradient(135deg, #2c4a4a, #4a7c7c);
     box-shadow: 0 8px 20px rgba(30, 58, 58, 0.4), 0 3px 12px rgba(0, 0, 0, 0.15);
+  }
+
+  /* 暗色模式空状态样式 */
+  .empty-state {
+    color: var(--text-secondary, #999999);
+  }
+
+  .empty-text {
+    color: var(--text-primary, #e6e6e6);
   }
 }
 </style>
