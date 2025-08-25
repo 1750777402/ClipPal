@@ -11,7 +11,10 @@ use crate::{
     api::cloud_sync_api::{DownloadCloudFileParam, get_dowload_url},
     biz::clip_record::{ClipRecord, SYNCHRONIZING},
     errors::{AppError, AppResult},
-    utils::{file_dir::get_resources_dir, file_ext::extract_full_extension_from_str, http_client, token_manager::has_valid_auth},
+    utils::{
+        file_dir::get_resources_dir, file_ext::extract_full_extension_from_str, http_client,
+        token_manager::has_valid_auth,
+    },
 };
 use rbatis::RBatis;
 
@@ -126,7 +129,8 @@ async fn download_cloud_file_for_record(
         Ok((filename, absolute_path)) => {
             let rb: &RBatis = CONTEXT.get::<RBatis>();
             if let Err(e) =
-                ClipRecord::update_after_cloud_download(rb, &record.id, &filename, &absolute_path).await
+                ClipRecord::update_after_cloud_download(rb, &record.id, &filename, &absolute_path)
+                    .await
             {
                 log::warn!("Failed to update record status: {}", e);
             }
@@ -201,19 +205,12 @@ async fn download_cloud_file_to_local(
     Ok((display_filename, absolute_path))
 }
 
-
 fn determine_save_path_from_cloud(file_type: &str, cloud_file_name: &str) -> AppResult<PathBuf> {
     let resources_dir = get_resources_dir()
         .ok_or_else(|| AppError::Config("Failed to get resources directory".to_string()))?;
 
     match file_type {
-        x if x == ClipType::Image.to_string() => {
-            // 图片文件生成新的唯一文件名，保持png扩展名
-            let now = Local::now().format("%Y%m%d%H%M%S").to_string();
-            let uid = Uuid::new_v4().to_string();
-            let new_filename = format!("{}_{}.png", now, uid);
-            Ok(resources_dir.join(new_filename))
-        }
+        x if x == ClipType::Image.to_string() => Ok(resources_dir.join(cloud_file_name)),
         x if x == ClipType::File.to_string() => {
             // 确保files目录存在
             let files_dir = resources_dir.join("files");
@@ -223,10 +220,10 @@ fn determine_save_path_from_cloud(file_type: &str, cloud_file_name: &str) -> App
                     AppError::Io(e)
                 })?;
             }
-            
+
             // 提取原文件的扩展名，支持复合扩展名（如 tar.gz, tar.bz2 等）
             let extension = extract_full_extension_from_str(cloud_file_name);
-            
+
             // 生成新的唯一文件名，保留原扩展名
             let now = Local::now().format("%Y%m%d%H%M%S").to_string();
             let uid = Uuid::new_v4().to_string();
@@ -235,7 +232,7 @@ fn determine_save_path_from_cloud(file_type: &str, cloud_file_name: &str) -> App
             } else {
                 format!("{}_{}.{}", now, uid, extension)
             };
-            
+
             Ok(files_dir.join(new_filename))
         }
         _ => Err(AppError::Config("Unsupported file type".to_string())),

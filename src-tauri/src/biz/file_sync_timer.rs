@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use clipboard_listener::ClipType;
 use rbatis::RBatis;
 use std::path::PathBuf;
@@ -11,10 +9,12 @@ use crate::CONTEXT;
 use crate::api::cloud_sync_api::{FileCloudSyncParam, upload_file_clip_record};
 use crate::biz::clip_record::{ClipRecord, SKIP_SYNC, SYNCHRONIZED, SYNCHRONIZING};
 use crate::biz::system_setting::check_cloud_sync_enabled;
-use crate::utils::token_manager::has_valid_auth;
 use crate::errors::{AppError, AppResult};
 use crate::utils::config::get_max_file_size_bytes;
 use crate::utils::file_dir::get_resources_dir;
+use crate::utils::token_manager::has_valid_auth;
+
+/// 这个定时任务是云同步上传记录时，文件类型的内容上传到云端的任务
 
 /// 启动文件同步定时任务
 pub fn start_file_sync_timer() {
@@ -85,9 +85,10 @@ async fn process_one_file_sync() -> AppResult<()> {
 /// 处理图片同步
 async fn process_image_sync(record: &ClipRecord) -> AppResult<()> {
     // 获取图片文件名（从content字段）
-    let image_filename = record.content.as_str().ok_or(
-        AppError::Config("图片记录content字段无效".to_string())
-    )?;
+    let image_filename = record
+        .content
+        .as_str()
+        .ok_or(AppError::Config("图片记录content字段无效".to_string()))?;
 
     if image_filename.is_empty() {
         // 文件名为空，直接标记为已同步
@@ -95,38 +96,35 @@ async fn process_image_sync(record: &ClipRecord) -> AppResult<()> {
         let ids = vec![record.id.clone()];
         let current_time = current_timestamp();
         ClipRecord::update_sync_flag(rb, &ids, SYNCHRONIZED, current_time).await?;
-        log::warn!(
-            "图片记录content为空，直接标记为已同步: {}",
-            record.id
-        );
+        log::warn!("图片记录content为空，直接标记为已同步: {}", record.id);
         return Ok(());
     }
 
     // 拼接完整的图片文件路径（resources目录 + 文件名）
-    let resources_dir = get_resources_dir()
-        .ok_or_else(|| AppError::Config("无法获取resources目录".to_string()))?;
+    let resources_dir =
+        get_resources_dir().ok_or_else(|| AppError::Config("无法获取resources目录".to_string()))?;
     let file_path = resources_dir.join(image_filename);
 
-        // 检查文件是否存在
-        if !file_path.exists() {
-            log::error!("图片文件不存在: {:?}, 记录ID: {}", file_path, record.id);
-            return mark_as_skip_sync(&record.id, "图片文件不存在").await;
-        }
+    // 检查文件是否存在
+    if !file_path.exists() {
+        log::error!("图片文件不存在: {:?}, 记录ID: {}", file_path, record.id);
+        return mark_as_skip_sync(&record.id, "图片文件不存在").await;
+    }
 
-        // 检查文件大小
-        if let Err(e) = check_file_size(&file_path).await {
-            log::warn!("图片文件大小检查失败: {}, 记录ID: {}", e, record.id);
-            return mark_as_skip_sync(&record.id, &e).await;
-        }
+    // 检查文件大小
+    if let Err(e) = check_file_size(&file_path).await {
+        log::warn!("图片文件大小检查失败: {}, 记录ID: {}", e, record.id);
+        return mark_as_skip_sync(&record.id, &e).await;
+    }
 
-        // 上传文件
-        let upload_param = FileCloudSyncParam {
-            md5_str: record.md5_str.clone(),
-            r#type: ClipType::Image.to_string(),
-            file: file_path,
-        };
+    // 上传文件
+    let upload_param = FileCloudSyncParam {
+        md5_str: record.md5_str.clone(),
+        r#type: ClipType::Image.to_string(),
+        file: file_path,
+    };
 
-        upload_file_and_update_status(&record.id, upload_param).await
+    upload_file_and_update_status(&record.id, upload_param).await
 }
 
 /// 处理文件同步
