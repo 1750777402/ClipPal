@@ -274,28 +274,6 @@ fn build_sync_eligible_file_record(
     )
 }
 
-async fn handle_sync_eligible_file_update(
-    rb: &RBatis,
-    record_id: &str,
-    file_path: &str,
-    record: &mut ClipRecord,
-) {
-    let file_path_buf = std::path::PathBuf::from(file_path);
-
-    // 复制文件到resources/files目录
-    if let Some((_relative_path, absolute_path)) =
-        copy_file_to_resources(record_id, &file_path_buf).await
-    {
-        let _ = ClipRecord::update_local_file_path(rb, record_id, &absolute_path).await;
-        record.local_file_path = Some(absolute_path);
-    } else {
-        // 复制失败，设置为不支持云同步
-        log::warn!("文件复制失败，设置为不支持同步: {}", file_path);
-        record.sync_flag = Some(SKIP_SYNC);
-        record.local_file_path = Some(file_path.to_string());
-        let _ = ClipRecord::update_local_file_path(rb, record_id, file_path).await;
-    }
-}
 
 fn build_multiple_files_record(
     id: &str,
@@ -631,41 +609,66 @@ async fn handle_file(
                         log::info!("更新已删除的超大文件记录为新数据: {}", record.id);
                         return Ok(Some(new_record));
                     } else {
-                        // 小文件：更新为支持同步的记录
-                        let new_record =
-                            build_sync_eligible_file_record(&record.id, file_path, &md5_str, sort);
-                        if let Err(e) =
-                            ClipRecord::update_deleted_record_as_new(rb, &record.id, &new_record)
-                                .await
-                        {
-                            log::error!("更新已删除小文件记录失败: {}", e);
-                            return Err(e);
-                        }
+                        // 小文件：先复制文件，再更新为支持同步的记录
+                        let original_filename = std::path::Path::new(file_path)
+                            .file_name()
+                            .and_then(|name| name.to_str())
+                            .unwrap_or(file_path);
 
-                        // 处理文件复制和路径更新
-                        let mut updated_record = new_record;
-                        handle_sync_eligible_file_update(
-                            rb,
-                            &record.id,
-                            file_path,
-                            &mut updated_record,
-                        )
-                        .await;
+                        let file_path_buf = std::path::PathBuf::from(file_path);
+                        
+                        // 先尝试复制文件
+                        if let Some((_relative_path, absolute_path)) =
+                            copy_file_to_resources(&record.id, &file_path_buf).await
+                        {
+                            // 文件复制成功，创建支持云同步的记录
+                            let mut new_record =
+                                build_sync_eligible_file_record(&record.id, file_path, &md5_str, sort);
+                            new_record.content = Value::String(original_filename.to_string());
+                            new_record.local_file_path = Some(absolute_path.clone());
+
+                            if let Err(e) =
+                                ClipRecord::update_deleted_record_as_new(rb, &record.id, &new_record)
+                                    .await
+                            {
+                                log::error!("更新已删除小文件记录失败: {}", e);
+                                // 数据库更新失败时删除已复制的文件
+                                delete_copied_file(&absolute_path).await;
+                                return Err(e);
+                            }
+
+                            log::info!("更新已删除的小文件记录为新数据: {}, 复制到: {}", record.id, absolute_path);
+                        } else {
+                            // 文件复制失败，创建不支持云同步的记录
+                            log::warn!("文件复制失败，设置为不支持同步: {}", file_path);
+                            let mut new_record =
+                                build_sync_eligible_file_record(&record.id, file_path, &md5_str, sort);
+                            new_record.content = Value::String(original_filename.to_string());
+                            new_record.sync_flag = Some(SKIP_SYNC);
+                            new_record.local_file_path = Some(file_path.to_string());
+
+                            if let Err(e) =
+                                ClipRecord::update_deleted_record_as_new(rb, &record.id, &new_record)
+                                    .await
+                            {
+                                log::error!("更新已删除小文件记录失败: {}", e);
+                                return Err(e);
+                            }
+
+                            log::info!("更新已删除的小文件记录为新数据: {}, 不支持同步", record.id);
+                        }
 
                         // 更新搜索索引
                         let record_id_copy = record.id.clone();
-                        let filename = std::path::Path::new(file_path)
-                            .file_name()
-                            .and_then(|name| name.to_str())
-                            .unwrap_or(file_path)
-                            .to_string();
+                        let filename_copy = original_filename.to_string();
                         tokio::spawn(async move {
-                            if let Err(e) = add_content_to_index(&record_id_copy, &filename).await {
+                            if let Err(e) = add_content_to_index(&record_id_copy, &filename_copy).await {
                                 log::error!("搜索索引更新失败: {}", e);
                             }
                         });
 
-                        log::info!("更新已删除的小文件记录为新数据: {}", record.id);
+                        // 返回更新后的记录
+                        let updated_record = build_sync_eligible_file_record(&record.id, file_path, &md5_str, sort);
                         return Ok(Some(updated_record));
                     }
                 } else {
@@ -879,83 +882,101 @@ async fn handle_sync_eligible_file(
     sort: i32,
 ) -> Result<Option<ClipRecord>, AppError> {
     let record_id = Uuid::new_v4().to_string();
+    let file_path_buf = std::path::PathBuf::from(file_path);
+    
+    // 获取原始文件名用于显示
+    let original_filename = std::path::Path::new(file_path)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or(file_path);
 
-    // 先创建记录，content初始为空
-    let mut record = build_clip_record(
-        record_id.clone(),
-        0,
-        ClipType::File.to_string(),
-        Value::Null, // 初始为空，复制成功后会更新为文件名
-        md5_str.to_string(),
-        sort,
-    );
+    // 先尝试复制文件到resources/files目录
+    if let Some((_relative_path, absolute_path)) =
+        copy_file_to_resources(&record_id, &file_path_buf).await
+    {
+        // 文件复制成功，创建支持云同步的记录
+        let record = build_clip_record(
+            record_id.clone(),
+            0,
+            ClipType::File.to_string(),
+            Value::String(original_filename.to_string()), // 直接设置为原始文件名
+            md5_str.to_string(),
+            sort,
+        );
+        
+        // 设置本地文件路径为复制后的路径
+        let mut final_record = record;
+        final_record.local_file_path = Some(absolute_path.clone());
 
-    match ClipRecord::insert(rb, &record).await {
-        Ok(_) => {
-            let file_path_buf = std::path::PathBuf::from(file_path);
-
-            // 复制文件到resources/files目录
-            if let Some((_relative_path, absolute_path)) =
-                copy_file_to_resources(&record_id, &file_path_buf).await
-            {
-                // content存储原文件名（显示用），而不是生成的新文件名
-                let original_filename = std::path::Path::new(file_path)
-                    .file_name()
-                    .and_then(|name| name.to_str())
-                    .unwrap_or(file_path);
-
-                let _ = ClipRecord::update_content(rb, &record_id, original_filename).await;
-                let _ = ClipRecord::update_local_file_path(rb, &record_id, &absolute_path).await;
-
-                record.content = Value::String(original_filename.to_string());
-                record.local_file_path = Some(absolute_path);
-
+        match ClipRecord::insert(rb, &final_record).await {
+            Ok(_) => {
                 log::info!(
                     "保存小文件记录成功（支持云同步），记录ID: {}, 原路径: {}, 新路径: {}, 显示文件名: {}",
                     record_id,
                     file_path,
-                    record.local_file_path.as_ref().unwrap(),
+                    absolute_path,
                     original_filename
                 );
-            } else {
-                // 复制失败，设置为不支持云同步
-                log::warn!("文件复制失败，设置为不支持同步: {}", file_path);
-                record.sync_flag = Some(SKIP_SYNC);
 
-                // content存储原文件名（显示用）
-                let original_filename = std::path::Path::new(file_path)
-                    .file_name()
-                    .and_then(|name| name.to_str())
-                    .unwrap_or(file_path);
+                // 添加到搜索索引
+                let record_id_copy = record_id.clone();
+                let filename_copy = original_filename.to_string();
+                tokio::spawn(async move {
+                    if let Err(e) = add_content_to_index(&record_id_copy, &filename_copy).await {
+                        log::error!("搜索索引更新失败: {}", e);
+                    }
+                });
 
-                record.content = Value::String(original_filename.to_string());
-                record.local_file_path = Some(file_path.to_string());
-
-                let _ = ClipRecord::update_content(rb, &record_id, original_filename).await;
-                let _ = ClipRecord::update_local_file_path(rb, &record_id, file_path).await;
+                Ok(Some(final_record))
             }
-
-            // 添加到搜索索引
-            let record_id_copy = record_id.clone();
-            let content_for_index = if let Value::String(content) = &record.content {
-                content.clone()
-            } else {
-                file_path.to_string()
-            };
-
-            tokio::spawn(async move {
-                if let Err(e) =
-                    add_content_to_index(record_id_copy.as_str(), content_for_index.as_str()).await
-                {
-                    log::error!("搜索索引更新失败: {}", e);
-                }
-            });
-
-            Ok(Some(record))
+            Err(e) => {
+                log::error!("插入小文件记录失败: {}", e);
+                // 数据库插入失败时删除已复制的文件
+                delete_copied_file(&absolute_path).await;
+                Err(AppError::Database(e))
+            }
         }
-        Err(e) => {
-            log::error!("插入小文件记录失败: {}", e);
-            Err(AppError::Database(e))
+    } else {
+        // 文件复制失败，创建不支持云同步的记录
+        log::warn!("文件复制失败，设置为不支持同步: {}", file_path);
+        
+        let mut record = build_clip_record(
+            record_id.clone(),
+            0,
+            ClipType::File.to_string(),
+            Value::String(original_filename.to_string()), // 直接设置为原始文件名
+            md5_str.to_string(),
+            sort,
+        );
+        
+        // 设置为不支持云同步，使用原始路径
+        record.sync_flag = Some(SKIP_SYNC);
+        record.local_file_path = Some(file_path.to_string());
+
+        match ClipRecord::insert(rb, &record).await {
+            Ok(_) => {
+                log::info!(
+                    "保存文件记录成功（不支持同步），记录ID: {}, 文件路径: {}, 显示文件名: {}",
+                    record_id,
+                    file_path,
+                    original_filename
+                );
+
+                // 添加到搜索索引
+                let record_id_copy = record_id.clone();
+                let filename_copy = original_filename.to_string();
+                tokio::spawn(async move {
+                    if let Err(e) = add_content_to_index(&record_id_copy, &filename_copy).await {
+                        log::error!("搜索索引更新失败: {}", e);
+                    }
+                });
+
+                Ok(Some(record))
+            }
+            Err(e) => {
+                log::error!("插入文件记录失败: {}", e);
+                Err(AppError::Database(e))
+            }
         }
     }
 }
@@ -1060,5 +1081,15 @@ async fn delete_image_file(filename: &str) {
         } else {
             log::debug!("删除图片文件成功: {}", filename);
         }
+    }
+}
+
+/// 删除已复制的文件
+async fn delete_copied_file(file_path: &str) {
+    if let Err(e) = std::fs::remove_file(file_path) {
+        let safe_path = to_safe_string(&std::path::Path::new(file_path));
+        log::warn!("删除已复制文件失败: {}, 路径: {}", e, safe_path);
+    } else {
+        log::debug!("删除已复制文件成功: {}", file_path);
     }
 }
