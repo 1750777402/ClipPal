@@ -6,6 +6,6 @@
     "cloud_sync": {
         "_comment": "云同步相关配置",
         "domain": "http://127.0.0.1:8081",
-        "max_file_size_kb": 1024
+        "max_file_size_kb": 5120
     }
 }
