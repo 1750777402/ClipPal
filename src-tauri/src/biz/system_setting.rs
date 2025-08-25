@@ -146,7 +146,25 @@ pub async fn save_settings(settings: Settings) -> Result<(), String> {
         }
     }
 
-    // 3.2 尝试设置开机自启
+    // 3.2 验证云同步权限
+    if settings.cloud_sync != current_settings.cloud_sync && settings.cloud_sync == 1 {
+        // 用户尝试开启云同步，需要验证登录状态
+        match validate_cloud_sync_permission().await {
+            Ok(_) => {
+                log::info!("云同步权限验证通过，允许开启云同步");
+                applied_settings.push(("cloud_sync", true));
+            }
+            Err(e) => {
+                // 权限验证失败，回滚已应用的设置
+                if let Err(rollback_err) = rollback_settings(&applied_settings).await {
+                    log::error!("回滚设置失败: {}", rollback_err);
+                }
+                return Err(format!("开启云同步失败: {}", e));
+            }
+        }
+    }
+
+    // 3.3 尝试设置开机自启
     if settings.auto_start != current_settings.auto_start {
         match set_auto_start(settings.auto_start == 1) {
             Ok(_) => applied_settings.push(("autostart", true)),
@@ -159,7 +177,7 @@ pub async fn save_settings(settings: Settings) -> Result<(), String> {
         }
     }
 
-    // 3.3 保存到文件
+    // 3.4 保存到文件
     match save_settings_to_file(&settings) {
         Ok(_) => applied_settings.push(("file", true)),
         Err(e) => {
@@ -406,5 +424,18 @@ pub async fn disable_cloud_sync() -> Result<(), String> {
     save_settings(current_settings).await.map_err(|e| format!("保存设置失败: {}", e))?;
     
     log::info!("云同步功能已被禁用");
+    Ok(())
+}
+
+/// 验证云同步权限 - 检查用户是否已登录
+async fn validate_cloud_sync_permission() -> Result<(), String> {
+    use crate::utils::token_manager::has_valid_auth;
+    
+    if !has_valid_auth() {
+        log::warn!("用户未登录，无法开启云同步功能");
+        return Err("请先登录账号才能开启云同步功能".to_string());
+    }
+    
+    log::info!("用户已登录，允许开启云同步功能");
     Ok(())
 }

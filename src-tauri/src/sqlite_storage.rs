@@ -96,7 +96,7 @@ fn get_clip_pal_record_schema(schema: &mut HashMap<String, TableSchema>) {
         ColumnInfo {
             name: "local_file_path".to_string(),
             r#type: "TEXT".to_string(),
-            not_null: true,
+            not_null: false,
             default_value: None,
             primary_key: false,
         },

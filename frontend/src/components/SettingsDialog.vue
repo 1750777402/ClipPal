@@ -53,10 +53,10 @@
           <div class="settings-item">
             <div class="settings-label">
               <span>云同步</span>
-              <span class="settings-description">同步剪贴板内容到云端(功能未启用,敬请期待)</span>
+              <span class="settings-description">同步剪贴板内容到云端</span>
             </div>
             <label class="switch">
-              <input type="checkbox" :checked="settings.cloud_sync === 1" @change="(e: Event) => settings.cloud_sync = (e.target as HTMLInputElement).checked ? 1 : 0">
+              <input type="checkbox" :checked="settings.cloud_sync === 1" @change="handleCloudSyncChange">
               <span class="slider"></span>
             </label>
           </div>
@@ -101,6 +101,7 @@ import { ref, watch, onMounted, onBeforeUnmount, computed, inject } from 'vue';
 import { listen } from '@tauri-apps/api/event';
 import { useWindowAdaptive, generateResponsiveClasses } from '../utils/responsive';
 import { settingsApi, isSuccess } from '../utils/api';
+import { useUserStore } from '../utils/userStore';
 
 const props = defineProps<{
   modelValue: boolean
@@ -135,6 +136,9 @@ const pressedKeys = ref<string[]>([]);
 const showMessageBar = inject('showMessageBar') as (message: string, type?: 'info' | 'warning' | 'error') => void;
 let cloudSyncDisabledListener: (() => void) | null = null;
 
+// 用户状态管理
+const userStore = useUserStore();
+
 // 使用响应式工具
 const responsive = useWindowAdaptive();
 const responsiveClasses = computed(() => generateResponsiveClasses(responsive));
@@ -167,6 +171,31 @@ const convertDisplayToStorage = (displayKey: string): string => {
   
   // Mac上存储适配：Cmd -> Meta（因为Mac的Cmd键对应后端的Meta）
   return displayKey.replace(/\bCmd\b/g, 'Meta');
+};
+
+// 处理云同步开关切换
+const handleCloudSyncChange = (e: Event) => {
+  const target = e.target as HTMLInputElement;
+  const isEnabled = target.checked;
+  
+  if (isEnabled) {
+    // 用户尝试开启云同步，检查是否已登录
+    if (!userStore.isLoggedIn()) {
+      // 用户未登录，阻止开关切换并显示提示
+      target.checked = false;
+      settings.value.cloud_sync = 0;
+      
+      if (showMessageBar) {
+        showMessageBar('请先登录账号才能开启云同步功能', 'warning');
+      } else {
+        alert('请先登录账号才能开启云同步功能');
+      }
+      return;
+    }
+  }
+  
+  // 更新设置值
+  settings.value.cloud_sync = isEnabled ? 1 : 0;
 };
 
 // 加载设置的统一函数

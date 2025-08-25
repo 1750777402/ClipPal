@@ -396,6 +396,16 @@ const loadCloudSyncSetting = async () => {
 
 // 顶部云同步按钮点击
 const handleCloudSyncClick = async () => {
+  // 如果要开启云同步，先检查登录状态
+  if (!cloudSyncEnabled.value) {
+    // 用户尝试开启云同步，检查是否已登录
+    if (!userStore.isLoggedIn()) {
+      // 用户未登录，显示登录对话框
+      showLoginDialog.value = true;
+      return;
+    }
+  }
+  
   const loadResponse = await settingsApi.loadSettings();
   if (!isSuccess(loadResponse)) return;
   
@@ -407,6 +417,11 @@ const handleCloudSyncClick = async () => {
   if (isSuccess(saveResponse)) {
     cloudSyncEnabled.value = newValue === 1;
     smartRefresh();
+  } else {
+    // 保存失败，显示具体错误信息
+    console.error('云同步设置失败:', saveResponse.error || '未知错误');
+    // 这里可以添加用户提示，比如使用消息条或弹窗
+    alert(saveResponse.error || '云同步设置失败，请重试');
   }
 };
 

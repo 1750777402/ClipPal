@@ -465,34 +465,39 @@ async fn handle_image(
             if record.del_flag == Some(1) {
                 // 已删除的记录，更新为新记录的所有字段
                 let id = record.id.clone();
-                let mut new_record = build_clip_record(
-                    id.clone(),
-                    0,
-                    ClipType::Image.to_string(),
-                    Value::Null, // 初始为空，保存图片后会更新为文件名
-                    md5_str,
-                    sort,
-                );
 
-                // 如果图片大小超过限制，设置为不支持同步状态
-                if is_oversized {
-                    new_record.sync_flag = Some(SKIP_SYNC);
+                // 先生成文件名，然后保存图片
+                let filename = generate_unique_filename("png");
+                if save_image_with_filename(&filename, data).await {
+                    let mut new_record = build_clip_record(
+                        id.clone(),
+                        0,
+                        ClipType::Image.to_string(),
+                        Value::String(filename.clone()), // 直接设置为生成的文件名
+                        md5_str,
+                        sort,
+                    );
+
+                    // 如果图片大小超过限制，设置为不支持同步状态
+                    if is_oversized {
+                        new_record.sync_flag = Some(SKIP_SYNC);
+                    }
+
+                    if let Err(e) =
+                        ClipRecord::update_deleted_record_as_new(rb, &id, &new_record).await
+                    {
+                        log::error!("更新已删除图片记录失败: {}", e);
+                        // 保存图片失败时删除已创建的文件
+                        delete_image_file(&filename).await;
+                        return Err(e);
+                    }
+
+                    log::info!("更新已删除的图片记录为新数据: {}", id);
+                    return Ok(Some(new_record));
+                } else {
+                    log::error!("保存图片失败，无法更新记录");
+                    return Err(AppError::Clipboard("保存图片失败".to_string()));
                 }
-
-                if let Err(e) = ClipRecord::update_deleted_record_as_new(rb, &id, &new_record).await
-                {
-                    log::error!("更新已删除图片记录失败: {}", e);
-                    return Err(e);
-                }
-
-                // 保存图片到资源目录并生成文件名
-                if let Some(filename) = save_img_to_resource(&id, rb, data).await {
-                    // 更新record的content字段为文件名
-                    new_record.content = Value::String(filename);
-                }
-
-                log::info!("更新已删除的图片记录为新数据: {}", id);
-                return Ok(Some(new_record));
             } else {
                 // 活跃记录，只更新排序
                 if let Err(e) = ClipRecord::update_sort(rb, &record.id, sort).await {
@@ -503,36 +508,40 @@ async fn handle_image(
             }
         }
 
-        // 创建新记录
+        // 创建新记录 - 先生成文件名，然后保存图片
         let id = Uuid::new_v4().to_string();
-        let mut record = build_clip_record(
-            id.clone(),
-            0,
-            ClipType::Image.to_string(),
-            Value::Null, // 初始为空，保存图片后会更新为文件名
-            md5_str,
-            sort,
-        );
+        let filename = generate_unique_filename("png");
 
-        // 如果图片大小超过限制，设置为不支持同步状态
-        if is_oversized {
-            record.sync_flag = Some(SKIP_SYNC);
-        }
+        if save_image_with_filename(&filename, data).await {
+            let mut record = build_clip_record(
+                id.clone(),
+                0,
+                ClipType::Image.to_string(),
+                Value::String(filename.clone()), // 直接设置为生成的文件名
+                md5_str,
+                sort,
+            );
 
-        match ClipRecord::insert(rb, &record).await {
-            Ok(_) => {
-                // 保存图片到资源目录并生成文件名
-                if let Some(filename) = save_img_to_resource(&id, rb, data).await {
-                    // 更新record的content字段为文件名
-                    record.content = Value::String(filename);
+            // 如果图片大小超过限制，设置为不支持同步状态
+            if is_oversized {
+                record.sync_flag = Some(SKIP_SYNC);
+            }
+
+            match ClipRecord::insert(rb, &record).await {
+                Ok(_) => {
+                    log::info!("新增图片记录成功，ID: {}, 文件名: {}", id, filename);
+                    Ok(Some(record))
                 }
-
-                Ok(Some(record))
+                Err(e) => {
+                    log::error!("插入图片记录失败: {}", e);
+                    // 数据库插入失败时删除已创建的文件
+                    delete_image_file(&filename).await;
+                    Err(AppError::Database(e))
+                }
             }
-            Err(e) => {
-                log::error!("插入图片记录失败: {}", e);
-                Err(AppError::Database(e))
-            }
+        } else {
+            log::error!("保存图片失败，无法创建记录");
+            Err(AppError::Clipboard("保存图片失败".to_string()))
         }
     } else {
         Ok(None)
@@ -1002,36 +1011,54 @@ async fn copy_file_to_resources(
     }
 }
 
-async fn save_img_to_resource(data_id: &str, rb: &RBatis, image: &Vec<u8>) -> Option<String> {
-    if let Some(resource_path) = get_resources_dir() {
-        // 生成唯一文件名
-        let uid = Uuid::new_v4().to_string();
-        let now = Local::now().format("%Y%m%d%H%M%S").to_string();
-        let filename = format!("{}_{}.png", now, uid);
+/// 生成唯一的文件名
+fn generate_unique_filename(extension: &str) -> String {
+    let uid = Uuid::new_v4().to_string();
+    let now = Local::now().format("%Y%m%d%H%M%S").to_string();
+    format!("{}_{}.{}", now, uid, extension)
+}
 
+/// 使用指定的文件名保存图片
+async fn save_image_with_filename(filename: &str, image: &Vec<u8>) -> bool {
+    if let Some(resource_path) = get_resources_dir() {
         // 拼接完整路径
         let mut full_path: PathBuf = resource_path.clone();
-        full_path.push(&filename);
-        let _absolute_path = full_path.to_string_lossy().to_string();
+        full_path.push(filename);
 
         // 创建并写入图片
         match File::create(&full_path) {
             Ok(mut file) => {
                 if file.write_all(image).is_ok() && file.flush().is_ok() {
-                    // 写成功后，仅更新content为文件名（图片类型不需要local_file_path）
-                    let _ = ClipRecord::update_content(rb, data_id, &filename).await;
-                    return Some(filename);
+                    log::debug!("图片保存成功: {}", filename);
+                    true
                 } else {
-                    log::error!("写入图片失败");
+                    log::error!("写入图片失败: {}", filename);
+                    false
                 }
             }
             Err(e) => {
                 let safe_path = to_safe_string(&full_path);
                 log::error!("创建图片文件失败: {}, 路径: {}", e, safe_path);
+                false
             }
         }
     } else {
         log::error!("资源路径获取失败");
+        false
     }
-    None
+}
+
+/// 删除图片文件
+async fn delete_image_file(filename: &str) {
+    if let Some(resource_path) = get_resources_dir() {
+        let mut full_path: PathBuf = resource_path.clone();
+        full_path.push(filename);
+
+        if let Err(e) = std::fs::remove_file(&full_path) {
+            let safe_path = to_safe_string(&full_path);
+            log::warn!("删除图片文件失败: {}, 路径: {}", e, safe_path);
+        } else {
+            log::debug!("删除图片文件成功: {}", filename);
+        }
+    }
 }

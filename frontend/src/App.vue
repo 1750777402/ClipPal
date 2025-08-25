@@ -81,7 +81,7 @@ onMounted(async () => {
   // 监听认证过期事件
   authExpiredListener = await listen('auth-expired', () => {
     console.log('收到认证过期事件');
-    userStore.clearUser();
+    userStore.clearLoginState();
     showMessageBar('登录已过期，请重新登录', 'warning');
     // TODO: 关闭云同步功能
   });
@@ -89,7 +89,7 @@ onMounted(async () => {
   // 监听认证清除事件
   authClearedListener = await listen('auth-cleared', () => {
     console.log('收到认证清除事件');
-    userStore.clearUser();
+    userStore.clearLoginState();
   });
 
   // 监听云同步禁用事件
