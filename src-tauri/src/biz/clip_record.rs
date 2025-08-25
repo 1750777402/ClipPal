@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use crate::errors::{AppError, AppResult};
 use rbatis::{Error, RBatis, crud, impl_select};
 use rbs::to_value;
