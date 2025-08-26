@@ -335,7 +335,7 @@ impl HttpClient {
             .headers(headers)
             .send()
             .await
-            .map_err(|e| HttpError::NetworkError(format!("网络请求失败: {}", e)))?;
+            .map_err(|e| self.classify_network_error(e, url))?;
 
         if !response.status().is_success() {
             return Err(HttpError::DownloadFailed(format!(
@@ -391,10 +391,7 @@ impl HttpClient {
             .await?;
 
         serde_json::from_str(&response_text).map_err(|e| {
-            HttpError::DeserializationFailed(format!(
-                "反序列化ApiResponse失败，请求url：{}，返回结果：{}: {}",
-                url, response_text, e
-            ))
+            self.handle_deserialization_error(e, url, &response_text)
         })
     }
 
@@ -445,7 +442,7 @@ impl HttpClient {
         let response = request_builder
             .send()
             .await
-            .map_err(|e| HttpError::NetworkError(format!("网络请求失败: {}", e)))?;
+            .map_err(|e| self.classify_network_error(e, url))?;
 
         let status = response.status().as_u16();
         let response_url = response.url().to_string();
@@ -520,7 +517,7 @@ impl HttpClient {
         let response = request_builder
             .send()
             .await
-            .map_err(|e| HttpError::NetworkError(format!("网络请求失败: {}", e)))?;
+            .map_err(|e| self.classify_network_error(e, url))?;
 
         log::debug!("响应状态码: {}", response.status());
 
@@ -557,7 +554,7 @@ impl HttpClient {
             .headers(headers)
             .send()
             .await
-            .map_err(|e| HttpError::NetworkError(format!("网络请求失败: {}", e)))?;
+            .map_err(|e| self.classify_network_error(e, url))?;
 
         if !response.status().is_success() {
             return Err(HttpError::DownloadFailed(format!(
@@ -751,6 +748,126 @@ impl HttpClient {
         }
 
         Ok(url.to_string())
+    }
+
+    /// 分类网络错误，提供更清晰的错误信息
+    fn classify_network_error(&self, err: reqwest::Error, url: &str) -> HttpError {
+        let host = reqwest::Url::parse(url)
+            .map(|u| u.host_str().unwrap_or("未知").to_string())
+            .unwrap_or_else(|_| "无效地址".to_string());
+
+        let error_msg = err.to_string().to_lowercase();
+
+        if err.is_timeout() {
+            HttpError::Timeout(format!("请求超时 - 服务器 {} 响应缓慢或不可达", host))
+        } else if err.is_connect() {
+            HttpError::NetworkError(format!("连接失败 - 无法连接到服务器 {} (请检查服务器状态或网络连接)", host))
+        } else if error_msg.contains("dns") || error_msg.contains("name resolution") {
+            HttpError::NetworkError(format!("DNS解析失败 - 无法解析域名 {}", host))
+        } else if err.is_redirect() {
+            HttpError::NetworkError(format!("重定向过多 - 服务器 {} 配置异常", host))
+        } else if err.is_status() {
+            if let Some(status) = err.status() {
+                HttpError::RequestFailed(format!("服务器错误 - {} 返回状态码: {} {}", 
+                    host, status.as_u16(), status.canonical_reason().unwrap_or("未知错误")))
+            } else {
+                HttpError::RequestFailed(format!("服务器错误 - {} 返回异常状态", host))
+            }
+        } else if err.is_body() || err.is_decode() {
+            HttpError::DeserializationFailed(format!("响应数据异常 - 服务器 {} 返回的数据格式错误", host))
+        } else if err.is_builder() {
+            HttpError::RequestFailed(format!("请求构建失败 - 请求参数异常 (目标: {})", host))
+        } else {
+            // 尝试从错误消息中提取更多信息
+            if error_msg.contains("connection refused") || error_msg.contains("connection reset") {
+                HttpError::NetworkError(format!("连接被拒绝 - 云服务器 {} 未启动或端口不可用", host))
+            } else if error_msg.contains("no route to host") || error_msg.contains("network unreachable") {
+                HttpError::NetworkError(format!("网络不可达 - 无法访问云服务器 {} (请检查网络设置)", host))
+            } else if error_msg.contains("ssl") || error_msg.contains("tls") {
+                HttpError::NetworkError(format!("SSL/TLS错误 - 与云服务器 {} 的安全连接失败", host))
+            } else if error_msg.contains("certificate") {
+                HttpError::NetworkError(format!("证书错误 - 云服务器 {} 的SSL证书无效", host))
+            } else {
+                HttpError::NetworkError(format!("未知网络错误 - 访问云服务器 {} 时发生异常: {}", host, err))
+            }
+        }
+    }
+
+    /// 处理反序列化错误，提供更清晰的错误信息
+    fn handle_deserialization_error(&self, err: serde_json::Error, url: &str, response_text: &str) -> HttpError {
+        let host = reqwest::Url::parse(url)
+            .map(|u| u.host_str().unwrap_or("未知").to_string())
+            .unwrap_or_else(|_| "无效地址".to_string());
+
+        // 检查响应内容，判断错误类型
+        let response_preview = if response_text.len() > 200 {
+            format!("{}...", &response_text[..200])
+        } else {
+            response_text.to_string()
+        };
+
+        // 检查是否是HTML错误页面
+        if response_text.trim_start().to_lowercase().starts_with("<!doctype html") || 
+           response_text.trim_start().to_lowercase().starts_with("<html") {
+            return HttpError::NetworkError(format!(
+                "服务器异常 - {} 返回错误页面而非API数据 (可能服务器已停止或出现内部错误)", host
+            ));
+        }
+
+        // 检查是否是空响应
+        if response_text.trim().is_empty() {
+            return HttpError::NetworkError(format!(
+                "服务器异常 - {} 返回空响应 (可能服务器已停止运行)", host
+            ));
+        }
+
+        // 检查是否包含常见的错误关键词
+        let lower_response = response_text.to_lowercase();
+        if lower_response.contains("502 bad gateway") {
+            return HttpError::NetworkError(format!(
+                "网关错误 - 服务器 {} 网关异常 (后端服务可能已停止)", host
+            ));
+        } else if lower_response.contains("503 service unavailable") {
+            return HttpError::NetworkError(format!(
+                "服务不可用 - 服务器 {} 暂时无法处理请求 (服务器负载过高或维护中)", host
+            ));
+        } else if lower_response.contains("504 gateway timeout") {
+            return HttpError::Timeout(format!(
+                "网关超时 - 服务器 {} 网关超时 (后端服务响应缓慢)", host
+            ));
+        } else if lower_response.contains("connection refused") {
+            return HttpError::NetworkError(format!(
+                "连接被拒绝 - 服务器 {} 拒绝连接 (服务可能未启动)", host
+            ));
+        }
+
+        // 检查JSON错误类型
+        match err.classify() {
+            serde_json::error::Category::Io => {
+                HttpError::NetworkError(format!("网络IO错误 - 与服务器 {} 的数据传输异常", host))
+            }
+            serde_json::error::Category::Syntax => {
+                if response_text.trim().starts_with('{') || response_text.trim().starts_with('[') {
+                    HttpError::DeserializationFailed(format!(
+                        "JSON格式错误 - 服务器 {} 返回的JSON数据格式异常: {}", host, err
+                    ))
+                } else {
+                    HttpError::NetworkError(format!(
+                        "响应格式异常 - 服务器 {} 返回非JSON数据: {}", host, response_preview
+                    ))
+                }
+            }
+            serde_json::error::Category::Data => {
+                HttpError::DeserializationFailed(format!(
+                    "数据格式不匹配 - 服务器 {} 返回的数据结构与预期不符: {}", host, err
+                ))
+            }
+            serde_json::error::Category::Eof => {
+                HttpError::NetworkError(format!(
+                    "响应不完整 - 服务器 {} 响应数据被截断 (可能服务器异常终止)", host
+                ))
+            }
+        }
     }
 }
 

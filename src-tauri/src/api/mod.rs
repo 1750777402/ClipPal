@@ -70,10 +70,12 @@ where
                 }
             }
         }
-        _ => Err(HttpError::RequestFailed(format!(
-            "API请求失败: {}",
-            resp.message
-        ))),
+        _ => {
+            // 对于标准的ApiResponse，直接使用服务器返回的message，不再添加额外包装
+            let error_msg = resp.message.trim().to_string();
+            log::warn!("API请求失败 [{}] 状态码:{} -> {}", path, resp.code, error_msg);
+            Err(HttpError::RequestFailed(error_msg))
+        }
     }
 }
 
@@ -110,10 +112,10 @@ where
     if resp.code == 200 {
         Ok(resp.data)
     } else {
-        Err(HttpError::RequestFailed(format!(
-            "API请求失败: {}",
-            resp.message
-        )))
+        // 对于公共API的标准ApiResponse，也直接使用服务器返回的message
+        let error_msg = resp.message.trim().to_string();
+        log::warn!("公共API请求失败 [{}] 状态码:{} -> {}", path, resp.code, error_msg);
+        Err(HttpError::RequestFailed(error_msg))
     }
 }
 
@@ -197,9 +199,11 @@ where
                 }
             }
         }
-        _ => Err(HttpError::RequestFailed(format!(
-            "API文件上传请求失败: {}",
-            resp.message
-        ))),
+        _ => {
+            // 对于文件上传API的标准ApiResponse，也直接使用服务器返回的message
+            let error_msg = resp.message.trim().to_string();
+            log::warn!("文件上传API请求失败 [{}] 状态码:{} -> {}", path, resp.code, error_msg);
+            Err(HttpError::RequestFailed(error_msg))
+        }
     }
 }

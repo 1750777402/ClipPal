@@ -90,7 +90,6 @@ impl CloudSyncTimer {
 
     /// 尝试执行同步任务
     async fn try_execute_sync(&self, sync_lock: &GlobalSyncLock, source: &str) {
-        log::info!("云同步任务开始执行");
         // 检查云同步是否开启
         if !check_cloud_sync_enabled().await {
             log::debug!("云同步未开启，跳过{}任务", source);
@@ -106,7 +105,7 @@ impl CloudSyncTimer {
         // 尝试获取锁，执行同步任务
         if let Some(guard) = sync_lock.try_lock() {
             log::info!("开始执行{}云同步任务", source);
-            let result = self.execute_sync_task().await;
+            let result = self.execute_sync_task_with_source(source).await;
             drop(guard); // 显式释放锁
 
             if let Err(e) = result {
@@ -120,17 +119,24 @@ impl CloudSyncTimer {
         }
     }
 
-    /// 执行同步任务
-    pub async fn execute_sync_task(&self) -> AppResult<()> {
-        log::debug!("开始执行云同步定时任务...");
+    /// 执行同步任务（带来源标识）
+    pub async fn execute_sync_task_with_source(&self, source: &str) -> AppResult<()> {
+        log::debug!("开始执行{}云同步任务", source);
 
         let last_sync_time = SyncTime::select_last_time(&self.rb).await;
 
         // 获取一次服务器时间，代表了本次同步的时间戳版本号
-        let server_time = sync_server_time()
-            .await
-            .map_err(|e| AppError::General(format!("获取服务器时间失败: {}", e)))?
-            .unwrap_or(0);
+        let server_time = match sync_server_time().await {
+            Ok(Some(time)) => time,
+            Ok(None) => {
+                log::warn!("获取服务器时间返回空值，使用默认值0");
+                0
+            }
+            Err(e) => {
+                log::error!("云同步失败: 无法获取服务器时间 - {}", e);
+                return Err(AppError::General(format!("云服务不可用: {}", e)));
+            }
+        };
 
         let unsynced_record = self.get_unsynced_records().await?;
         let _ids: Vec<String> = unsynced_record
@@ -154,16 +160,25 @@ impl CloudSyncTimer {
             device_id: GLOBAL_DEVICE_ID.clone(),
         };
 
-        let response = sync_clipboard(&sync_request)
-            .await
-            .map_err(|e| AppError::General(format!("云同步请求失败: {}", e)))?;
+        let response = match sync_clipboard(&sync_request).await {
+            Ok(resp) => resp,
+            Err(e) => {
+                log::error!(
+                    "云同步数据传输失败: {} (待同步记录数: {})",
+                    e,
+                    unsynced_record.len()
+                );
+                return Err(AppError::General(format!("云服务异常: {}", e)));
+            }
+        };
 
         if let Some(cloud_sync_res) = response {
             let mut has_data_changed = false; // 标记是否有数据变化
 
             if let Some(clips) = cloud_sync_res.clips {
                 log::info!(
-                    "云同步定时任务执行完成... 本次上传数据量: {}，拉取数据量：{}",
+                    "{}云同步完成 - 上传{}条记录，拉取{}条记录",
+                    source,
                     unsynced_record.len(),
                     clips.len()
                 );
@@ -192,7 +207,7 @@ impl CloudSyncTimer {
                         obj.pinned_flag = 0; // 默认不置顶
                         obj.cloud_source = Some(1); // 云端同步下来的设置为1
                         let _ = ClipRecord::insert_by_created_sort(&self.rb, obj.clone()).await?;
-                        log::info!("同步数据后拉取到云端新数据，插入新记录: {:?}", obj);
+                        log::debug!("云同步新增记录: {} (类型: {})", new_id, obj.r#type);
                         has_data_changed = true; // 标记数据已变化
 
                         // 插入成功后，更新搜索索引
@@ -207,8 +222,8 @@ impl CloudSyncTimer {
                     } else {
                         // 如果本地有这条记录，那么查看是不是云端同步的是被删除的，如果是那么本地也逻辑删除  并且把同步状态设置为已同步
                         if clip.del_flag.unwrap_or_default() == 1 {
-                            log::info!(
-                                "同步数据后拉取到云端已删除数据，逻辑删除记录: {}",
+                            log::debug!(
+                                "云同步删除记录: {}",
                                 clip.md5_str.clone().unwrap_or_default()
                             );
                             // 如果是删除操作，逻辑删除记录
@@ -233,9 +248,9 @@ impl CloudSyncTimer {
 
             // 如果有数据变化，通知前端刷新
             if has_data_changed {
-                log::info!("云同步后检测到数据变化，通知前端刷新");
+                log::debug!("云同步检测到数据变化，通知前端刷新");
                 if let Err(e) = self.app_handle.emit("clip_record_change", ()) {
-                    log::warn!("通知前端刷新失败: {}", e);
+                    log::warn!("前端数据同步通知发送失败: {}", e);
                 }
             }
 
@@ -246,8 +261,8 @@ impl CloudSyncTimer {
 
             Ok(())
         } else {
-            log::warn!("云同步请求未返回数据");
-            Err(AppError::ClipSync("云同步异常".to_string()))
+            log::error!("云同步异常: 服务器未返回有效数据");
+            Err(AppError::ClipSync("云服务返回异常数据".to_string()))
         }
     }
 
@@ -289,7 +304,7 @@ impl CloudSyncTimer {
             ClipRecord::update_sync_flag(&self.rb, &text_ids, SYNCHRONIZED, server_time).await?;
             self.notify_frontend_sync_status_batch(&text_ids, SYNCHRONIZED)
                 .await?;
-            log::info!("批量更新 {} 条文本记录为已同步", text_ids.len());
+            log::debug!("文本记录同步完成: {}条", text_ids.len());
         }
 
         // 图片类型：检查文件大小，超过限制的跳过同步，否则标记为同步中

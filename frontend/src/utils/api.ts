@@ -13,7 +13,7 @@ const ERROR_SEVERITY_MAP: Record<string, ErrorSeverity> = {
   // 数据查询相关 - 静默处理
   'get_clip_records': ErrorSeverity.SILENT,
   'get_image_base64': ErrorSeverity.SILENT,
-  
+
   // 用户操作相关 - 需要提示
   'copy_clip_record': ErrorSeverity.CRITICAL,
   'copy_clip_record_no_paste': ErrorSeverity.CRITICAL,
@@ -21,18 +21,19 @@ const ERROR_SEVERITY_MAP: Record<string, ErrorSeverity> = {
   'image_save_as': ErrorSeverity.WARNING,
   'del_record': ErrorSeverity.WARNING,
   'set_pinned': ErrorSeverity.INFO,
-  
+
   // 设置相关 - 严重错误
   'save_settings': ErrorSeverity.CRITICAL,
   'load_settings': ErrorSeverity.SILENT,
   'validate_shortcut': ErrorSeverity.WARNING,
-  
+
   // 用户认证相关 - 需要提示
-  'user_login': ErrorSeverity.CRITICAL,
+  'login': ErrorSeverity.CRITICAL,
   'user_register': ErrorSeverity.CRITICAL,
-  'user_logout': ErrorSeverity.INFO,
+  'logout': ErrorSeverity.INFO,
   'validate_token': ErrorSeverity.SILENT,
   'get_user_info': ErrorSeverity.SILENT,
+  'check_login_status': ErrorSeverity.SILENT,
   'update_user_info': ErrorSeverity.WARNING,
 };
 
@@ -66,17 +67,17 @@ export async function apiInvoke<T>(command: string, args?: any): Promise<ApiResp
   } catch (error) {
     const errorMessage = typeof error === 'string' ? error : '操作失败';
     const severity = ERROR_SEVERITY_MAP[command] || ErrorSeverity.INFO;
-    
+
     // 调用全局错误处理器
     if (globalErrorHandler && severity !== ErrorSeverity.SILENT) {
       globalErrorHandler(errorMessage, severity, command);
     }
-    
+
     // 在开发环境下，所有错误都打印到控制台
     if (import.meta.env.DEV) {
       console.error(`API Error [${command}]:`, errorMessage);
     }
-    
+
     return {
       success: false,
       error: errorMessage,
@@ -164,22 +165,22 @@ export const settingsApi = {
 export const userApi = {
   // 用户登录
   async login(params: { account: string; password: string }) {
-    return apiInvoke<{ 
-      user_info: any; 
-      token: string; 
-      expires_in: string; 
+    return apiInvoke<{
+      user_info: any;
+      token: string;
+      expires_in: string;
     }>('login', { param: params });
   },
 
   // 用户注册
-  async register(params: { 
-    nickname: string; 
-    account: string; 
-    password: string; 
-    confirmPassword: string; 
-    email: string; 
-    captcha: string; 
-    phone?: string; 
+  async register(params: {
+    nickname: string;
+    account: string;
+    password: string;
+    confirmPassword: string;
+    email: string;
+    captcha: string;
+    phone?: string;
   }) {
     // 转换参数名称匹配后端
     const backendParams = {
@@ -229,10 +230,10 @@ export const userApi = {
   },
 
   // 更新用户信息（暂时保留，后续实现）
-  async updateUserInfo(params: { 
-    nickname?: string; 
-    email?: string; 
-    avatar?: string; 
+  async updateUserInfo(params: {
+    nickname?: string;
+    email?: string;
+    avatar?: string;
   }) {
     return apiInvoke<{ userInfo: any; message?: string }>('update_user_info', { param: params });
   }
@@ -245,20 +246,98 @@ export function isSuccess<T>(response: ApiResponse<T>): response is ApiResponse<
 
 // 获取用户友好的错误消息
 export function getFriendlyErrorMessage(error: string, command: string): string {
-  // 根据命令和错误内容提供友好的错误消息
+  // 首先清理错误信息
+  const cleanedError = cleanupErrorMessage(error);
+  
+  // 对于所有带服务器API的操作（登录、注册、云同步等），如果是业务错误信息，直接使用
+  const apiCommands = ['login', 'user_register', 'logout'];
+  const isNetworkError = cleanedError && (cleanedError.includes('连接') || cleanedError.includes('网络') || cleanedError.includes('超时') || cleanedError.includes('DNS') || cleanedError.includes('服务器'));
+  
+  if (apiCommands.includes(command) && cleanedError && !isNetworkError) {
+    // 对于服务器API调用的业务错误，直接显示服务器返回的错误信息
+    return cleanedError;
+  }
+
+  // 对于本地业务逻辑错误或网络错误，使用默认的友好提示
   const friendlyMessages: Record<string, string> = {
-    'del_record': '删除失败，请重试',
+    // 系统设置相关
+    'load_settings': '载入设置失败',
     'save_settings': '设置保存失败，请检查配置',
+    'validate_shortcut': '快捷键校验失败',
+    
+    // 剪贴板记录查询
+    'get_clip_records': '获取剪贴板记录失败',
+    'get_image_base64': '获取图片数据失败',
+    
+    // 剪贴板记录操作
     'copy_clip_record': '复制失败',
-    'image_save_as': '图片保存失败',
+    'copy_clip_record_no_paste': '复制失败',
+    'copy_single_file': '复制文件失败',
     'set_pinned': '置顶操作失败',
-    'user_login': '登录失败，请检查账号密码',
-    'user_register': '注册失败，请检查输入信息',
-    'user_logout': '登出失败',
-    'validate_token': 'Token验证失败',
+    'del_record': '删除失败，请重试',
+    'image_save_as': '图片保存失败',
+    
+    // 用户认证相关（网络错误时的备选提示）
+    'login': '登录失败，请检查网络或账号密码',
+    'user_register': '注册失败，请检查网络或输入信息',
+    'logout': '登出失败',
+    'validate_token': '身份验证失败',
     'get_user_info': '获取用户信息失败',
+    'check_login_status': '检查登录状态失败',
     'update_user_info': '更新用户信息失败'
   };
 
-  return friendlyMessages[command] || error || '操作失败';
+  return friendlyMessages[command] || cleanedError || '操作失败';
+}
+
+// 清理错误消息，去除重复和技术细节
+function cleanupErrorMessage(error: string): string {
+  // 如果错误消息包含层层嵌套的相同信息，只保留最有用的部分
+  if (error.includes('云服务异常')) {
+    // 提取最核心的错误信息
+    const match = error.match(/云服务异常[：:]\s*(.+?)(?:\s*\(.+?\))?$/);
+    if (match && match[1]) {
+      return `云服务异常: ${match[1]}`;
+    }
+  }
+
+  if (error.includes('连接失败') || error.includes('无法连接到服务器')) {
+    return '无法连接到云服务器，请检查网络连接或稍后重试';
+  }
+
+  if (error.includes('连接被拒绝') || error.includes('服务器') && error.includes('未启动')) {
+    return '云服务暂时不可用，请稍后重试';
+  }
+
+  if (error.includes('请求超时') || error.includes('响应缓慢')) {
+    return '网络请求超时，请检查网络连接';
+  }
+
+  if (error.includes('DNS解析失败') || error.includes('无法解析域名')) {
+    return '网络连接异常，请检查网络设置';
+  }
+
+  if (error.includes('服务器异常') && error.includes('返回空响应')) {
+    return '云服务暂时不可用，请稍后重试';
+  }
+
+  if (error.includes('用户认证已过期')) {
+    return '登录已过期，请重新登录';
+  }
+
+  if (error.includes('用户未登录')) {
+    return '请先登录后再进行此操作';
+  }
+
+  // 去除重复的前缀
+  let cleaned = error;
+  const prefixes = ['通用错误: ', '云服务错误: ', 'HTTP请求错误: ', '网络错误: '];
+  for (const prefix of prefixes) {
+    if (cleaned.startsWith(prefix)) {
+      cleaned = cleaned.substring(prefix.length);
+      break;
+    }
+  }
+
+  return cleaned;
 }

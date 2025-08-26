@@ -118,7 +118,8 @@ pub async fn login(param: FrontendLoginRequest) -> Result<LoginResponse, String>
         }
         Err(e) => {
             log::error!("用户登录失败: {}", e);
-            Err(format!("登录失败: {}", e))
+            // 直接返回服务器的错误信息，不再添加额外包装
+            Err(e.to_string())
         }
     }
 }
@@ -148,7 +149,8 @@ pub async fn user_register(param: FrontendRegisterRequest) -> Result<UserInfo, S
         }
         Err(e) => {
             log::error!("用户注册失败: {}", e);
-            Err(format!("注册失败: {}", e))
+            // 直接返回服务器的错误信息，不再添加额外包装
+            Err(e.to_string())
         }
     }
 }
