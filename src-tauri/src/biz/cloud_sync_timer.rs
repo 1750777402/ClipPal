@@ -56,7 +56,7 @@ impl CloudSyncTimer {
             // 检查云同步是否开启
             if !check_cloud_sync_enabled().await {
                 log::debug!("云同步未开启，跳过定时任务");
-                sleep(Duration::from_secs(cloud_sync_interval as u64)).await;
+                sleep(Duration::from_secs(1)).await;
                 continue;
             }
 
@@ -125,7 +125,7 @@ impl CloudSyncTimer {
 
         if let Some(cloud_sync_res) = response {
             let mut has_data_changed = false; // 标记是否有数据变化
-            
+
             if let Some(clips) = cloud_sync_res.clips {
                 log::info!(
                     "云同步定时任务执行完成... 本次上传数据量: {}，拉取数据量：{}",
@@ -159,7 +159,7 @@ impl CloudSyncTimer {
                         let _ = ClipRecord::insert_by_created_sort(&self.rb, obj.clone()).await?;
                         log::info!("同步数据后拉取到云端新数据，插入新记录: {:?}", obj);
                         has_data_changed = true; // 标记数据已变化
-                        
+
                         // 插入成功后，更新搜索索引
                         tokio::spawn(async move {
                             if let Err(e) =
@@ -195,7 +195,7 @@ impl CloudSyncTimer {
 
             // 在最后的位置更新本次同步的服务器时间版本号   防止上面哪一步出现异常导致数据没同步成功
             SyncTime::update_last_time(&self.rb, server_time).await?;
-            
+
             // 如果有数据变化，通知前端刷新
             if has_data_changed {
                 log::info!("云同步后检测到数据变化，通知前端刷新");
@@ -203,7 +203,7 @@ impl CloudSyncTimer {
                     log::warn!("通知前端刷新失败: {}", e);
                 }
             }
-            
+
             // 同步完数据之后，检查是否需要删除过期数据
             tokio::spawn(async {
                 try_clean_clip_record().await;
