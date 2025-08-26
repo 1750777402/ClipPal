@@ -62,7 +62,7 @@
                         @click.stop="showImagePreview = true" />
                     
                     <!-- 加载中状态 -->
-                    <div v-else-if="isLoadingImage || (!shouldLoadImage && !imageError)" class="image-placeholder" @click="triggerImageLoad">
+                    <div v-else-if="!isDownloadingFromCloud && (isLoadingImage || (!shouldLoadImage && !imageError))" class="image-placeholder" @click="triggerImageLoad">
                         <div v-if="isLoadingImage" class="placeholder-spinner"></div>
                         <i v-else class="iconfont icon-image placeholder-icon"></i>
                         <span class="loading-text">{{ getImageLoadingText }}</span>
@@ -529,9 +529,6 @@ const getSyncingTitle = computed(() => {
 
 // 获取图片加载状态文本
 const getImageLoadingText = computed(() => {
-    if (isDownloadingFromCloud.value) {
-        return '等待云端下载完成...';
-    }
     if (props.record.sync_flag === 2 && (props.record.cloud_source === 1 || props.record.cloud_source === undefined)) {
         // 如果是云端数据且已下载完成，但还没加载图片
         return isLoadingImage.value ? '加载中...' : '点击加载图片';
