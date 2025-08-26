@@ -3,7 +3,8 @@ use log;
 use rbatis::RBatis;
 use std::sync::{Arc, RwLock};
 use tauri::{AppHandle, Emitter};
-use tokio::time::{Duration, sleep};
+use tokio::sync::mpsc;
+use tokio::time::Duration;
 use uuid::Uuid;
 
 use crate::api::cloud_sync_api::{
@@ -30,15 +31,32 @@ use std::path::PathBuf;
 pub struct CloudSyncTimer {
     app_handle: AppHandle,
     rb: RBatis,
+    trigger_receiver: Option<mpsc::UnboundedReceiver<()>>,
 }
+
+// 全局触发器发送端
+use std::sync::Mutex;
+static TRIGGER_SENDER: Mutex<Option<mpsc::UnboundedSender<()>>> = Mutex::new(None);
 
 impl CloudSyncTimer {
     pub fn new(app_handle: AppHandle, rb: RBatis) -> Self {
-        Self { app_handle, rb }
+        // 创建触发器通道
+        let (trigger_sender, trigger_receiver) = mpsc::unbounded_channel();
+
+        // 保存全局发送端
+        if let Ok(mut sender_guard) = TRIGGER_SENDER.lock() {
+            *sender_guard = Some(trigger_sender);
+        }
+
+        Self {
+            app_handle,
+            rb,
+            trigger_receiver: Some(trigger_receiver),
+        }
     }
 
     /// 启动云同步定时任务
-    pub async fn start(&self) {
+    pub async fn start(mut self) {
         let cloud_sync_interval = {
             let settings_lock = CONTEXT.get::<Arc<RwLock<Settings>>>();
             match safe_read_lock(&settings_lock) {
@@ -52,36 +70,56 @@ impl CloudSyncTimer {
         log::info!("云同步定时任务已启动，间隔: {}秒", cloud_sync_interval);
 
         let sync_lock: &GlobalSyncLock = CONTEXT.get::<GlobalSyncLock>();
+        let mut trigger_receiver = self.trigger_receiver.take().unwrap();
+
+        // 创建定时器
+        let mut timer = tokio::time::interval(Duration::from_secs(cloud_sync_interval as u64));
+        timer.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
         loop {
-            // 检查云同步是否开启
-            if !check_cloud_sync_enabled().await {
-                log::debug!("云同步未开启，跳过定时任务");
-                sleep(Duration::from_secs(1)).await;
-                continue;
-            }
-
-            // 检查用户登录状态
-            if !has_valid_auth() {
-                log::debug!("用户未登录或认证已过期，跳过云同步任务");
-                sleep(Duration::from_secs(cloud_sync_interval as u64)).await;
-                continue;
-            }
-
-            // 尝试获取锁，执行同步任务
-            if let Some(guard) = sync_lock.try_lock() {
-                let result = self.execute_sync_task().await;
-                drop(guard); // 显式释放锁
-
-                if let Err(e) = result {
-                    log::error!("云同步定时任务执行失败: {}", e);
+            tokio::select! {
+                // 定时器触发
+                _ = timer.tick() => {
+                    self.try_execute_sync(sync_lock, "定时任务").await;
                 }
-                // 执行完后等待
-                sleep(Duration::from_secs(cloud_sync_interval as u64)).await;
-            } else {
-                // 获取不到锁，不等待直接下一轮尝试
-                log::debug!("跳过本轮云同步执行，等待下次尝试...");
-                sleep(Duration::from_secs(1)).await;
+                // 立即同步触发
+                _ = trigger_receiver.recv() => {
+                    log::info!("收到立即同步触发信号");
+                    self.try_execute_sync(sync_lock, "立即同步").await;
+                }
             }
+        }
+    }
+
+    /// 尝试执行同步任务
+    async fn try_execute_sync(&self, sync_lock: &GlobalSyncLock, source: &str) {
+        log::info!("云同步任务开始执行");
+        // 检查云同步是否开启
+        if !check_cloud_sync_enabled().await {
+            log::debug!("云同步未开启，跳过{}任务", source);
+            return;
+        }
+
+        // 检查用户登录状态
+        if !has_valid_auth() {
+            log::debug!("用户未登录或认证已过期，跳过{}任务", source);
+            return;
+        }
+
+        // 尝试获取锁，执行同步任务
+        if let Some(guard) = sync_lock.try_lock() {
+            log::info!("开始执行{}云同步任务", source);
+            let result = self.execute_sync_task().await;
+            drop(guard); // 显式释放锁
+
+            if let Err(e) = result {
+                log::error!("{}云同步任务执行失败: {}", source, e);
+            } else {
+                log::info!("{}云同步任务执行成功", source);
+            }
+        } else {
+            // 获取不到锁，说明已有同步任务在执行
+            log::debug!("跳过{}云同步执行（已有任务在执行）", source);
         }
     }
 
@@ -465,6 +503,34 @@ impl CloudSyncTimer {
     }
 }
 
+/// 触发立即同步
+pub fn trigger_immediate_sync() -> Result<(), &'static str> {
+    match TRIGGER_SENDER.lock() {
+        Ok(sender_guard) => {
+            if let Some(sender) = sender_guard.as_ref() {
+                match sender.send(()) {
+                    Ok(()) => {
+                        log::info!("立即同步触发信号已发送");
+                        Ok(())
+                    }
+                    Err(_) => {
+                        log::warn!("立即同步触发信号发送失败，接收端已关闭");
+                        Err("同步任务未启动")
+                    }
+                }
+            } else {
+                log::warn!("立即同步触发器未初始化");
+                Err("同步任务未启动")
+            }
+        }
+        Err(_) => {
+            log::error!("获取立即同步触发器锁失败");
+            Err("同步任务未启动")
+        }
+    }
+}
+
+/// 开始云同步定时任务（供外部调用）
 pub async fn start_cloud_sync_timer(app_handle: AppHandle, rb: RBatis) {
     let timer = CloudSyncTimer::new(app_handle, rb);
     timer.start().await;

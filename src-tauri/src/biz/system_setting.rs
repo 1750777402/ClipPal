@@ -19,6 +19,7 @@ use crate::{
         file_dir::get_config_dir,
         lock_utils::lock_utils::{safe_read_lock, safe_write_lock},
     },
+    biz::cloud_sync_timer::trigger_immediate_sync,
 };
 
 // 默认超过这个大小的内容，使用布隆过滤器进行搜索   不会进行contains
@@ -188,7 +189,18 @@ pub async fn save_settings(settings: Settings) -> Result<(), String> {
         }
     }
 
-    // 4. 更新上下文中的设置
+    // 4. 检查是否需要触发立即云同步
+    if settings.cloud_sync != current_settings.cloud_sync && settings.cloud_sync == 1 {
+        log::info!("检测到云同步从关闭变为开启，触发立即同步");
+        if let Err(e) = trigger_immediate_sync() {
+            log::warn!("触发立即云同步失败: {}", e);
+            // 不返回错误，因为设置保存成功了，只是立即同步失败
+        } else {
+            log::info!("立即云同步触发成功");
+        }
+    }
+
+    // 5. 更新上下文中的设置
     {
         let lock = CONTEXT.get::<Arc<RwLock<Settings>>>().clone();
         let mut current = safe_write_lock(&lock).map_err(|e| e.to_string())?;
