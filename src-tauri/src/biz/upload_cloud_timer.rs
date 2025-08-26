@@ -12,6 +12,7 @@ use crate::biz::system_setting::check_cloud_sync_enabled;
 use crate::errors::{AppError, AppResult};
 use crate::utils::config::get_max_file_size_bytes;
 use crate::utils::file_dir::get_resources_dir;
+use crate::utils::retry_helper::{retry_with_config, RetryConfig};
 use crate::utils::token_manager::has_valid_auth;
 
 /// 这个定时任务是云同步上传记录时，文件类型的内容上传到云端的任务
@@ -124,7 +125,7 @@ async fn process_image_sync(record: &ClipRecord) -> AppResult<()> {
         file: file_path,
     };
 
-    upload_file_and_update_status(&record.id, upload_param).await
+    upload_file_with_retry(&record.id, upload_param).await
 }
 
 /// 处理文件同步
@@ -180,14 +181,15 @@ async fn process_file_sync(record: &ClipRecord) -> AppResult<()> {
                 file: file_path.clone(),
             };
 
-            if let Err(e) = upload_file_and_update_status(&record.id, upload_param).await {
+            if let Err(e) = upload_file_with_retry(&record.id, upload_param).await {
                 log::error!(
                     "文件上传失败: {:?}, 记录ID: {}, 错误: {}",
                     file_path,
                     record.id,
                     e
                 );
-                return Err(e);
+                // 上传失败后，将记录标记为跳过同步，避免死循环
+                return mark_as_skip_sync(&record.id, &format!("文件上传失败: {}", e)).await;
             }
 
             log::info!("文件上传成功: {:?}, 记录ID: {}", file_path, record.id);
@@ -236,13 +238,72 @@ async fn check_file_size(file_path: &PathBuf) -> Result<(), String> {
     }
 }
 
-/// 上传文件并更新状态
+/// 判断上传错误是否应该重试
+fn should_retry_upload_error(error: &AppError) -> bool {
+    match error {
+        // 网络相关错误可以重试
+        AppError::Http(_) => true,
+        // 通用错误中的网络问题可以重试
+        AppError::General(msg) => {
+            let msg_lower = msg.to_lowercase();
+            msg_lower.contains("网络") 
+            || msg_lower.contains("timeout") 
+            || msg_lower.contains("connection")
+            || msg_lower.contains("上传")
+            || msg_lower.contains("请求失败")
+            || msg_lower.contains("响应为空")
+        },
+        // 其他错误类型不重试
+        _ => false,
+    }
+}
+
+/// 带重试的文件上传 - 使用 backon
+async fn upload_file_with_retry(
+    record_id: &str,
+    upload_param: FileCloudSyncParam,
+) -> AppResult<()> {
+    log::info!("开始上传文件（带重试），记录ID: {}", record_id);
+    
+    // 配置文件上传的重试策略
+    let retry_config = RetryConfig::new(3, 5000) // 最多重试3次，初始延迟5秒
+        .with_backoff_multiplier(2.0)            // 指数退避，延迟时间每次翻倍
+        .with_max_delay(120000)                  // 最大延迟2分钟
+        .with_jitter(true);                      // 启用抖动，避免惊群效应
+    
+    // 使用 backon 执行带重试的上传操作
+    let result = retry_with_config(
+        retry_config,
+        || {
+            let param = upload_param.clone();
+            let id = record_id.to_string();
+            async move {
+                upload_file_and_update_status(&id, param).await
+            }
+        },
+        should_retry_upload_error,
+    ).await;
+
+    // 处理结果
+    match result {
+        Ok(_) => {
+            log::info!("文件上传最终成功，记录ID: {}", record_id);
+            Ok(())
+        }
+        Err(e) => {
+            log::error!("文件上传最终失败，记录ID: {}，错误: {}", record_id, e);
+            Err(e)
+        }
+    }
+}
+
+/// 核心上传逻辑（被重试机制调用）
 async fn upload_file_and_update_status(
     record_id: &str,
     upload_param: FileCloudSyncParam,
 ) -> AppResult<()> {
-    log::info!(
-        "开始上传文件，记录ID: {}, 文件: {:?}",
+    log::debug!(
+        "执行文件上传，记录ID: {}, 文件: {:?}",
         record_id,
         upload_param.file
     );
@@ -274,12 +335,12 @@ async fn upload_file_and_update_status(
                     }
                 }
             } else {
-                Err(AppError::General("文件上传失败".to_string()))
+                Err(AppError::General("文件上传响应为空".to_string()))
             }
         }
         Err(e) => {
-            log::error!("文件上传失败，记录ID: {}, 错误: {}", record_id, e);
-            Err(AppError::General("文件上传失败".to_string()))
+            log::warn!("文件上传请求失败，记录ID: {}, 错误: {}", record_id, e);
+            Err(AppError::General(format!("文件上传请求失败: {}", e)))
         }
     }
 }

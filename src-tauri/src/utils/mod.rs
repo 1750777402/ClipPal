@@ -7,5 +7,6 @@ pub mod file_ext;
 pub mod http_client;
 pub mod lock_utils;
 pub mod path_utils;
+pub mod retry_helper;
 pub mod secure_store;
 pub mod token_manager;

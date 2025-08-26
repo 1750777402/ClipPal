@@ -11,10 +11,12 @@ use crate::{
             image_save_as, set_pinned,
         },
         download_cloud_file::start_cloud_file_download_timer,
-        file_sync_timer::start_file_sync_timer,
         query_clip_record::{get_clip_records, get_image_base64},
         system_setting::{init_settings, load_settings, save_settings, validate_shortcut},
-        user_auth::{login, user_register, logout, validate_token, get_user_info, check_login_status},
+        upload_cloud_timer::start_file_sync_timer,
+        user_auth::{
+            check_login_status, get_user_info, login, logout, user_register, validate_token,
+        },
     },
     log_config::init_logging,
     utils::lock_utils::create_global_sync_lock,
@@ -170,7 +172,6 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
 
                 // 启动文件同步定时任务
                 start_file_sync_timer();
-
 
                 // 开启粘贴板内容监听器
                 manager.start_event_loop();
