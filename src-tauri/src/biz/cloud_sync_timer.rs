@@ -1,7 +1,7 @@
 use clipboard_listener::ClipType;
 use log;
 use rbatis::RBatis;
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, OnceLock, RwLock};
 use tauri::{AppHandle, Emitter};
 use tokio::sync::mpsc;
 use tokio::time::Duration;
@@ -35,8 +35,7 @@ pub struct CloudSyncTimer {
 }
 
 // 全局触发器发送端
-use std::sync::Mutex;
-static TRIGGER_SENDER: Mutex<Option<mpsc::UnboundedSender<()>>> = Mutex::new(None);
+static TRIGGER_SENDER: OnceLock<mpsc::UnboundedSender<()>> = OnceLock::new();
 
 impl CloudSyncTimer {
     pub fn new(app_handle: AppHandle, rb: RBatis) -> Self {
@@ -44,9 +43,7 @@ impl CloudSyncTimer {
         let (trigger_sender, trigger_receiver) = mpsc::unbounded_channel();
 
         // 保存全局发送端
-        if let Ok(mut sender_guard) = TRIGGER_SENDER.lock() {
-            *sender_guard = Some(trigger_sender);
-        }
+        let _ = TRIGGER_SENDER.set(trigger_sender);
 
         Self {
             app_handle,
@@ -505,28 +502,20 @@ impl CloudSyncTimer {
 
 /// 触发立即同步
 pub fn trigger_immediate_sync() -> Result<(), &'static str> {
-    match TRIGGER_SENDER.lock() {
-        Ok(sender_guard) => {
-            if let Some(sender) = sender_guard.as_ref() {
-                match sender.send(()) {
-                    Ok(()) => {
-                        log::info!("立即同步触发信号已发送");
-                        Ok(())
-                    }
-                    Err(_) => {
-                        log::warn!("立即同步触发信号发送失败，接收端已关闭");
-                        Err("同步任务未启动")
-                    }
-                }
-            } else {
-                log::warn!("立即同步触发器未初始化");
+    if let Some(sender) = TRIGGER_SENDER.get() {
+        match sender.send(()) {
+            Ok(()) => {
+                log::info!("立即同步触发信号已发送");
+                Ok(())
+            }
+            Err(_) => {
+                log::warn!("立即同步触发信号发送失败，接收端已关闭");
                 Err("同步任务未启动")
             }
         }
-        Err(_) => {
-            log::error!("获取立即同步触发器锁失败");
-            Err("同步任务未启动")
-        }
+    } else {
+        log::warn!("立即同步触发器未初始化");
+        Err("同步任务未启动")
     }
 }
 
