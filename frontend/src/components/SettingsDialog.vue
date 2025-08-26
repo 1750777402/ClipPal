@@ -26,7 +26,7 @@
             </div>
             <div class="number-input">
               <button class="number-button" @click="decreaseMaxRecords">-</button>
-              <input type="number" v-model.number="settings.max_records" min="50" max="1000">
+              <input type="number" v-model.number="settings.max_records" min="50" max="1000" autocomplete="off">
               <button class="number-button" @click="increaseMaxRecords">+</button>
             </div>
           </div>

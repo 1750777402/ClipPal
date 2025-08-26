@@ -30,6 +30,7 @@ const ERROR_SEVERITY_MAP: Record<string, ErrorSeverity> = {
   // 用户认证相关 - 需要提示
   'login': ErrorSeverity.CRITICAL,
   'user_register': ErrorSeverity.CRITICAL,
+  'send_email_code': ErrorSeverity.WARNING,
   'logout': ErrorSeverity.INFO,
   'validate_token': ErrorSeverity.SILENT,
   'get_user_info': ErrorSeverity.SILENT,
@@ -200,6 +201,11 @@ export const userApi = {
     return apiInvoke<string>('logout');
   },
 
+  // 发送邮箱验证码
+  async sendEmailCode(params: { email: string }) {
+    return apiInvoke<string>('send_email_code', { param: params });
+  },
+
   // 验证Token
   async validateToken() {
     return apiInvoke<boolean>('validate_token');
@@ -249,8 +255,8 @@ export function getFriendlyErrorMessage(error: string, command: string): string 
   // 首先清理错误信息
   const cleanedError = cleanupErrorMessage(error);
   
-  // 对于所有带服务器API的操作（登录、注册、云同步等），如果是业务错误信息，直接使用
-  const apiCommands = ['login', 'user_register', 'logout'];
+  // 对于所有带服务器API的操作（登录、注册、验证码等），如果是业务错误信息，直接使用
+  const apiCommands = ['login', 'user_register', 'send_email_code', 'logout'];
   const isNetworkError = cleanedError && (cleanedError.includes('连接') || cleanedError.includes('网络') || cleanedError.includes('超时') || cleanedError.includes('DNS') || cleanedError.includes('服务器'));
   
   if (apiCommands.includes(command) && cleanedError && !isNetworkError) {
@@ -280,6 +286,7 @@ export function getFriendlyErrorMessage(error: string, command: string): string 
     // 用户认证相关（网络错误时的备选提示）
     'login': '登录失败，请检查网络或账号密码',
     'user_register': '注册失败，请检查网络或输入信息',
+    'send_email_code': '发送验证码失败，请检查网络连接',
     'logout': '登出失败',
     'validate_token': '身份验证失败',
     'get_user_info': '获取用户信息失败',

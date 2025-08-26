@@ -19,6 +19,10 @@
               required
               :disabled="isLoading"
               @keypress.enter="handleLogin"
+              autocomplete="off"
+              autocorrect="off"
+              autocapitalize="none"
+              spellcheck="false"
             />
           </div>
           
@@ -32,6 +36,10 @@
               required
               :disabled="isLoading"
               @keypress.enter="handleLogin"
+              autocomplete="off"
+              autocorrect="off"
+              autocapitalize="none"
+              spellcheck="false"
             />
           </div>
           
@@ -65,6 +73,10 @@
               required
               :disabled="isLoading"
               :class="{ 'error': fieldValidation.nickname.error }"
+              autocomplete="off"
+              autocorrect="off"
+              autocapitalize="none"
+              spellcheck="false"
             />
             <div v-if="fieldValidation.nickname.error" class="field-error">
               {{ fieldValidation.nickname.error }}
@@ -81,6 +93,10 @@
               required
               :disabled="isLoading"
               :class="{ 'error': fieldValidation.account.error }"
+              autocomplete="off"
+              autocorrect="off"
+              autocapitalize="none"
+              spellcheck="false"
             />
             <div v-if="fieldValidation.account.error" class="field-error">
               {{ fieldValidation.account.error }}
@@ -97,6 +113,10 @@
               required
               :disabled="isLoading"
               :class="{ 'error': fieldValidation.password.error }"
+              autocomplete="off"
+              autocorrect="off"
+              autocapitalize="none"
+              spellcheck="false"
             />
             <div v-if="fieldValidation.password.error" class="field-error">
               {{ fieldValidation.password.error }}
@@ -113,6 +133,10 @@
               required
               :disabled="isLoading"
               :class="{ 'error': fieldValidation.confirmPassword.error }"
+              autocomplete="off"
+              autocorrect="off"
+              autocapitalize="none"
+              spellcheck="false"
             />
             <div v-if="fieldValidation.confirmPassword.error" class="field-error">
               {{ fieldValidation.confirmPassword.error }}
@@ -129,6 +153,10 @@
               required
               :disabled="isLoading"
               :class="{ 'error': fieldValidation.email.error }"
+              autocomplete="off"
+              autocorrect="off"
+              autocapitalize="none"
+              spellcheck="false"
             />
             <div v-if="fieldValidation.email.error" class="field-error">
               {{ fieldValidation.email.error }}
@@ -146,6 +174,10 @@
                 required
                 :disabled="isLoading"
                 :class="{ 'error': fieldValidation.captcha.error }"
+                autocomplete="off"
+                autocorrect="off"
+                autocapitalize="none"
+                spellcheck="false"
               />
               <button
                 type="button"
@@ -169,6 +201,10 @@
               type="tel"
               placeholder="请输入手机号（可选）"
               :disabled="isLoading"
+              autocomplete="off"
+              autocorrect="off"
+              autocapitalize="none"
+              spellcheck="false"
             />
           </div>
           
@@ -355,11 +391,16 @@ const sendEmailCaptcha = async () => {
   isCaptchaLoading.value = true
   
   try {
-    // TODO: 这里需要添加发送验证码的API调用
-    // 暂时模拟发送验证码
-    await new Promise(resolve => setTimeout(resolve, 1000))
+    // 调用后端发送验证码接口
+    const result = await userApi.sendEmailCode({ email: registerForm.email })
     
-    showMessageBar('验证码已发送到您的邮箱，请查收', 'info')
+    if (result.success) {
+      showMessageBar('验证码已发送到您的邮箱，请查收', 'info')
+    } else {
+      // 这种情况不应该发生，因为 apiInvoke 会在失败时抛出异常
+      showMessageBar(result.error || '发送失败', 'warning')
+      return
+    }
     
     // 开始倒计时
     captchaCountdown.value = 60
@@ -375,7 +416,9 @@ const sendEmailCaptcha = async () => {
     
   } catch (error) {
     console.error('发送验证码失败:', error)
-    showMessageBar('发送验证码失败，请稍后重试', 'error')
+    // 显示具体的错误信息（如邮箱已注册），或使用默认错误信息
+    const errorMessage = typeof error === 'string' ? error : '发送验证码失败，请稍后重试'
+    showMessageBar(errorMessage, 'warning')
   } finally {
     isCaptchaLoading.value = false
   }

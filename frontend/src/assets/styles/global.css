@@ -24,6 +24,15 @@ textarea,
     user-select: text;
 }
 
+/* 全局禁用输入框自动完成和相关功能 */
+input,
+textarea {
+    autocomplete: off;
+    autocorrect: off;
+    autocapitalize: none;
+    spellcheck: false;
+}
+
 /* 根元素字体大小设置 - rem基准 */
 html {
     /* 基础字体大小，用于rem计算 */

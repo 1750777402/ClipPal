@@ -1,6 +1,9 @@
 use serde::{Deserialize, Serialize};
 
-use crate::{api::{api_post_public, api_post}, utils::http_client::HttpError};
+use crate::{
+    api::{api_post, api_post_public},
+    utils::http_client::HttpError,
+};
 
 /// -------------------------------------用户登录api---------------------------------------------------------
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -51,6 +54,18 @@ pub struct RegisterRequestParam {
 /// 用户注册接口（公共接口，不需要认证）
 pub async fn user_register(request: &RegisterRequestParam) -> Result<Option<UserInfo>, HttpError> {
     api_post_public("cliPal-sync/auth/register", Some(request)).await
+}
+
+/// -----------------------------------------------发送验证码--------------------------------------------------------------------
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EmailCodeRequestParam {
+    pub email: String,
+}
+
+/// 发送验证码（公共接口，不需要认证）
+pub async fn send_email_code(request: &EmailCodeRequestParam) -> Result<Option<bool>, HttpError> {
+    api_post_public("cliPal-sync/auth/sendEmailCode", Some(request)).await
 }
 
 /// ---------------------------------------------刷新身份令牌-------------------------------------------------------------------

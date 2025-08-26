@@ -1,13 +1,14 @@
 use serde::{Deserialize, Serialize};
 
 use crate::{
+    CONTEXT,
     api::user_auth_api::{
-        AuthResponse, LoginRequestParam, RegisterRequestParam, UserInfo as ApiUserInfo, user_login,
-        user_register as api_user_register, user_logout as api_user_logout,
+        AuthResponse, EmailCodeRequestParam, LoginRequestParam, RegisterRequestParam,
+        UserInfo as ApiUserInfo, send_email_code as api_send_email_code, user_login,
+        user_logout as api_user_logout, user_register as api_user_register,
     },
     utils::secure_store::SECURE_STORE,
     utils::token_manager::has_valid_auth,
-    CONTEXT,
 };
 use tauri::Emitter;
 
@@ -48,6 +49,12 @@ pub struct FrontendRegisterRequest {
     pub phone: Option<String>,
 }
 
+// 前端发送验证码请求结构
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FrontendSendEmailCodeRequest {
+    pub email: String,
+}
+
 impl From<FrontendLoginRequest> for LoginRequestParam {
     fn from(request: FrontendLoginRequest) -> Self {
         LoginRequestParam {
@@ -67,6 +74,14 @@ impl From<FrontendRegisterRequest> for RegisterRequestParam {
             email: request.email,
             captcha: request.captcha,
             phone: request.phone,
+        }
+    }
+}
+
+impl From<FrontendSendEmailCodeRequest> for EmailCodeRequestParam {
+    fn from(request: FrontendSendEmailCodeRequest) -> Self {
+        EmailCodeRequestParam {
+            email: request.email,
         }
     }
 }
@@ -155,6 +170,37 @@ pub async fn user_register(param: FrontendRegisterRequest) -> Result<UserInfo, S
     }
 }
 
+#[tauri::command]
+pub async fn send_email_code(param: FrontendSendEmailCodeRequest) -> Result<String, String> {
+    log::info!("发送验证码请求: {}", param.email);
+
+    // 转换为API请求参数
+    let api_param: EmailCodeRequestParam = param.into();
+
+    let send_res = api_send_email_code(&api_param).await;
+    match send_res {
+        Ok(response) => {
+            if let Some(success_flag) = response {
+                if success_flag {
+                    log::info!("验证码发送成功");
+                    Ok("验证码已发送".to_string())
+                } else {
+                    log::warn!("验证码发送失败: 服务器返回 false");
+                    Err("验证码发送失败".to_string())
+                }
+            } else {
+                log::warn!("验证码发送失败: 服务器返回空数据");
+                Err("验证码发送失败".to_string())
+            }
+        }
+        Err(e) => {
+            log::error!("发送验证码失败: {}", e);
+            // 直接返回服务器的错误信息，不再添加额外包装
+            Err(e.to_string())
+        }
+    }
+}
+
 /// 存储认证数据到加密文件
 async fn store_auth_data(auth_response: &AuthResponse) -> Result<(), String> {
     // 获取写锁并存储所有认证数据
@@ -204,7 +250,6 @@ pub fn get_stored_access_token() -> Option<String> {
         }
     }
 }
-
 
 /// 获取存储的用户信息
 pub fn get_stored_user_info() -> Option<UserInfo> {
@@ -280,7 +325,7 @@ pub async fn logout() -> Result<String, String> {
 
     // 通知前端云同步功能状态已更新
     notify_cloud_sync_disabled().await;
-    
+
     log::info!("用户登出完成");
     Ok("登出成功".to_string())
 }
@@ -345,7 +390,7 @@ pub async fn check_login_status() -> Result<Option<UserInfo>, String> {
 /// 通知前端认证状态已清除
 async fn notify_auth_cleared() {
     log::info!("通知前端认证状态已清除");
-    
+
     // 通过Tauri事件系统通知前端
     if let Some(app_handle) = CONTEXT.try_get::<tauri::AppHandle>() {
         if let Err(e) = app_handle.emit("auth-cleared", ()) {
@@ -357,7 +402,7 @@ async fn notify_auth_cleared() {
 /// 通知前端云同步已被禁用
 async fn notify_cloud_sync_disabled() {
     log::info!("通知前端云同步已被禁用");
-    
+
     // 通过Tauri事件系统通知前端
     if let Some(app_handle) = CONTEXT.try_get::<tauri::AppHandle>() {
         if let Err(e) = app_handle.emit("cloud-sync-disabled", ()) {
