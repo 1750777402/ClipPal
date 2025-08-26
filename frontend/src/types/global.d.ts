@@ -18,6 +18,7 @@ export interface ClipRecord {
     height?: number;
   };
   sync_flag?: 0 | 1 | 2 | 3; // 0: 未同步, 1: 同步中, 2: 已同步, 3: 不支持同步
+  cloud_source?: 0 | 1; // 0: 本地数据, 1: 云端同步数据
 }
 
 // 文件信息类型

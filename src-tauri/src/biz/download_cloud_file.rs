@@ -10,6 +10,7 @@ use crate::{
     CONTEXT,
     api::cloud_sync_api::{DownloadCloudFileParam, get_dowload_url},
     biz::clip_record::{ClipRecord, SKIP_SYNC, SYNCHRONIZING},
+    biz::query_clip_record::get_file_info_with_paths,
     errors::{AppError, AppResult},
     utils::{
         file_dir::get_resources_dir,
@@ -232,9 +233,31 @@ async fn download_cloud_file_core(app_handle: AppHandle, record: ClipRecord) -> 
     let rb: &RBatis = CONTEXT.get::<RBatis>();
     ClipRecord::update_after_cloud_download(rb, &record.id, &filename, &absolute_path).await?;
 
-    // 通知前端刷新数据显示
-    if let Err(e) = app_handle.emit("clip_record_change", ()) {
+    // 通知前端单条记录下载完成，提供更好的用户体验
+    let mut update_payload = serde_json::json!({
+        "record_id": record.id,
+        "action": "download_completed",
+        "filename": filename,
+        "path": absolute_path
+    });
+
+    // 对于文件类型，提供完整的文件信息结构
+    if record.r#type == ClipType::File.to_string() {
+        let file_info = get_file_info_with_paths(filename.clone(), absolute_path.clone());
+        update_payload["file_info"] = serde_json::to_value(file_info).unwrap_or_default();
+    }
+
+    if let Err(e) = app_handle.emit("clip_record_download_completed", update_payload) {
         log::warn!("Failed to notify frontend about download completion: {}", e);
+
+        // 只有在单记录更新失败时才使用通用刷新作为后备
+        if let Err(fallback_err) = app_handle.emit("clip_record_change", ()) {
+            log::error!(
+                "Both specific and fallback notifications failed: {}, {}",
+                e,
+                fallback_err
+            );
+        }
     }
 
     log::info!(

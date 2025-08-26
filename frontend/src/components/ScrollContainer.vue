@@ -136,6 +136,10 @@ const lastFetchTime = ref(0);
 const CACHE_DURATION = 2000; // 2秒内避免重复请求
 const lastSearchValue = ref('');
 
+// 防止单记录更新后立即全局刷新的防抖机制
+const recentlyUpdatedRecords = new Set<string>();
+const SINGLE_UPDATE_COOLDOWN = 1000; // 1秒内不重复刷新
+
 const scrollContainer = ref<HTMLElement | null>(null);
 
 // 回到顶部按钮相关
@@ -177,6 +181,7 @@ interface ClipRecord {
   file_info?: FileInfo[];
   image_info?: ImageInfo;
   sync_flag?: 0 | 1 | 2 | 3; // 0未同步 1同步中 2已同步 3跳过同步
+  cloud_source?: 0 | 1; // 0本地数据 1云端同步数据
 }
 
 interface ImageInfo {
@@ -201,7 +206,13 @@ const handleCardClick = async (item: ClipRecord) => {
 const initEventListeners = async () => {
   try {
     await listen('clip_record_change', () => {
-      smartRefresh();
+      // 如果没有最近的单记录更新，则执行智能刷新
+      if (recentlyUpdatedRecords.size === 0) {
+        console.log('执行通用刷新：无最近单记录更新');
+        smartRefresh();
+      } else {
+        console.log('跳过通用刷新：有最近的单记录更新', Array.from(recentlyUpdatedRecords));
+      }
     });
     await listen('open_settings_windows', () => {
       showSettings.value = true;
@@ -220,6 +231,50 @@ const initEventListeners = async () => {
         const card = cards.value.find(c => c.id === clip_id);
         if (card) card.sync_flag = sync_flag;
       });
+    });
+    // 云文件下载完成事件 - 单记录更新，提供更好的用户体验
+    await listen('clip_record_download_completed', (event) => {
+      const { record_id, filename, path, file_info } = event.payload as { 
+        record_id: string, 
+        action: string, 
+        filename: string, 
+        path: string,
+        file_info?: FileInfo[]
+      };
+      console.log('收到单个记录下载完成事件:', record_id, { filename, path, file_info });
+      
+      // 找到对应的记录并更新其状态
+      const cardIndex = cards.value.findIndex(c => c.id === record_id);
+      if (cardIndex !== -1) {
+        const card = cards.value[cardIndex];
+        
+        // 更新同步状态为已完成
+        card.sync_flag = 2;
+        
+        // 对于文件类型，使用后端提供的file_info数据
+        if (card.type === 'File' && file_info) {
+          card.content = filename;
+          card.file_info = file_info;
+          console.log('文件记录已更新:', record_id, { content: filename, file_info });
+        } else {
+          // 对于非文件类型（如图片），只更新同步状态
+          console.log('非文件记录状态已更新:', record_id);
+        }
+        
+        // 强制触发响应式更新
+        cards.value = [...cards.value];
+        
+        // 标记该记录最近被更新，防止不必要的全局刷新
+        recentlyUpdatedRecords.add(record_id);
+        setTimeout(() => {
+          recentlyUpdatedRecords.delete(record_id);
+        }, SINGLE_UPDATE_COOLDOWN);
+        
+      } else {
+        // 如果找不到记录，说明可能是新数据，进行静默刷新
+        console.log('未找到对应记录，执行静默刷新');
+        silentRefresh();
+      }
     });
   } catch (error) {
     console.error('事件监听失败:', error);

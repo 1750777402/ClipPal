@@ -15,7 +15,7 @@
                     </span>
                     <div v-if="cloudSyncEnabled && record.sync_flag !== undefined" class="sync-dot">
                         <span v-if="record.sync_flag === 0" class="sync-unsynced" title="未同步"></span>
-                        <span v-else-if="record.sync_flag === 1" class="sync-syncing" title="同步中">
+                        <span v-else-if="record.sync_flag === 1" class="sync-syncing" :title="getSyncingTitle">
                             <i class="iconfont icon-loading sync-loading"></i>
                         </span>
                         <span v-else-if="record.sync_flag === 2" class="sync-synced" title="已同步"></span>
@@ -65,17 +65,27 @@
                     <div v-else-if="isLoadingImage || (!shouldLoadImage && !imageError)" class="image-placeholder" @click="triggerImageLoad">
                         <div v-if="isLoadingImage" class="placeholder-spinner"></div>
                         <i v-else class="iconfont icon-image placeholder-icon"></i>
-                        <span class="loading-text">{{ isLoadingImage ? '加载中...' : '点击加载图片' }}</span>
+                        <span class="loading-text">{{ getImageLoadingText }}</span>
                         <div v-if="record.image_info" class="image-meta">
                             {{ formatFileSize(record.image_info.size) }}
                         </div>
                     </div>
                     
                     <!-- 错误状态 -->
-                    <div v-if="imageError" class="image-error">
+                    <div v-if="imageError && !isDownloadingFromCloud" class="image-error">
                         <i class="iconfont icon-tishi"></i>
                         <span class="error-text">图片加载失败</span>
                         <button class="retry-btn" @click="loadImageBase64">重试</button>
+                    </div>
+                    
+                    <!-- 云端下载状态 -->
+                    <div v-if="isDownloadingFromCloud" class="image-downloading">
+                        <div class="downloading-spinner"></div>
+                        <i class="iconfont icon-cloud downloading-icon"></i>
+                        <span class="downloading-text">正在从云端下载...</span>
+                        <div v-if="record.image_info" class="image-meta">
+                            {{ formatFileSize(record.image_info.size) }}
+                        </div>
                     </div>
                 </div>
             </template>
@@ -83,7 +93,18 @@
             <!-- 文件类型 -->
             <template v-else-if="record.type === 'File'">
                 <div class="file-content">
-                    <div class="file-list">
+                    <!-- 云端下载状态显示 -->
+                    <div v-if="isDownloadingFromCloud" class="file-downloading">
+                        <div class="downloading-container">
+                            <div class="downloading-spinner"></div>
+                            <i class="iconfont icon-cloud downloading-icon"></i>
+                            <div class="downloading-info">
+                                <span class="downloading-text">正在从云端下载文件...</span>
+                                <span class="downloading-desc">下载完成后将自动显示文件信息</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div v-else class="file-list">
                         <div v-for="(file, index) in fileList" :key="index" class="file-item">
                             <div class="file-icon-wrapper">
                                 <i class="iconfont icon-file"></i>
@@ -102,7 +123,7 @@
                             </button>
                         </div>
                     </div>
-                    <div class="file-count" v-if="fileList.length > 1">
+                    <div class="file-count" v-if="!isDownloadingFromCloud && fileList.length > 1">
                         共 {{ fileList.length }} 个文件
                     </div>
                 </div>
@@ -184,7 +205,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, shallowRef } from 'vue';
+import { ref, computed, onMounted, onUnmounted, shallowRef, watch } from 'vue';
 import { formatDistanceToNow } from 'date-fns';
 import { zhCN } from 'date-fns/locale';
 import VueEasyLightbox from 'vue-easy-lightbox';
@@ -262,11 +283,30 @@ const loadImageBase64 = async () => {
 
 // 触发图片加载（可见时或用户交互时）
 const triggerImageLoad = () => {
+    // 如果正在从云端下载，不触发本地加载
+    if (isDownloadingFromCloud.value) {
+        return;
+    }
     if (!shouldLoadImage.value && props.record.type === 'Image') {
         shouldLoadImage.value = true;
         loadImageBase64();
     }
 };
+
+// 监听同步状态变化，当从云端下载完成时自动加载图片
+watch(() => props.record.sync_flag, (newFlag, oldFlag) => {
+    // 当从同步中(1)变为已同步(2)时，且是图片类型，自动加载图片
+    if (oldFlag === 1 && newFlag === 2 && props.record.type === 'Image') {
+        console.log('云端下载完成，自动加载图片:', props.record.id);
+        // 稍微延迟一下再加载，确保状态更新完成
+        setTimeout(() => {
+            if (!shouldLoadImage.value && !imageBase64Data.value) {
+                shouldLoadImage.value = true;
+                loadImageBase64();
+            }
+        }, 100);
+    }
+});
 
 // 检查是否需要显示自动粘贴提示
 const checkFirstAutoPasteUsage = () => {
@@ -462,6 +502,43 @@ const getFileName = (filePath: string) => {
     return filePath.split(/[\\/]/).pop() || filePath;
 };
 
+// 检测是否正在从云端下载
+const isDownloadingFromCloud = computed(() => {
+    // 只要sync_flag为1且cloud_source为1，就认为正在下载
+    // 但需要考虑cloud_source可能为空的情况
+    return props.record.sync_flag === 1 && (props.record.cloud_source === 1 || props.record.cloud_source === undefined);
+});
+
+// 获取同步状态的提示文本
+const getSyncingTitle = computed(() => {
+    if (props.record.sync_flag === 1) {
+        // 根据cloud_source判断是本地同步还是云端下载
+        if (props.record.cloud_source === 1 || props.record.cloud_source === undefined) {
+            if (props.record.type === 'Image') {
+                return '正在从云端下载图片...';
+            } else if (props.record.type === 'File') {
+                return '正在从云端下载文件...';
+            }
+            return '正在从云端下载...';
+        } else {
+            return '同步中';
+        }
+    }
+    return '同步中';
+});
+
+// 获取图片加载状态文本
+const getImageLoadingText = computed(() => {
+    if (isDownloadingFromCloud.value) {
+        return '等待云端下载完成...';
+    }
+    if (props.record.sync_flag === 2 && (props.record.cloud_source === 1 || props.record.cloud_source === undefined)) {
+        // 如果是云端数据且已下载完成，但还没加载图片
+        return isLoadingImage.value ? '加载中...' : '点击加载图片';
+    }
+    return isLoadingImage.value ? '加载中...' : '点击加载图片';
+});
+
 // 图片容器引用
 const imageContainer = ref<HTMLElement>();
 
@@ -471,9 +548,15 @@ onMounted(() => {
         const observer = new IntersectionObserver(
             (entries) => {
                 entries.forEach((entry) => {
-                    if (entry.isIntersecting && !shouldLoadImage.value) {
-                        triggerImageLoad();
-                        observer.unobserve(entry.target);
+                    if (entry.isIntersecting && !shouldLoadImage.value && !isDownloadingFromCloud.value) {
+                        // 如果是云端数据且已下载完成，或者是本地数据，则加载图片
+                        const isCloudCompleted = props.record.sync_flag === 2 && (props.record.cloud_source === 1 || props.record.cloud_source === undefined);
+                        const isLocal = props.record.cloud_source === 0 || props.record.cloud_source === undefined;
+                        
+                        if (isCloudCompleted || isLocal) {
+                            triggerImageLoad();
+                            observer.unobserve(entry.target);
+                        }
                     }
                 });
             },
@@ -1013,6 +1096,107 @@ onMounted(() => {
 .retry-btn:hover {
     background: var(--primary-hover-color, #234e52);
     transform: translateY(-1px);
+}
+
+/* 云端下载状态样式 - 图片 */
+.image-downloading {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    gap: 12px;
+    background: linear-gradient(135deg, #e3f2fd 0%, #f0f9ff 100%);
+    border-radius: 8px;
+    position: relative;
+}
+
+.downloading-spinner {
+    width: 32px;
+    height: 32px;
+    border: 3px solid rgba(33, 150, 243, 0.2);
+    border-top-color: #2196f3;
+    border-radius: 50%;
+    animation: download-spin 1.2s linear infinite;
+}
+
+@keyframes download-spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+.downloading-icon {
+    font-size: 24px;
+    color: #2196f3;
+    opacity: 0.8;
+    animation: download-pulse 2s ease-in-out infinite;
+}
+
+@keyframes download-pulse {
+    0%, 100% { 
+        opacity: 0.8; 
+        transform: scale(1);
+    }
+    50% { 
+        opacity: 1; 
+        transform: scale(1.1);
+    }
+}
+
+.downloading-text {
+    font-size: 13px;
+    color: #1976d2;
+    font-weight: 500;
+    text-align: center;
+}
+
+/* 云端下载状态样式 - 文件 */
+.file-downloading {
+    padding: 20px;
+    background: linear-gradient(135deg, #e8f5e8 0%, #f0fff4 100%);
+    border-radius: 8px;
+    border: 1px solid #4caf50;
+}
+
+.downloading-container {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+
+.file-downloading .downloading-spinner {
+    width: 24px;
+    height: 24px;
+    border: 2px solid rgba(76, 175, 80, 0.3);
+    border-top-color: #4caf50;
+    flex-shrink: 0;
+}
+
+.file-downloading .downloading-icon {
+    font-size: 20px;
+    color: #4caf50;
+    flex-shrink: 0;
+}
+
+.downloading-info {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    flex: 1;
+}
+
+.file-downloading .downloading-text {
+    font-size: 14px;
+    color: #2e7d32;
+    font-weight: 500;
+    margin: 0;
+}
+
+.downloading-desc {
+    font-size: 12px;
+    color: #4caf50;
+    opacity: 0.8;
 }
 
 /* 文件内容样式 */

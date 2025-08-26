@@ -12,13 +12,13 @@ use crate::biz::system_setting::check_cloud_sync_enabled;
 use crate::errors::{AppError, AppResult};
 use crate::utils::config::get_max_file_size_bytes;
 use crate::utils::file_dir::get_resources_dir;
-use crate::utils::retry_helper::{retry_with_config, RetryConfig};
+use crate::utils::retry_helper::{RetryConfig, retry_with_config};
 use crate::utils::token_manager::has_valid_auth;
 
 /// 这个定时任务是云同步上传记录时，文件类型的内容上传到云端的任务
 
 /// 启动文件同步定时任务
-pub fn start_file_sync_timer() {
+pub fn start_upload_cloud_timer() {
     task::spawn(async move {
         log::info!("文件同步定时任务已启动");
 
@@ -246,13 +246,13 @@ fn should_retry_upload_error(error: &AppError) -> bool {
         // 通用错误中的网络问题可以重试
         AppError::General(msg) => {
             let msg_lower = msg.to_lowercase();
-            msg_lower.contains("网络") 
-            || msg_lower.contains("timeout") 
-            || msg_lower.contains("connection")
-            || msg_lower.contains("上传")
-            || msg_lower.contains("请求失败")
-            || msg_lower.contains("响应为空")
-        },
+            msg_lower.contains("网络")
+                || msg_lower.contains("timeout")
+                || msg_lower.contains("connection")
+                || msg_lower.contains("上传")
+                || msg_lower.contains("请求失败")
+                || msg_lower.contains("响应为空")
+        }
         // 其他错误类型不重试
         _ => false,
     }
@@ -264,25 +264,24 @@ async fn upload_file_with_retry(
     upload_param: FileCloudSyncParam,
 ) -> AppResult<()> {
     log::info!("开始上传文件（带重试），记录ID: {}", record_id);
-    
+
     // 配置文件上传的重试策略
     let retry_config = RetryConfig::new(3, 5000) // 最多重试3次，初始延迟5秒
-        .with_backoff_multiplier(2.0)            // 指数退避，延迟时间每次翻倍
-        .with_max_delay(120000)                  // 最大延迟2分钟
-        .with_jitter(true);                      // 启用抖动，避免惊群效应
-    
+        .with_backoff_multiplier(2.0) // 指数退避，延迟时间每次翻倍
+        .with_max_delay(120000) // 最大延迟2分钟
+        .with_jitter(true); // 启用抖动，避免惊群效应
+
     // 使用 backon 执行带重试的上传操作
     let result = retry_with_config(
         retry_config,
         || {
             let param = upload_param.clone();
             let id = record_id.to_string();
-            async move {
-                upload_file_and_update_status(&id, param).await
-            }
+            async move { upload_file_and_update_status(&id, param).await }
         },
         should_retry_upload_error,
-    ).await;
+    )
+    .await;
 
     // 处理结果
     match result {

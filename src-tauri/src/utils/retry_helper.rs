@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use backon::{ExponentialBuilder, Retryable};
 use log::{debug, info, warn};
 use std::time::Duration;
