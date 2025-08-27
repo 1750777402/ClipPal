@@ -97,7 +97,7 @@ pub fn init_logging(level: LevelFilter) {
 
     // 初始化log4rs
     if let Err(e) = log4rs::init_config(config) {
-        eprintln!("初始化log4rs失败: {}", e);
+        eprintln!("日志系统初始化失败: {}", e);
         env_logger::init();
     } else {
         log::info!("日志系统初始化成功，日志文件: {:?}", log_file_path);

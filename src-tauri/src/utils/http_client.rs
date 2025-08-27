@@ -386,28 +386,17 @@ impl HttpClient {
     where
         T: for<'de> Deserialize<'de>,
     {
-        // 记录请求开始
-        log::debug!("=== HTTP API请求开始 ===");
-        log::debug!("请求方法: {}", method);
-        log::debug!("请求URL: {}", url);
-
-        // 记录请求体（如果有的话）
-        if let RequestData::Json(ref json_str) = data {
-            log::debug!("请求体: {}", json_str);
-        }
+        log::debug!("HTTP API请求: {} {}", method, url);
 
         let response_text = self
             .execute_raw_request(method, url, data, custom_headers)
             .await?;
 
-        log::debug!("服务器响应数据: {}", response_text);
+        log::debug!("服务器响应数据长度: {} 字节", response_text.len());
 
         serde_json::from_str(&response_text).map_err(|e| {
-            log::error!("=== 反序列化失败 ===");
-            log::error!("请求URL: {}", url);
-            log::error!("服务器返回的原始数据: {}", response_text);
-            log::error!("反序列化错误: {}", e);
-            log::error!("=== 反序列化失败结束 ===");
+            log::error!("反序列化失败 - URL: {}, 错误: {}", url, e);
+            log::error!("服务器返回原始数据: {}", response_text);
             self.handle_deserialization_error(e, url, &response_text)
         })
     }
@@ -463,11 +452,7 @@ impl HttpClient {
 
         // 发送请求
         let response = request_builder.send().await.map_err(|e| {
-            log::error!("=== HTTP Raw请求发送失败 ===");
-            log::error!("请求URL: {}", url);
-            log::error!("请求方法: {}", method);
-            log::error!("网络错误: {}", e);
-            log::error!("=== HTTP Raw请求发送失败结束 ===");
+            log::error!("HTTP Raw请求发送失败 - {} {}, 错误: {}", method, url, e);
             self.classify_network_error(e, url)
         })?;
 
@@ -475,19 +460,13 @@ impl HttpClient {
         let response_url = response.url().to_string();
         let response_headers = self.extract_headers(&response);
 
-        log::debug!("响应状态码: {}", status);
-
         // 读取响应体
         let response_text = response.text().await.map_err(|e| {
-            log::error!("=== 读取HTTP Raw响应失败 ===");
-            log::error!("请求URL: {}", url);
-            log::error!("响应状态码: {}", status);
-            log::error!("读取错误: {}", e);
-            log::error!("=== 读取HTTP Raw响应失败结束 ===");
+            log::error!("读取HTTP Raw响应失败 - URL: {}, 状态码: {}, 错误: {}", url, status, e);
             HttpError::NetworkError(format!("读取响应失败: {}", e))
         })?;
 
-        log::debug!("服务器响应数据: {}", response_text);
+        log::debug!("响应数据长度: {} 字节, 状态码: {}", response_text.len(), status);
 
         let response_data: T = if response_text.is_empty() {
             serde_json::from_str("null").map_err(|e| {
@@ -500,12 +479,8 @@ impl HttpClient {
             })?
         } else {
             serde_json::from_str(&response_text).map_err(|e| {
-                log::error!("=== Raw响应反序列化失败 ===");
-                log::error!("请求URL: {}", url);
-                log::error!("响应状态码: {}", status);
-                log::error!("服务器返回的原始数据: {}", response_text);
-                log::error!("反序列化错误: {}", e);
-                log::error!("=== Raw响应反序列化失败结束 ===");
+                log::error!("Raw响应反序列化失败 - URL: {}, 状态码: {}, 错误: {}", url, status, e);
+                log::error!("服务器返回原始数据: {}", response_text);
                 HttpError::DeserializationFailed(format!("反序列化响应失败: {}", e))
             })?
         };
@@ -526,14 +501,7 @@ impl HttpClient {
         data: RequestData,
         custom_headers: Option<HashMap<String, String>>,
     ) -> Result<String, HttpError> {
-        log::debug!("=== HTTP原始请求开始 ===");
-        log::debug!("请求方法: {}", method);
-        log::debug!("请求URL: {}", url);
-
-        // 记录请求体（如果有的话）
-        if let RequestData::Json(ref json_str) = data {
-            log::debug!("请求体: {}", json_str);
-        }
+        log::debug!("HTTP原始请求: {} {}", method, url);
 
         // 验证URL
         let _parsed_url = reqwest::Url::parse(url)
@@ -575,27 +543,19 @@ impl HttpClient {
         })?;
 
         let status_code = response.status();
-        log::debug!("响应状态码: {}", status_code);
 
         // 读取响应体
         let response_text = response.text().await.map_err(|e| {
-            log::error!("=== 读取HTTP响应失败 ===");
-            log::error!("请求URL: {}", url);
-            log::error!("响应状态码: {}", status_code);
-            log::error!("读取错误: {}", e);
-            log::error!("=== 读取HTTP响应失败结束 ===");
+            log::error!("读取HTTP响应失败 - URL: {}, 状态码: {}, 错误: {}", url, status_code, e);
             HttpError::NetworkError(format!("读取响应失败: {}", e))
         })?;
 
-        log::debug!("服务器响应数据: {}", response_text);
+        log::debug!("响应数据长度: {} 字节, 状态码: {}", response_text.len(), status_code);
 
         // 如果状态码不是成功状态，记录错误信息
         if !status_code.is_success() {
-            log::error!("=== HTTP请求状态码错误 ===");
-            log::error!("请求URL: {}", url);
-            log::error!("响应状态码: {}", status_code);
-            log::error!("服务器返回数据: {}", response_text);
-            log::error!("=== HTTP请求状态码错误结束 ===");
+            log::error!("HTTP请求状态码错误 - URL: {}, 状态码: {}", url, status_code);
+            log::debug!("服务器返回数据: {}", response_text);
         }
 
         Ok(response_text)
@@ -607,8 +567,7 @@ impl HttpClient {
         url: &str,
         save_path: &Path,
     ) -> Result<PathBuf, HttpError> {
-        log::debug!("=== HTTP文件下载开始 ===");
-        log::debug!("下载URL: {}, 保存路径: {:?}", url, save_path);
+        log::info!("开始下载文件: {} -> {:?}", url, save_path);
 
         // 确保目录存在
         if let Some(parent_dir) = save_path.parent() {
@@ -651,8 +610,7 @@ impl HttpClient {
         file.flush()
             .map_err(|e| HttpError::FileError(format!("文件刷新失败: {}", e)))?;
 
-        log::debug!("=== HTTP文件下载完成 ===");
-        log::debug!("已下载 {} 字节到 {:?}", bytes.len(), save_path);
+        log::info!("文件下载完成: {} 字节 -> {:?}", bytes.len(), save_path);
 
         Ok(save_path.to_path_buf())
     }
@@ -831,24 +789,11 @@ impl HttpClient {
 
         let error_msg = err.to_string().to_lowercase();
 
-        // 记录详细的网络错误信息
-        log::error!("=== 网络错误分类 ===");
-        log::error!("请求URL: {}", url);
-        log::error!("目标主机: {}", host);
-        log::error!("原始错误信息: {}", err);
-        log::error!(
-            "错误类型判断: timeout={}, connect={}, redirect={}, status={}, body={}, builder={}",
-            err.is_timeout(),
-            err.is_connect(),
-            err.is_redirect(),
-            err.is_status(),
-            err.is_body(),
-            err.is_builder()
-        );
+        // 记录网络错误信息
+        log::error!("网络请求失败 - URL: {}, 主机: {}, 错误: {}", url, host, err);
         if let Some(status) = err.status() {
-            log::error!("HTTP状态码: {}", status.as_u16());
+            log::error!("响应状态码: {}", status.as_u16());
         }
-        log::error!("=== 网络错误分类结束 ===");
 
         if err.is_timeout() {
             HttpError::Timeout(format!("请求超时 - 服务器 {} 响应缓慢或不可达", host))

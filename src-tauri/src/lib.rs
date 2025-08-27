@@ -152,7 +152,7 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
         ])
         .build(tauri::generate_context!())
         .unwrap_or_else(|e| {
-            log::error!("Tauri应用构建失败: {}", e);
+            log::error!("应用构建失败: {}", e);
             std::process::exit(1);
         })
         .run(move |_, event| match event {

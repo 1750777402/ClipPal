@@ -386,7 +386,7 @@ fn send_ctrl_v_windows() -> AppResult<()> {
         )));
     }
 
-    log::debug!("成功发送 Ctrl+V 按键事件");
+    log::debug!("成功发送 Ctrl+V 组合键");
     Ok(())
 }
 
@@ -419,14 +419,14 @@ fn send_cmd_v_macos() -> AppResult<()> {
         key_up_event.post(core_graphics::event::CGEventTapLocation::HID);
     }
 
-    log::debug!("成功发送 Cmd+V 按键事件");
+    log::debug!("成功发送 Cmd+V 组合键");
     Ok(())
 }
 
 /// 不支持平台的占位实现
 #[cfg(not(any(windows, target_os = "macos")))]
 pub fn save_foreground_window() {
-    log::warn!("自动粘贴功能仅在Windows和macOS平台支持");
+    log::warn!("自动粘贴功能仅支持 Windows 和 macOS 平台");
 }
 
 /// 不支持平台的占位实现

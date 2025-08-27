@@ -64,7 +64,7 @@ impl CloudSyncTimer {
                 }
             }
         };
-        log::info!("云同步定时任务已启动，间隔: {}秒", cloud_sync_interval);
+        log::info!("云同步服务已启动，间隔: {}秒", cloud_sync_interval);
 
         let sync_lock: &GlobalSyncLock = CONTEXT.get::<GlobalSyncLock>();
         let mut trigger_receiver = self.trigger_receiver.take().unwrap();
@@ -81,7 +81,7 @@ impl CloudSyncTimer {
                 }
                 // 立即同步触发
                 _ = trigger_receiver.recv() => {
-                    log::info!("收到立即同步触发信号");
+                    log::debug!("收到立即同步信号");
                     self.try_execute_sync(sync_lock, "立即同步").await;
                 }
             }
@@ -92,30 +92,30 @@ impl CloudSyncTimer {
     async fn try_execute_sync(&self, sync_lock: &GlobalSyncLock, source: &str) {
         // 检查云同步是否开启
         if !check_cloud_sync_enabled().await {
-            log::debug!("云同步未开启，跳过{}任务", source);
+            log::debug!("云同步未开启，跳过{}同步", source);
             return;
         }
 
         // 检查用户登录状态
         if !has_valid_auth() {
-            log::debug!("用户未登录或认证已过期，跳过{}任务", source);
+            log::debug!("用户未登录，跳过{}同步", source);
             return;
         }
 
         // 尝试获取锁，执行同步任务
         if let Some(guard) = sync_lock.try_lock() {
-            log::info!("开始执行{}云同步任务", source);
+            log::info!("开始{}云同步", source);
             let result = self.execute_sync_task_with_source(source).await;
             drop(guard); // 显式释放锁
 
             if let Err(e) = result {
-                log::error!("{}云同步任务执行失败: {}", source, e);
+                log::error!("{}云同步失败: {}", source, e);
             } else {
-                log::info!("{}云同步任务执行成功", source);
+                log::info!("{}云同步完成", source);
             }
         } else {
             // 获取不到锁，说明已有同步任务在执行
-            log::debug!("跳过{}云同步执行（已有任务在执行）", source);
+            log::debug!("{}云同步在执行中，跳过", source);
         }
     }
 
@@ -129,11 +129,11 @@ impl CloudSyncTimer {
         let server_time = match sync_server_time().await {
             Ok(Some(time)) => time,
             Ok(None) => {
-                log::warn!("获取服务器时间返回空值，使用默认值0");
+                log::warn!("服务器时间为空，使用默认值");
                 0
             }
             Err(e) => {
-                log::error!("云同步失败: 无法获取服务器时间 - {}", e);
+                log::error!("获取服务器时间失败: {}", e);
                 return Err(AppError::General(format!("云服务不可用: {}", e)));
             }
         };
@@ -207,7 +207,7 @@ impl CloudSyncTimer {
                         obj.pinned_flag = 0; // 默认不置顶
                         obj.cloud_source = Some(1); // 云端同步下来的设置为1
                         let _ = ClipRecord::insert_by_created_sort(&self.rb, obj.clone()).await?;
-                        log::debug!("云同步新增记录: {} (类型: {})", new_id, obj.r#type);
+                        log::debug!("新增云记录: {} ({})", new_id, obj.r#type);
                         has_data_changed = true; // 标记数据已变化
 
                         // 插入成功后，更新搜索索引
@@ -248,9 +248,9 @@ impl CloudSyncTimer {
 
             // 如果有数据变化，通知前端刷新
             if has_data_changed {
-                log::debug!("云同步检测到数据变化，通知前端刷新");
+                log::debug!("检测到数据变化，通知前端刷新");
                 if let Err(e) = self.app_handle.emit("clip_record_change", ()) {
-                    log::warn!("前端数据同步通知发送失败: {}", e);
+                    log::warn!("通知前端失败: {}", e);
                 }
             }
 
@@ -261,7 +261,7 @@ impl CloudSyncTimer {
 
             Ok(())
         } else {
-            log::error!("云同步异常: 服务器未返回有效数据");
+            log::error!("云同步异常: 服务器数据无效");
             Err(AppError::ClipSync("云服务返回异常数据".to_string()))
         }
     }

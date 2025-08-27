@@ -187,8 +187,6 @@ pub async fn user_register(param: FrontendRegisterRequest) -> Result<UserInfo, S
 
 #[tauri::command]
 pub async fn send_email_code(param: FrontendSendEmailCodeRequest) -> Result<String, String> {
-    log::info!("发送验证码请求: {}", param.email);
-
     // 转换为API请求参数
     let api_param: EmailCodeRequestParam = param.into();
 
@@ -255,12 +253,12 @@ pub fn get_stored_access_token() -> Option<String> {
         Ok(mut store) => match store.get_jwt_token() {
             Ok(token) => token,
             Err(e) => {
-                log::debug!("获取存储的访问令牌失败: {}", e);
+                log::debug!("获取访问令牌失败: {}", e);
                 None
             }
         },
         Err(e) => {
-            log::debug!("获取存储写锁失败: {}", e);
+            log::error!("获取访问令牌存储写锁失败: {}", e);
             None
         }
     }
@@ -274,19 +272,19 @@ pub fn get_stored_user_info() -> Option<UserInfo> {
                 match serde_json::from_str::<ApiUserInfo>(&user_info_json) {
                     Ok(api_user_info) => Some(api_user_info.into()),
                     Err(e) => {
-                        log::debug!("反序列化用户信息失败: {}", e);
+                        log::error!("用户信息反序列化失败: {}", e);
                         None
                     }
                 }
             }
             Ok(None) => None,
             Err(e) => {
-                log::debug!("获取存储的用户信息失败: {}", e);
+                log::error!("获取用户信息失败: {}", e);
                 None
             }
         },
         Err(e) => {
-            log::debug!("获取存储写锁失败: {}", e);
+            log::error!("获取用户信息存储写锁失败: {}", e);
             None
         }
     }
@@ -389,7 +387,7 @@ pub async fn check_login_status() -> Result<Option<UserInfo>, String> {
                     Ok(Some(user_info))
                 }
                 None => {
-                    log::warn!("有token但没有用户信息，清除认证数据");
+                    log::warn!("发现无效认证数据，清除本地缓存");
                     let _ = clear_stored_auth_data();
                     Ok(None)
                 }

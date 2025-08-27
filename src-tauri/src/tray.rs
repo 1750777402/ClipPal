@@ -36,7 +36,7 @@ pub fn create_tray<R: Runtime>(app: &tauri::AppHandle<R>) -> tauri::Result<()> {
                 let _ = app_handle.emit("open_settings_winodws", ());
             }
             _ => {
-                log::warn!("menu item {:?} not handled", event.id);
+                log::warn!("菜单项 {:?} 未处理", event.id);
             }
         })
         // 托盘图标响应鼠标事件

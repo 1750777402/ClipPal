@@ -81,7 +81,7 @@ pub fn consume_clip_record_queue(queue: AsyncQueue<ClipRecord>) {
         loop {
             // 先尝试拿锁，拿不到就等待一会儿再重试
             if let Some(_guard) = sync_lock.try_lock() {
-                log::debug!("获取到同步锁，开始处理队列数据...");
+                log::debug!("开始处理同步队列");
 
                 // 循环接收并处理队列数据
                 loop {
@@ -131,18 +131,18 @@ pub fn consume_clip_record_queue(queue: AsyncQueue<ClipRecord>) {
                         }
                         Err(TryRecvError::Empty) => {
                             // 队列空了，跳出内层循环，释放锁
-                            log::debug!("队列已空，释放锁，等待下一轮处理");
+                            log::debug!("同步队列处理完成");
                             break;
                         }
                         Err(e) => {
-                            log::error!("接收队列消息错误: {}", e);
+                            log::error!("队列消息处理错误: {}", e);
                             break;
                         }
                     }
                 }
             } else {
                 // 锁被占用，短暂休眠避免忙等
-                log::debug!("同步锁被占用，等待后重试...");
+                log::debug!("同步锁被占用，等待重试");
             }
             sleep(Duration::from_millis(500)).await;
         }
@@ -155,7 +155,7 @@ async fn handle_sync_inner(param: SingleCloudSyncParam) -> AppResult<i32> {
 
     // 先检查文件类型是否应该跳过同步
     if should_skip_sync(&param.clip, &record_type).await {
-        log::info!("记录 {} ({}) 不支持云同步", record_id, record_type);
+        log::debug!("记录 {} ({}) 不支持云同步", record_id, record_type);
         let rb: &RBatis = CONTEXT.get::<RBatis>();
         update_sync_status(rb, &record_id, SKIP_SYNC, 0).await?;
         return Ok(SKIP_SYNC);
@@ -178,11 +178,11 @@ async fn handle_sync_inner(param: SingleCloudSyncParam) -> AppResult<i32> {
             Ok(final_status)
         }
         Ok(None) => {
-            log::error!("同步返回空结果: 记录ID={}", record_id);
+            log::error!("同步返回空结果: {}", record_id);
             Err(AppError::General("同步返回空结果".to_string()))
         }
         Err(e) => {
-            log::error!("同步失败: 记录ID={}, 错误={}", record_id, e);
+            log::error!("同步失败: {}, 错误: {}", record_id, e);
             Err(AppError::General(format!("同步失败: {}", e)))
         }
     }
@@ -237,7 +237,7 @@ async fn update_sync_status(
     ClipRecord::update_sync_flag(rb, &ids, sync_flag, timestamp)
         .await
         .map_err(|e| {
-            log::error!("更新同步状态失败: 记录ID={}, 错误={}", record_id, e);
+            log::error!("更新同步状态失败: {}, 错误: {}", record_id, e);
             e
         })
 }
