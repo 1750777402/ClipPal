@@ -404,8 +404,6 @@ pub async fn check_login_status() -> Result<Option<UserInfo>, String> {
 
 #[tauri::command]
 pub async fn check_username(param: FrontendCheckUsernameRequest) -> Result<bool, String> {
-    log::info!("检查用户名是否可用: {}", param.username);
-
     // 转换为API请求参数
     let api_param: CheckUsernameRequestParam = param.into();
 

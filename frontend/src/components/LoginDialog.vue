@@ -8,7 +8,7 @@
           <button class="close-btn" @click="close" type="button">×</button>
         </div>
         
-        <form @submit.prevent="handleLogin" class="form-content">
+        <form @submit.prevent="handleLogin" class="form-content" autocomplete="off">
           <div class="form-group">
             <label for="login-account">账号</label>
             <input
@@ -19,7 +19,7 @@
               required
               :disabled="isLoading"
               @keypress.enter="handleLogin"
-              autocomplete="off"
+              autocomplete="new-password"
               autocorrect="off"
               autocapitalize="none"
               spellcheck="false"
@@ -36,7 +36,7 @@
               required
               :disabled="isLoading"
               @keypress.enter="handleLogin"
-              autocomplete="off"
+              autocomplete="new-password"
               autocorrect="off"
               autocapitalize="none"
               spellcheck="false"
@@ -62,21 +62,22 @@
           <button class="close-btn" @click="close" type="button">×</button>
         </div>
         
-        <form @submit.prevent="handleRegister" class="form-content">
+        <form @submit.prevent="handleRegister" class="form-content" autocomplete="off">
           <div class="form-group">
             <label for="register-nickname">昵称 *</label>
             <input
               id="register-nickname"
               v-model="registerForm.nickname"
               type="text"
-              placeholder="请输入昵称（不超过10个字符）"
+              placeholder="请输入昵称（长度在2-10个字符）"
               required
               :disabled="isLoading"
               :class="{ 'error': fieldValidation.nickname.error }"
-              autocomplete="off"
+              autocomplete="new-password"
               autocorrect="off"
               autocapitalize="none"
               spellcheck="false"
+              @blur="validateNickname"
             />
             <div v-if="fieldValidation.nickname.error" class="field-error">
               {{ fieldValidation.nickname.error }}
@@ -89,11 +90,11 @@
               id="register-account"
               v-model="registerForm.account"
               type="text"
-              placeholder="请输入用户名（3-20位，英文数字汉字）"
+              placeholder="请输入用户名（3-20位，英文数字）"
               required
               :disabled="isLoading"
-              :class="{ 'error': fieldValidation.account.error, 'checking': isUsernameChecking }"
-              autocomplete="off"
+              :class="{ 'error': fieldValidation.account.error }"
+              autocomplete="new-password"
               autocorrect="off"
               autocapitalize="none"
               spellcheck="false"
@@ -114,10 +115,11 @@
               required
               :disabled="isLoading"
               :class="{ 'error': fieldValidation.password.error }"
-              autocomplete="off"
+              autocomplete="new-password"
               autocorrect="off"
               autocapitalize="none"
               spellcheck="false"
+              @blur="validatePassword"
             />
             <div v-if="fieldValidation.password.error" class="field-error">
               {{ fieldValidation.password.error }}
@@ -134,10 +136,11 @@
               required
               :disabled="isLoading"
               :class="{ 'error': fieldValidation.confirmPassword.error }"
-              autocomplete="off"
+              autocomplete="new-password"
               autocorrect="off"
               autocapitalize="none"
               spellcheck="false"
+              @blur="validateConfirmPassword"
             />
             <div v-if="fieldValidation.confirmPassword.error" class="field-error">
               {{ fieldValidation.confirmPassword.error }}
@@ -154,10 +157,11 @@
               required
               :disabled="isLoading"
               :class="{ 'error': fieldValidation.email.error }"
-              autocomplete="off"
+              autocomplete="new-password"
               autocorrect="off"
               autocapitalize="none"
               spellcheck="false"
+              @blur="validateEmail"
             />
             <div v-if="fieldValidation.email.error" class="field-error">
               {{ fieldValidation.email.error }}
@@ -179,6 +183,8 @@
                 autocorrect="off"
                 autocapitalize="none"
                 spellcheck="false"
+                data-form-type="other"
+                @blur="validateCaptcha"
               />
               <button
                 type="button"
@@ -202,11 +208,15 @@
               type="tel"
               placeholder="请输入手机号（可选）"
               :disabled="isLoading"
-              autocomplete="off"
+              autocomplete="new-password"
               autocorrect="off"
               autocapitalize="none"
               spellcheck="false"
+              @blur="validatePhone"
             />
+            <div v-if="fieldErrors.phone" class="field-error">
+              {{ fieldErrors.phone }}
+            </div>
           </div>
           
           <button type="submit" class="submit-btn" :disabled="isLoading || !isRegisterFormValid">
@@ -265,8 +275,16 @@ const isCaptchaLoading = ref(false)
 const captchaCountdown = ref(0)
 let countdownTimer: ReturnType<typeof setInterval> | null = null
 
-// 用户名验证相关
-const usernameError = ref('')
+// 字段验证错误状态
+const fieldErrors = reactive({
+  nickname: '',
+  account: '',
+  password: '',
+  confirmPassword: '',
+  email: '',
+  captcha: '',
+  phone: ''
+})
 
 // 计算属性
 const captchaButtonText = computed(() => {
@@ -277,41 +295,35 @@ const captchaButtonText = computed(() => {
 
 // 字段验证功能已通过计算属性实现
 
-// 字段验证计算属性
+// 字段验证计算属性（只检查有效性，错误信息来自 fieldErrors）
 const fieldValidation = computed(() => ({
   nickname: {
-    isValid: registerForm.nickname.trim().length > 0 && registerForm.nickname.trim().length <= 10,
-    error: registerForm.nickname.trim().length === 0 && registerForm.nickname !== '' ? '请输入昵称' : 
-           registerForm.nickname.trim().length > 10 ? '昵称不能超过10个字符' : ''
+    isValid: registerForm.nickname.trim().length > 0 && registerForm.nickname.trim().length <= 10 && !fieldErrors.nickname,
+    error: fieldErrors.nickname
   },
   account: {
-    isValid: registerForm.account.trim().length >= 3 && registerForm.account.trim().length <= 20 && isValidAccount(registerForm.account) && !usernameError.value,
-    error: usernameError.value ||
-           (registerForm.account.trim().length === 0 && registerForm.account !== '' ? '请输入用户名' :
-           registerForm.account.trim().length > 0 && registerForm.account.trim().length < 3 ? '用户名至少需要3个字符' :
-           registerForm.account.trim().length > 20 ? '用户名不能超过20个字符' :
-           registerForm.account.trim().length >= 3 && !isValidAccount(registerForm.account) ? '用户名只能包含英文、数字和汉字' : '')
+    isValid: registerForm.account.trim().length >= 3 && registerForm.account.trim().length <= 20 && isValidAccount(registerForm.account) && !fieldErrors.account,
+    error: fieldErrors.account
   },
   password: {
-    isValid: registerForm.password.length >= 6 && registerForm.password.length <= 20 && isValidPassword(registerForm.password),
-    error: registerForm.password.length === 0 && registerForm.password !== '' ? '请输入密码' :
-           registerForm.password.length > 0 && registerForm.password.length < 6 ? '密码至少需要6个字符' :
-           registerForm.password.length > 20 ? '密码不能超过20个字符' :
-           registerForm.password.length >= 6 && !isValidPassword(registerForm.password) ? '密码只能包含英文和数字' : ''
+    isValid: registerForm.password.length >= 6 && registerForm.password.length <= 20 && isValidPassword(registerForm.password) && !fieldErrors.password,
+    error: fieldErrors.password
   },
   confirmPassword: {
-    isValid: registerForm.confirmPassword && registerForm.password === registerForm.confirmPassword,
-    error: registerForm.confirmPassword && registerForm.password !== registerForm.confirmPassword ? '两次输入的密码不一致' :
-           registerForm.confirmPassword === '' && registerForm.password !== '' ? '请确认密码' : ''
+    isValid: registerForm.confirmPassword && registerForm.password === registerForm.confirmPassword && !fieldErrors.confirmPassword,
+    error: fieldErrors.confirmPassword
   },
   email: {
-    isValid: registerForm.email.trim() && isValidEmail(registerForm.email),
-    error: registerForm.email.trim() && !isValidEmail(registerForm.email) ? '请输入有效的邮箱地址' :
-           registerForm.email.trim() === '' && registerForm.email !== '' ? '请输入邮箱地址' : ''
+    isValid: registerForm.email.trim() && isValidEmail(registerForm.email) && !fieldErrors.email,
+    error: fieldErrors.email
   },
   captcha: {
-    isValid: registerForm.captcha.trim().length > 0,
-    error: registerForm.captcha.trim().length === 0 && registerForm.captcha !== '' ? '请输入邮箱验证码' : ''
+    isValid: registerForm.captcha.trim().length > 0 && !fieldErrors.captcha,
+    error: fieldErrors.captcha
+  },
+  phone: {
+    isValid: !registerForm.phone.trim() || (isValidPhone(registerForm.phone.trim()) && !fieldErrors.phone),
+    error: fieldErrors.phone
   }
 }))
 
@@ -321,7 +333,8 @@ const isRegisterFormValid = computed(() => {
          fieldValidation.value.password.isValid &&
          fieldValidation.value.confirmPassword.isValid &&
          fieldValidation.value.email.isValid &&
-         fieldValidation.value.captcha.isValid
+         fieldValidation.value.captcha.isValid &&
+         fieldValidation.value.phone.isValid
 })
 
 // 工具函数
@@ -330,16 +343,28 @@ const isValidEmail = (email: string): boolean => {
   return emailRegex.test(email)
 }
 
-// 用户名验证：只能包含英文、数字和汉字
+// 用户名验证：只能包含英文和数字
 const isValidAccount = (account: string): boolean => {
-  const accountRegex = /^[a-zA-Z0-9\u4e00-\u9fa5]+$/
+  const accountRegex = /^[a-zA-Z0-9]+$/
   return accountRegex.test(account)
+}
+
+// 昵称验证：可以包含中文、英文、数字
+const isValidNickname = (nickname: string): boolean => {
+  const nicknameRegex = /^[\u4e00-\u9fa5a-zA-Z0-9]+$/
+  return nicknameRegex.test(nickname)
 }
 
 // 密码验证：只能包含英文和数字
 const isValidPassword = (password: string): boolean => {
   const passwordRegex = /^[a-zA-Z0-9]+$/
   return passwordRegex.test(password)
+}
+
+// 手机号验证：1开头的11位数字
+const isValidPhone = (phone: string): boolean => {
+  const phoneRegex = /^1\d{10}$/
+  return phoneRegex.test(phone)
 }
 
 const close = () => {
@@ -350,8 +375,14 @@ const close = () => {
     countdownTimer = null
   }
   captchaCountdown.value = 0
-  // 重置用户名验证状态
-  usernameError.value = ''
+  // 重置所有字段验证状态
+  fieldErrors.nickname = ''
+  fieldErrors.account = ''
+  fieldErrors.password = ''
+  fieldErrors.confirmPassword = ''
+  fieldErrors.email = ''
+  fieldErrors.captcha = ''
+  fieldErrors.phone = ''
   // 重置表单
   resetForms()
 }
@@ -373,8 +404,14 @@ const resetForms = () => {
   currentView.value = 'login'
   isLoading.value = false
   isCaptchaLoading.value = false
-  // 重置用户名验证状态
-  usernameError.value = ''
+  // 重置所有字段验证状态
+  fieldErrors.nickname = ''
+  fieldErrors.account = ''
+  fieldErrors.password = ''
+  fieldErrors.confirmPassword = ''
+  fieldErrors.email = ''
+  fieldErrors.captcha = ''
+  fieldErrors.phone = ''
 }
 
 const switchToRegister = () => {
@@ -539,17 +576,102 @@ const handleRegister = async () => {
   }
 }
 
+// 字段验证函数
+const validateNickname = () => {
+  const nickname = registerForm.nickname.trim()
+  if (!nickname) {
+    fieldErrors.nickname = '请输入昵称'
+  } else if (nickname.length < 2) {
+    fieldErrors.nickname = '昵称最少2个字符'
+  } else if (nickname.length > 10) {
+    fieldErrors.nickname = '昵称不能超过10个字符'
+  } else if (!isValidNickname(nickname)) {
+    fieldErrors.nickname = '昵称只能包含中文、英文和数字'
+  } else {
+    fieldErrors.nickname = ''
+  }
+}
+
+const validatePassword = () => {
+  const password = registerForm.password
+  if (!password) {
+    fieldErrors.password = '请输入密码'
+  } else if (password.length < 6) {
+    fieldErrors.password = '密码至少需要6个字符'
+  } else if (password.length > 20) {
+    fieldErrors.password = '密码不能超过20个字符'
+  } else if (!isValidPassword(password)) {
+    fieldErrors.password = '密码只能包含英文和数字'
+  } else {
+    fieldErrors.password = ''
+  }
+}
+
+const validateConfirmPassword = () => {
+  const confirmPassword = registerForm.confirmPassword
+  const password = registerForm.password
+  if (!confirmPassword && password) {
+    fieldErrors.confirmPassword = '请确认密码'
+  } else if (confirmPassword && password !== confirmPassword) {
+    fieldErrors.confirmPassword = '两次输入的密码不一致'
+  } else {
+    fieldErrors.confirmPassword = ''
+  }
+}
+
+const validateEmail = () => {
+  const email = registerForm.email.trim()
+  if (!email) {
+    fieldErrors.email = '请输入邮箱地址'
+  } else if (!isValidEmail(email)) {
+    fieldErrors.email = '请输入有效的邮箱地址'
+  } else {
+    fieldErrors.email = ''
+  }
+}
+
+const validateCaptcha = () => {
+  const captcha = registerForm.captcha.trim()
+  if (!captcha) {
+    fieldErrors.captcha = '请输入邮箱验证码'
+  } else {
+    fieldErrors.captcha = ''
+  }
+}
+
+const validatePhone = () => {
+  const phone = registerForm.phone.trim()
+  // 手机号是可选的，如果为空则通过验证
+  if (!phone) {
+    fieldErrors.phone = ''
+  } else if (!isValidPhone(phone)) {
+    fieldErrors.phone = '请输入有效的手机号'
+  } else {
+    fieldErrors.phone = ''
+  }
+}
+
 // 用户名失去焦点时验证
 const onUsernameBlur = async () => {
   const username = registerForm.account.trim()
   
-  // 清除之前的错误信息
-  usernameError.value = ''
-  
-  // 如果用户名不符合基本要求，不进行检查
-  if (username.length < 3 || username.length > 20 || !isValidAccount(username)) {
+  // 先进行基本验证
+  if (!username) {
+    fieldErrors.account = '请输入用户名'
+    return
+  } else if (username.length < 3) {
+    fieldErrors.account = '用户名至少需要3个字符'
+    return
+  } else if (username.length > 20) {
+    fieldErrors.account = '用户名不能超过20个字符'
+    return
+  } else if (!isValidAccount(username)) {
+    fieldErrors.account = '用户名只能包含英文和数字'
     return
   }
+  
+  // 清除之前的错误信息
+  fieldErrors.account = ''
   
   try {
     const response = await userApi.checkUsername({ username })
@@ -557,15 +679,15 @@ const onUsernameBlur = async () => {
     // 如果请求成功且返回true，表示用户名可用
     if (response.success && response.data === true) {
       // 用户名可用，清除错误信息
-      usernameError.value = ''
+      fieldErrors.account = ''
     } else {
       // 其他情况都是不可用，设置错误信息
-      usernameError.value = '用户名不可用'
+      fieldErrors.account = '用户名不可用'
     }
   } catch (error) {
     // HTTP错误或其他异常，都认为是服务器问题
     console.error('检查用户名时出错:', error)
-    usernameError.value = '检查失败，请稍后重试'
+    fieldErrors.account = '检查失败，请稍后重试'
   }
 }
 
