@@ -3,9 +3,10 @@ use serde::{Deserialize, Serialize};
 use crate::{
     CONTEXT,
     api::user_auth_api::{
-        AuthResponse, EmailCodeRequestParam, LoginRequestParam, RegisterRequestParam,
-        UserInfo as ApiUserInfo, send_email_code as api_send_email_code, user_login,
-        user_logout as api_user_logout, user_register as api_user_register,
+        AuthResponse, CheckUsernameRequestParam, EmailCodeRequestParam, LoginRequestParam,
+        RegisterRequestParam, UserInfo as ApiUserInfo, check_username as api_check_username,
+        send_email_code as api_send_email_code, user_login, user_logout as api_user_logout,
+        user_register as api_user_register,
     },
     utils::secure_store::SECURE_STORE,
     utils::token_manager::has_valid_auth,
@@ -55,6 +56,12 @@ pub struct FrontendSendEmailCodeRequest {
     pub email: String,
 }
 
+// 前端检查用户名请求结构
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FrontendCheckUsernameRequest {
+    pub username: String,
+}
+
 impl From<FrontendLoginRequest> for LoginRequestParam {
     fn from(request: FrontendLoginRequest) -> Self {
         LoginRequestParam {
@@ -82,6 +89,14 @@ impl From<FrontendSendEmailCodeRequest> for EmailCodeRequestParam {
     fn from(request: FrontendSendEmailCodeRequest) -> Self {
         EmailCodeRequestParam {
             email: request.email,
+        }
+    }
+}
+
+impl From<FrontendCheckUsernameRequest> for CheckUsernameRequestParam {
+    fn from(request: FrontendCheckUsernameRequest) -> Self {
+        CheckUsernameRequestParam {
+            username: request.username,
         }
     }
 }
@@ -383,6 +398,31 @@ pub async fn check_login_status() -> Result<Option<UserInfo>, String> {
         None => {
             log::debug!("应用启动时未检测到登录状态");
             Ok(None)
+        }
+    }
+}
+
+#[tauri::command]
+pub async fn check_username(param: FrontendCheckUsernameRequest) -> Result<bool, String> {
+    log::info!("检查用户名是否可用: {}", param.username);
+
+    // 转换为API请求参数
+    let api_param: CheckUsernameRequestParam = param.into();
+
+    let check_res = api_check_username(&api_param).await;
+    match check_res {
+        Ok(response) => {
+            if let Some(is_available) = response {
+                Ok(is_available)
+            } else {
+                log::warn!("用户名检查响应为空");
+                Err("用户名不可用".to_string())
+            }
+        }
+        Err(e) => {
+            log::error!("检查用户名失败: {}", e);
+            // 直接返回服务器的错误信息，不再添加额外包装
+            Err(e.to_string())
         }
     }
 }

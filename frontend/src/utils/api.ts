@@ -36,6 +36,7 @@ const ERROR_SEVERITY_MAP: Record<string, ErrorSeverity> = {
   'get_user_info': ErrorSeverity.SILENT,
   'check_login_status': ErrorSeverity.SILENT,
   'update_user_info': ErrorSeverity.WARNING,
+  'check_username': ErrorSeverity.SILENT,
 };
 
 // API响应类型
@@ -242,6 +243,11 @@ export const userApi = {
     avatar?: string;
   }) {
     return apiInvoke<{ userInfo: any; message?: string }>('update_user_info', { param: params });
+  },
+
+  // 检查用户名是否可用
+  async checkUsername(params: { username: string }) {
+    return apiInvoke<boolean>('check_username', { param: params });
   }
 };
 

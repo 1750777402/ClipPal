@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    api::{api_post, api_post_public},
+    api::{api_get_public, api_post, api_post_public},
     utils::http_client::HttpError,
 };
 
@@ -87,4 +87,23 @@ pub async fn refresh_token(
 /// 用户退出登录（需要认证）
 pub async fn user_logout() -> Result<Option<String>, HttpError> {
     api_post("cliPal-sync/auth/logout", Some(&String::new())).await
+}
+
+// -----------------------------------------------用户名是否可用检查API----------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CheckUsernameRequestParam {
+    pub username: String,
+}
+
+/// 检查用户名是否可用
+pub async fn check_username(
+    request: &CheckUsernameRequestParam,
+) -> Result<Option<bool>, HttpError> {
+    let path = format!(
+        "cliPal-sync/auth/checkUsername?username={}",
+        request.username
+    );
+    api_get_public(&path).await
 }

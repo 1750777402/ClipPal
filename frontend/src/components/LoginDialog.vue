@@ -92,11 +92,12 @@
               placeholder="请输入用户名（3-20位，英文数字汉字）"
               required
               :disabled="isLoading"
-              :class="{ 'error': fieldValidation.account.error }"
+              :class="{ 'error': fieldValidation.account.error, 'checking': isUsernameChecking }"
               autocomplete="off"
               autocorrect="off"
               autocapitalize="none"
               spellcheck="false"
+              @blur="onUsernameBlur"
             />
             <div v-if="fieldValidation.account.error" class="field-error">
               {{ fieldValidation.account.error }}
@@ -264,6 +265,9 @@ const isCaptchaLoading = ref(false)
 const captchaCountdown = ref(0)
 let countdownTimer: ReturnType<typeof setInterval> | null = null
 
+// 用户名验证相关
+const usernameError = ref('')
+
 // 计算属性
 const captchaButtonText = computed(() => {
   if (isCaptchaLoading.value) return '发送中...'
@@ -281,11 +285,12 @@ const fieldValidation = computed(() => ({
            registerForm.nickname.trim().length > 10 ? '昵称不能超过10个字符' : ''
   },
   account: {
-    isValid: registerForm.account.trim().length >= 3 && registerForm.account.trim().length <= 20 && isValidAccount(registerForm.account),
-    error: registerForm.account.trim().length === 0 && registerForm.account !== '' ? '请输入用户名' :
+    isValid: registerForm.account.trim().length >= 3 && registerForm.account.trim().length <= 20 && isValidAccount(registerForm.account) && !usernameError.value,
+    error: usernameError.value ||
+           (registerForm.account.trim().length === 0 && registerForm.account !== '' ? '请输入用户名' :
            registerForm.account.trim().length > 0 && registerForm.account.trim().length < 3 ? '用户名至少需要3个字符' :
            registerForm.account.trim().length > 20 ? '用户名不能超过20个字符' :
-           registerForm.account.trim().length >= 3 && !isValidAccount(registerForm.account) ? '用户名只能包含英文、数字和汉字' : ''
+           registerForm.account.trim().length >= 3 && !isValidAccount(registerForm.account) ? '用户名只能包含英文、数字和汉字' : '')
   },
   password: {
     isValid: registerForm.password.length >= 6 && registerForm.password.length <= 20 && isValidPassword(registerForm.password),
@@ -345,6 +350,8 @@ const close = () => {
     countdownTimer = null
   }
   captchaCountdown.value = 0
+  // 重置用户名验证状态
+  usernameError.value = ''
   // 重置表单
   resetForms()
 }
@@ -366,6 +373,8 @@ const resetForms = () => {
   currentView.value = 'login'
   isLoading.value = false
   isCaptchaLoading.value = false
+  // 重置用户名验证状态
+  usernameError.value = ''
 }
 
 const switchToRegister = () => {
@@ -527,6 +536,36 @@ const handleRegister = async () => {
     console.error('注册失败:', error)
   } finally {
     isLoading.value = false
+  }
+}
+
+// 用户名失去焦点时验证
+const onUsernameBlur = async () => {
+  const username = registerForm.account.trim()
+  
+  // 清除之前的错误信息
+  usernameError.value = ''
+  
+  // 如果用户名不符合基本要求，不进行检查
+  if (username.length < 3 || username.length > 20 || !isValidAccount(username)) {
+    return
+  }
+  
+  try {
+    const response = await userApi.checkUsername({ username })
+    
+    // 如果请求成功且返回true，表示用户名可用
+    if (response.success && response.data === true) {
+      // 用户名可用，清除错误信息
+      usernameError.value = ''
+    } else {
+      // 其他情况都是不可用，设置错误信息
+      usernameError.value = '用户名不可用'
+    }
+  } catch (error) {
+    // HTTP错误或其他异常，都认为是服务器问题
+    console.error('检查用户名时出错:', error)
+    usernameError.value = '检查失败，请稍后重试'
   }
 }
 

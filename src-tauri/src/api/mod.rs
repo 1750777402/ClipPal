@@ -150,6 +150,32 @@ where
     execute_api_request::<(), T>("GET", path, None, true).await
 }
 
+/// 公共API GET请求方法（不需要认证）
+pub async fn api_get_public<T>(path: &str) -> Result<Option<T>, HttpError>
+where
+    T: for<'de> serde::Deserialize<'de>,
+{
+    let api_domain = get_api_domain()?;
+    let url = format!("{}/{}", api_domain, path.trim_start_matches('/'));
+    let client = HttpClient::new();
+    let resp: ApiResponse<T> = client
+        .request_with_headers("GET", &url, None::<&()>, None)
+        .await?;
+    if resp.code == 200 {
+        Ok(resp.data)
+    } else {
+        // 对于公共API的标准ApiResponse，也直接使用服务器返回的message
+        let error_msg = resp.message.trim().to_string();
+        log::warn!(
+            "公共GET API请求失败 [{}] 状态码:{} -> {}",
+            path,
+            resp.code,
+            error_msg
+        );
+        Err(HttpError::RequestFailed(error_msg))
+    }
+}
+
 /// 获取公共API请求头（不需要认证）
 fn get_public_headers() -> HashMap<String, String> {
     let mut headers = HashMap::new();

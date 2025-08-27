@@ -16,7 +16,7 @@ use crate::{
         upload_cloud_timer::start_upload_cloud_timer,
         user_auth::{
             check_login_status, get_user_info, login, logout, send_email_code, user_register,
-            validate_token,
+            validate_token, check_username,
         },
     },
     log_config::init_logging,
@@ -147,7 +147,8 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
             logout,
             validate_token,
             get_user_info,
-            check_login_status
+            check_login_status,
+            check_username
         ])
         .build(tauri::generate_context!())
         .unwrap_or_else(|e| {
