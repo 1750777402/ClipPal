@@ -206,7 +206,6 @@ async fn compute_multiple_files_md5(file_paths: &[String]) -> Result<String, std
 
 fn build_clip_record(
     id: String,
-    user_id: i32,
     r#type: String,
     content: Value,
     md5_str: String,
@@ -240,7 +239,6 @@ fn build_oversized_file_record(id: &str, file_path: &str, md5_str: &str, sort: i
 
     let mut record = build_clip_record(
         id.to_string(),
-        0,
         ClipType::File.to_string(),
         Value::String(filename.to_string()),
         md5_str.to_string(),
@@ -265,7 +263,6 @@ fn build_sync_eligible_file_record(
 
     build_clip_record(
         id.to_string(),
-        0,
         ClipType::File.to_string(),
         Value::String(filename.to_string()),
         md5_str.to_string(),
@@ -294,7 +291,6 @@ fn build_multiple_files_record(
 
     let mut record = build_clip_record(
         id.to_string(),
-        0,
         ClipType::File.to_string(),
         Value::String(content_display),
         md5_str.to_string(),
@@ -336,7 +332,6 @@ async fn handle_text(
                     // 已删除的记录，更新为新记录的所有字段
                     let new_record = build_clip_record(
                         record.id.clone(), // 保持原ID
-                        0,
                         ClipType::Text.to_string(),
                         Value::String(encrypted),
                         md5_str,
@@ -374,7 +369,6 @@ async fn handle_text(
             // 创建新记录
             let record = build_clip_record(
                 Uuid::new_v4().to_string(),
-                0,
                 ClipType::Text.to_string(),
                 Value::String(encrypted),
                 md5_str,
@@ -447,7 +441,6 @@ async fn handle_image(
                 if save_image_with_filename(&filename, data).await {
                     let mut new_record = build_clip_record(
                         id.clone(),
-                        0,
                         ClipType::Image.to_string(),
                         Value::String(filename.clone()), // 直接设置为生成的文件名
                         md5_str,
@@ -491,7 +484,6 @@ async fn handle_image(
         if save_image_with_filename(&filename, data).await {
             let mut record = build_clip_record(
                 id.clone(),
-                0,
                 ClipType::Image.to_string(),
                 Value::String(filename.clone()), // 直接设置为生成的文件名
                 md5_str,
@@ -794,7 +786,6 @@ async fn handle_multiple_files(
 
     let mut record = build_clip_record(
         record_id.clone(),
-        0,
         ClipType::File.to_string(),
         Value::String(content_display.clone()),
         md5_str,
@@ -849,7 +840,6 @@ async fn handle_oversized_single_file(
 
     let mut record = build_clip_record(
         record_id.clone(),
-        0,
         ClipType::File.to_string(),
         Value::String(filename.to_string()),
         md5_str.to_string(),
@@ -910,7 +900,6 @@ async fn handle_sync_eligible_file(
         // 文件复制成功，创建支持云同步的记录
         let record = build_clip_record(
             record_id.clone(),
-            0,
             ClipType::File.to_string(),
             Value::String(original_filename.to_string()), // 直接设置为原始文件名
             md5_str.to_string(),
@@ -955,7 +944,6 @@ async fn handle_sync_eligible_file(
 
         let mut record = build_clip_record(
             record_id.clone(),
-            0,
             ClipType::File.to_string(),
             Value::String(original_filename.to_string()), // 直接设置为原始文件名
             md5_str.to_string(),
