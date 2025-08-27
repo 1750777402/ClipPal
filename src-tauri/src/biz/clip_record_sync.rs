@@ -215,7 +215,6 @@ fn build_clip_record(
     let cur_time = current_timestamp();
     ClipRecord {
         id,
-        user_id,
         r#type,
         content,
         md5_str,

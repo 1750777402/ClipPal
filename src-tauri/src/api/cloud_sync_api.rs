@@ -30,8 +30,6 @@ pub struct ClipRecordParam {
     pub md5_str: Option<String>,
     // 时间戳
     pub created: Option<u64>,
-    // 用户id
-    pub user_id: Option<i32>,
     // os类型
     pub os_type: Option<String>,
     // 排序字段
@@ -62,7 +60,6 @@ impl ClipRecordParam {
             md5_str: self.md5_str.clone().unwrap_or_default(),
             local_file_path: None,
             created: self.created.unwrap_or(0),
-            user_id: self.user_id.unwrap_or(0),
             os_type: self.os_type.clone().unwrap_or_default(),
             sort: self.sort.unwrap_or(0),
             pinned_flag: self.pinned_flag.unwrap_or(0),
@@ -84,7 +81,6 @@ impl From<ClipRecord> for ClipRecordParam {
             content: record.content,
             md5_str: Some(record.md5_str),
             created: Some(record.created),
-            user_id: Some(record.user_id),
             os_type: Some(record.os_type),
             sort: Some(record.sort),
             pinned_flag: Some(record.pinned_flag),

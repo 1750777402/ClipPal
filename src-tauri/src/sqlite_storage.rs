@@ -108,13 +108,6 @@ fn get_clip_pal_record_schema(schema: &mut HashMap<String, TableSchema>) {
             primary_key: false,
         },
         ColumnInfo {
-            name: "user_id".to_string(),
-            r#type: "INTEGER".to_string(),
-            not_null: false,
-            default_value: None,
-            primary_key: false,
-        },
-        ColumnInfo {
             name: "os_type".to_string(),
             r#type: "TEXT".to_string(),
             not_null: false,

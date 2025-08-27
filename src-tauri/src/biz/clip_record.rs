@@ -24,8 +24,6 @@ pub struct ClipRecord {
     pub local_file_path: Option<String>,
     // 时间戳
     pub created: u64,
-    // 用户id
-    pub user_id: i32,
     // os类型
     pub os_type: String,
     // 排序字段
@@ -57,7 +55,7 @@ impl_select!(ClipRecord{select_order_by_limit(limit:i32, offset:i32) =>"` where 
 impl_select!(ClipRecord{check_by_type_and_md5(content_type:&str, md5_str:&str) =>"`where type = #{content_type} and md5_str = #{md5_str} limit 1`"});
 impl_select!(ClipRecord{check_by_type_and_md5_active(content_type:&str, md5_str:&str) =>"`where type = #{content_type} and md5_str = #{md5_str} and (del_flag is null or del_flag = 0) limit 1`"});
 // 取出最大的sort数据
-impl_select!(ClipRecord{select_max_sort(user_id: i32) =>"`where user_id = #{user_id} order by sort desc, created desc limit 1`"});
+impl_select!(ClipRecord{select_max_sort() =>"`order by sort desc, created desc limit 1`"});
 // 根据sync_flag查询记录
 impl_select!(ClipRecord{select_by_sync_flag(sync_flag: i32) =>"`where sync_flag = #{sync_flag} and content IS NOT NULL order by created desc`"});
 // 根据sync_flag查询记录
@@ -78,7 +76,7 @@ impl ClipRecord {
     }
 
     pub async fn get_next_sort(rb: &RBatis) -> i32 {
-        ClipRecord::select_max_sort(rb, 0)
+        ClipRecord::select_max_sort(rb)
             .await
             .ok()
             .and_then(|records| records.get(0).map(|r| r.sort + 1))
@@ -219,7 +217,7 @@ impl ClipRecord {
         id: &str,
         new_record: &ClipRecord,
     ) -> AppResult<()> {
-        let sql = "UPDATE clip_record SET type = ?, content = ?, md5_str = ?, local_file_path = ?, created = ?, user_id = ?, os_type = ?, sort = ?, pinned_flag = ?, sync_flag = ?, sync_time = ?, device_id = ?, version = ?, del_flag = ?, cloud_source = ? WHERE id = ?";
+        let sql = "UPDATE clip_record SET type = ?, content = ?, md5_str = ?, local_file_path = ?, created = ?, os_type = ?, sort = ?, pinned_flag = ?, sync_flag = ?, sync_time = ?, device_id = ?, version = ?, del_flag = ?, cloud_source = ? WHERE id = ?";
         let tx = rb.acquire_begin().await?;
         let params = vec![
             to_value!(&new_record.r#type),
@@ -227,7 +225,6 @@ impl ClipRecord {
             to_value!(&new_record.md5_str),
             to_value!(&new_record.local_file_path),
             to_value!(new_record.created),
-            to_value!(new_record.user_id),
             to_value!(&new_record.os_type),
             to_value!(new_record.sort),
             to_value!(new_record.pinned_flag),
