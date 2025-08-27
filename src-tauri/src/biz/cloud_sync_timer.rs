@@ -110,8 +110,6 @@ impl CloudSyncTimer {
 
             if let Err(e) = result {
                 log::error!("{}云同步失败: {}", source, e);
-            } else {
-                log::info!("{}云同步完成", source);
             }
         } else {
             // 获取不到锁，说明已有同步任务在执行
@@ -121,8 +119,6 @@ impl CloudSyncTimer {
 
     /// 执行同步任务（带来源标识）
     pub async fn execute_sync_task_with_source(&self, source: &str) -> AppResult<()> {
-        log::info!("开始执行{}云同步任务", source);
-
         let last_sync_time = SyncTime::select_last_time(&self.rb).await;
 
         // 获取一次服务器时间，代表了本次同步的时间戳版本号
