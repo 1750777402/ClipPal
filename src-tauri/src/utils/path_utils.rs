@@ -5,10 +5,10 @@ pub struct PathUtils;
 
 impl PathUtils {
     /// 安全地将路径转换为UTF-8字符串
-    /// 
+    ///
     /// # 参数
     /// * `path` - Path引用
-    /// 
+    ///
     /// # 返回值
     /// 返回安全的UTF-8编码的路径字符串
     pub fn to_safe_string(path: &Path) -> String {
@@ -19,25 +19,25 @@ impl PathUtils {
     }
 
     /// 从字符串路径安全地转换为UTF-8字符串
-    /// 
+    ///
     /// # 参数
     /// * `path_str` - 路径字符串
-    /// 
+    ///
     /// # 返回值
     /// 返回安全的UTF-8编码的路径字符串
     pub fn str_to_safe_string(path_str: &str) -> String {
         if path_str.is_empty() {
             return String::new();
         }
-        
+
         Self::to_safe_string(Path::new(path_str))
     }
 
     /// 生成文件不存在的错误消息
-    /// 
+    ///
     /// # 参数
     /// * `not_found_paths` - 不存在的文件路径列表
-    /// 
+    ///
     /// # 返回值
     /// 返回格式化的错误消息
     pub fn generate_file_not_found_error(not_found_paths: &[String]) -> String {
@@ -78,4 +78,4 @@ pub fn str_to_safe_string(path_str: &str) -> String {
 /// 生成文件不存在的错误消息
 pub fn generate_file_not_found_error(not_found_paths: &[String]) -> String {
     PathUtils::generate_file_not_found_error(not_found_paths)
-} 
+}

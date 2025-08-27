@@ -27,12 +27,14 @@ where
 {
     let api_domain = get_api_domain()?;
     let url = format!("{}/{}", api_domain, path.trim_start_matches('/'));
-    
+
     // 获取访问令牌
     let token = match get_valid_access_token().await {
         Ok(Some(token)) => token,
         Ok(None) => {
-            return Err(HttpError::RequestFailed("用户未登录或令牌已过期".to_string()));
+            return Err(HttpError::RequestFailed(
+                "用户未登录或令牌已过期".to_string(),
+            ));
         }
         Err(e) => {
             return Err(HttpError::RequestFailed(format!("获取访问令牌失败: {}", e)));
@@ -41,14 +43,18 @@ where
 
     let headers = get_common_headers(&token);
     let client = HttpClient::new();
-    
+
     let resp: ApiResponse<T> = match method {
         "GET" => {
             let headers = get_common_headers_without_content_type(&token);
-            client.request_with_headers("GET", &url, None::<&()>, Some(headers)).await?
+            client
+                .request_with_headers("GET", &url, None::<&()>, Some(headers))
+                .await?
         }
         "POST" => {
-            client.request_with_headers("POST", &url, payload, Some(headers)).await?
+            client
+                .request_with_headers("POST", &url, payload, Some(headers))
+                .await?
         }
         _ => {
             return Err(HttpError::RequestFailed("不支持的HTTP方法".to_string()));
@@ -65,15 +71,20 @@ where
                     // 使用新令牌重试请求（不再重试401）
                     Box::pin(execute_api_request(method, path, payload, false)).await
                 }
-                Ok(None) | Err(_) => {
-                    Err(HttpError::RequestFailed("用户认证已过期，需要重新登录".to_string()))
-                }
+                Ok(None) | Err(_) => Err(HttpError::RequestFailed(
+                    "用户认证已过期，需要重新登录".to_string(),
+                )),
             }
         }
         _ => {
             // 对于标准的ApiResponse，直接使用服务器返回的message，不再添加额外包装
             let error_msg = resp.message.trim().to_string();
-            log::warn!("API请求失败 [{}] 状态码:{} -> {}", path, resp.code, error_msg);
+            log::warn!(
+                "API请求失败 [{}] 状态码:{} -> {}",
+                path,
+                resp.code,
+                error_msg
+            );
             Err(HttpError::RequestFailed(error_msg))
         }
     }
@@ -114,7 +125,12 @@ where
     } else {
         // 对于公共API的标准ApiResponse，也直接使用服务器返回的message
         let error_msg = resp.message.trim().to_string();
-        log::warn!("公共API请求失败 [{}] 状态码:{} -> {}", path, resp.code, error_msg);
+        log::warn!(
+            "公共API请求失败 [{}] 状态码:{} -> {}",
+            path,
+            resp.code,
+            error_msg
+        );
         Err(HttpError::RequestFailed(error_msg))
     }
 }
@@ -165,12 +181,14 @@ where
 {
     let api_domain = get_api_domain()?;
     let url = format!("{}/{}", api_domain, path.trim_start_matches('/'));
-    
+
     // 获取访问令牌
     let token = match get_valid_access_token().await {
         Ok(Some(token)) => token,
         Ok(None) => {
-            return Err(HttpError::RequestFailed("用户未登录或令牌已过期".to_string()));
+            return Err(HttpError::RequestFailed(
+                "用户未登录或令牌已过期".to_string(),
+            ));
         }
         Err(e) => {
             return Err(HttpError::RequestFailed(format!("获取访问令牌失败: {}", e)));
@@ -183,7 +201,7 @@ where
 
     let client = HttpClient::new().headers(headers);
     let resp: ApiResponse<T> = client.post_multipart(&url, file_path, form_data).await?;
-    
+
     match resp.code {
         200 => Ok(resp.data),
         401 if retry_on_401 => {
@@ -192,17 +210,25 @@ where
             match refresh_access_token().await {
                 Ok(Some(_new_token)) => {
                     // 使用新令牌重试请求（不再重试401）
-                    Box::pin(execute_file_upload_request(path, file_path, form_data, false)).await
+                    Box::pin(execute_file_upload_request(
+                        path, file_path, form_data, false,
+                    ))
+                    .await
                 }
-                Ok(None) | Err(_) => {
-                    Err(HttpError::RequestFailed("用户认证已过期，需要重新登录".to_string()))
-                }
+                Ok(None) | Err(_) => Err(HttpError::RequestFailed(
+                    "用户认证已过期，需要重新登录".to_string(),
+                )),
             }
         }
         _ => {
             // 对于文件上传API的标准ApiResponse，也直接使用服务器返回的message
             let error_msg = resp.message.trim().to_string();
-            log::warn!("文件上传API请求失败 [{}] 状态码:{} -> {}", path, resp.code, error_msg);
+            log::warn!(
+                "文件上传API请求失败 [{}] 状态码:{} -> {}",
+                path,
+                resp.code,
+                error_msg
+            );
             Err(HttpError::RequestFailed(error_msg))
         }
     }

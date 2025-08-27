@@ -15,7 +15,8 @@ use crate::{
         system_setting::{init_settings, load_settings, save_settings, validate_shortcut},
         upload_cloud_timer::start_upload_cloud_timer,
         user_auth::{
-            check_login_status, get_user_info, login, logout, send_email_code, user_register, validate_token,
+            check_login_status, get_user_info, login, logout, send_email_code, user_register,
+            validate_token,
         },
     },
     log_config::init_logging,

@@ -390,9 +390,8 @@ impl HttpClient {
             .execute_raw_request(method, url, data, custom_headers)
             .await?;
 
-        serde_json::from_str(&response_text).map_err(|e| {
-            self.handle_deserialization_error(e, url, &response_text)
-        })
+        serde_json::from_str(&response_text)
+            .map_err(|e| self.handle_deserialization_error(e, url, &response_text))
     }
 
     /// 统一的HTTP请求执行方法 - Raw格式  
@@ -761,40 +760,66 @@ impl HttpClient {
         if err.is_timeout() {
             HttpError::Timeout(format!("请求超时 - 服务器 {} 响应缓慢或不可达", host))
         } else if err.is_connect() {
-            HttpError::NetworkError(format!("连接失败 - 无法连接到服务器 {} (请检查服务器状态或网络连接)", host))
+            HttpError::NetworkError(format!(
+                "连接失败 - 无法连接到服务器 {} (请检查服务器状态或网络连接)",
+                host
+            ))
         } else if error_msg.contains("dns") || error_msg.contains("name resolution") {
             HttpError::NetworkError(format!("DNS解析失败 - 无法解析域名 {}", host))
         } else if err.is_redirect() {
             HttpError::NetworkError(format!("重定向过多 - 服务器 {} 配置异常", host))
         } else if err.is_status() {
             if let Some(status) = err.status() {
-                HttpError::RequestFailed(format!("服务器错误 - {} 返回状态码: {} {}", 
-                    host, status.as_u16(), status.canonical_reason().unwrap_or("未知错误")))
+                HttpError::RequestFailed(format!(
+                    "服务器错误 - {} 返回状态码: {} {}",
+                    host,
+                    status.as_u16(),
+                    status.canonical_reason().unwrap_or("未知错误")
+                ))
             } else {
                 HttpError::RequestFailed(format!("服务器错误 - {} 返回异常状态", host))
             }
         } else if err.is_body() || err.is_decode() {
-            HttpError::DeserializationFailed(format!("响应数据异常 - 服务器 {} 返回的数据格式错误", host))
+            HttpError::DeserializationFailed(format!(
+                "响应数据异常 - 服务器 {} 返回的数据格式错误",
+                host
+            ))
         } else if err.is_builder() {
             HttpError::RequestFailed(format!("请求构建失败 - 请求参数异常 (目标: {})", host))
         } else {
             // 尝试从错误消息中提取更多信息
             if error_msg.contains("connection refused") || error_msg.contains("connection reset") {
-                HttpError::NetworkError(format!("连接被拒绝 - 云服务器 {} 未启动或端口不可用", host))
-            } else if error_msg.contains("no route to host") || error_msg.contains("network unreachable") {
-                HttpError::NetworkError(format!("网络不可达 - 无法访问云服务器 {} (请检查网络设置)", host))
+                HttpError::NetworkError(format!(
+                    "连接被拒绝 - 云服务器 {} 未启动或端口不可用",
+                    host
+                ))
+            } else if error_msg.contains("no route to host")
+                || error_msg.contains("network unreachable")
+            {
+                HttpError::NetworkError(format!(
+                    "网络不可达 - 无法访问云服务器 {} (请检查网络设置)",
+                    host
+                ))
             } else if error_msg.contains("ssl") || error_msg.contains("tls") {
                 HttpError::NetworkError(format!("SSL/TLS错误 - 与云服务器 {} 的安全连接失败", host))
             } else if error_msg.contains("certificate") {
                 HttpError::NetworkError(format!("证书错误 - 云服务器 {} 的SSL证书无效", host))
             } else {
-                HttpError::NetworkError(format!("未知网络错误 - 访问云服务器 {} 时发生异常: {}", host, err))
+                HttpError::NetworkError(format!(
+                    "未知网络错误 - 访问云服务器 {} 时发生异常: {}",
+                    host, err
+                ))
             }
         }
     }
 
     /// 处理反序列化错误，提供更清晰的错误信息
-    fn handle_deserialization_error(&self, err: serde_json::Error, url: &str, response_text: &str) -> HttpError {
+    fn handle_deserialization_error(
+        &self,
+        err: serde_json::Error,
+        url: &str,
+        response_text: &str,
+    ) -> HttpError {
         let host = reqwest::Url::parse(url)
             .map(|u| u.host_str().unwrap_or("未知").to_string())
             .unwrap_or_else(|_| "无效地址".to_string());
@@ -807,17 +832,26 @@ impl HttpClient {
         };
 
         // 检查是否是HTML错误页面
-        if response_text.trim_start().to_lowercase().starts_with("<!doctype html") || 
-           response_text.trim_start().to_lowercase().starts_with("<html") {
+        if response_text
+            .trim_start()
+            .to_lowercase()
+            .starts_with("<!doctype html")
+            || response_text
+                .trim_start()
+                .to_lowercase()
+                .starts_with("<html")
+        {
             return HttpError::NetworkError(format!(
-                "服务器异常 - {} 返回错误页面而非API数据 (可能服务器已停止或出现内部错误)", host
+                "服务器异常 - {} 返回错误页面而非API数据 (可能服务器已停止或出现内部错误)",
+                host
             ));
         }
 
         // 检查是否是空响应
         if response_text.trim().is_empty() {
             return HttpError::NetworkError(format!(
-                "服务器异常 - {} 返回空响应 (可能服务器已停止运行)", host
+                "服务器异常 - {} 返回空响应 (可能服务器已停止运行)",
+                host
             ));
         }
 
@@ -825,19 +859,23 @@ impl HttpClient {
         let lower_response = response_text.to_lowercase();
         if lower_response.contains("502 bad gateway") {
             return HttpError::NetworkError(format!(
-                "网关错误 - 服务器 {} 网关异常 (后端服务可能已停止)", host
+                "网关错误 - 服务器 {} 网关异常 (后端服务可能已停止)",
+                host
             ));
         } else if lower_response.contains("503 service unavailable") {
             return HttpError::NetworkError(format!(
-                "服务不可用 - 服务器 {} 暂时无法处理请求 (服务器负载过高或维护中)", host
+                "服务不可用 - 服务器 {} 暂时无法处理请求 (服务器负载过高或维护中)",
+                host
             ));
         } else if lower_response.contains("504 gateway timeout") {
             return HttpError::Timeout(format!(
-                "网关超时 - 服务器 {} 网关超时 (后端服务响应缓慢)", host
+                "网关超时 - 服务器 {} 网关超时 (后端服务响应缓慢)",
+                host
             ));
         } else if lower_response.contains("connection refused") {
             return HttpError::NetworkError(format!(
-                "连接被拒绝 - 服务器 {} 拒绝连接 (服务可能未启动)", host
+                "连接被拒绝 - 服务器 {} 拒绝连接 (服务可能未启动)",
+                host
             ));
         }
 
@@ -849,24 +887,24 @@ impl HttpClient {
             serde_json::error::Category::Syntax => {
                 if response_text.trim().starts_with('{') || response_text.trim().starts_with('[') {
                     HttpError::DeserializationFailed(format!(
-                        "JSON格式错误 - 服务器 {} 返回的JSON数据格式异常: {}", host, err
+                        "JSON格式错误 - 服务器 {} 返回的JSON数据格式异常: {}",
+                        host, err
                     ))
                 } else {
                     HttpError::NetworkError(format!(
-                        "响应格式异常 - 服务器 {} 返回非JSON数据: {}", host, response_preview
+                        "响应格式异常 - 服务器 {} 返回非JSON数据: {}",
+                        host, response_preview
                     ))
                 }
             }
-            serde_json::error::Category::Data => {
-                HttpError::DeserializationFailed(format!(
-                    "数据格式不匹配 - 服务器 {} 返回的数据结构与预期不符: {}", host, err
-                ))
-            }
-            serde_json::error::Category::Eof => {
-                HttpError::NetworkError(format!(
-                    "响应不完整 - 服务器 {} 响应数据被截断 (可能服务器异常终止)", host
-                ))
-            }
+            serde_json::error::Category::Data => HttpError::DeserializationFailed(format!(
+                "数据格式不匹配 - 服务器 {} 返回的数据结构与预期不符: {}",
+                host, err
+            )),
+            serde_json::error::Category::Eof => HttpError::NetworkError(format!(
+                "响应不完整 - 服务器 {} 响应数据被截断 (可能服务器异常终止)",
+                host
+            )),
         }
     }
 }

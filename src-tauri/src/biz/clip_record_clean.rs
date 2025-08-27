@@ -70,20 +70,20 @@ async fn clip_record_clean() {
         if clip_records.len() > 0 {
             let mut resource_files_to_delete: Vec<String> = vec![];
             let mut del_ids: Vec<String> = vec![];
-            
+
             for record in clip_records {
                 // 收集需要删除的resources目录下的文件
                 collect_resource_files_to_delete(&record, &mut resource_files_to_delete);
                 del_ids.push(record.id);
             }
-            
+
             let del_res = ClipRecord::tombstone_by_ids(rb, &del_ids).await;
             match del_res {
                 Ok(_) => {
                     log::info!("删除超限数据成功, 数量: {}", del_ids.len());
                     // 同步删除搜索索引
                     let _ = remove_ids_from_index(&del_ids).await;
-                    
+
                     // 删除resources目录下的文件
                     delete_resource_files(&resource_files_to_delete).await;
                 }
@@ -103,20 +103,20 @@ async fn clip_record_clean() {
                 if data.len() > 0 {
                     let mut resource_files_to_delete: Vec<String> = vec![];
                     let mut del_ids: Vec<String> = vec![];
-                    
+
                     for record in data {
                         // 收集需要删除的resources目录下的文件
                         collect_resource_files_to_delete(&record, &mut resource_files_to_delete);
                         del_ids.push(record.id);
                     }
-                    
+
                     let del_res = ClipRecord::del_by_ids(rb, &del_ids).await;
                     match del_res {
                         Ok(_) => {
                             log::info!("物理删除数据成功, 数量: {}", del_ids.len());
                             // 同步删除搜索索引
                             let _ = remove_ids_from_index(&del_ids).await;
-                            
+
                             // 删除resources目录下的文件
                             delete_resource_files(&resource_files_to_delete).await;
                         }
@@ -136,11 +136,11 @@ async fn clip_record_clean() {
 /// 收集需要删除的resources目录下的文件
 fn collect_resource_files_to_delete(record: &ClipRecord, resource_files: &mut Vec<String>) {
     let content_str = record.content.as_str().unwrap_or_default();
-    
+
     if content_str.is_empty() || content_str == "null" {
         return;
     }
-    
+
     match record.r#type.as_str() {
         x if x == ClipType::Image.to_string() => {
             // 图片文件都存储在resources根目录下，直接添加
@@ -170,12 +170,12 @@ async fn delete_resource_files(resource_files: &[String]) {
     if resource_files.is_empty() {
         return;
     }
-    
+
     let base_path = get_resources_dir();
     if let Some(resource_path) = base_path {
         for relative_path in resource_files {
             let full_path = resource_path.join(relative_path);
-            
+
             if full_path.exists() {
                 match std::fs::remove_file(&full_path) {
                     Ok(_) => {
@@ -190,8 +190,11 @@ async fn delete_resource_files(resource_files: &[String]) {
                 log::debug!("文件已不存在，跳过删除: {:?}", full_path);
             }
         }
-        
-        log::info!("完成resources目录文件清理，处理了 {} 个文件", resource_files.len());
+
+        log::info!(
+            "完成resources目录文件清理，处理了 {} 个文件",
+            resource_files.len()
+        );
     } else {
         log::error!("无法获取resources目录路径，跳过文件删除");
     }

@@ -1,8 +1,8 @@
+use crate::errors::{AppError, AppResult};
 #[cfg(any(windows, target_os = "macos"))]
 use once_cell::sync::Lazy;
 #[cfg(any(windows, target_os = "macos"))]
 use std::sync::{Arc, Mutex};
-use crate::errors::{AppError, AppResult};
 
 #[cfg(windows)]
 use windows::Win32::{
@@ -432,5 +432,7 @@ pub fn save_foreground_window() {
 /// 不支持平台的占位实现
 #[cfg(not(any(windows, target_os = "macos")))]
 pub fn auto_paste_to_previous_window() -> AppResult<()> {
-    Err(AppError::AutoPaste("自动粘贴功能仅在Windows和macOS平台支持".to_string()))
+    Err(AppError::AutoPaste(
+        "自动粘贴功能仅在Windows和macOS平台支持".to_string(),
+    ))
 }

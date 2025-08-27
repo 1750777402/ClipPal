@@ -13,13 +13,13 @@ use tauri_plugin_global_shortcut::GlobalShortcutExt;
 
 use crate::{
     CONTEXT,
+    biz::cloud_sync_timer::trigger_immediate_sync,
     errors::{AppError, AppResult},
     global_shortcut::parse_shortcut,
     utils::{
         file_dir::get_config_dir,
         lock_utils::lock_utils::{safe_read_lock, safe_write_lock},
     },
-    biz::cloud_sync_timer::trigger_immediate_sync,
 };
 
 // 默认超过这个大小的内容，使用布隆过滤器进行搜索   不会进行contains
@@ -412,9 +412,9 @@ pub async fn check_cloud_sync_enabled() -> bool {
 /// 禁用云同步功能（用户退出登录或认证失效时调用）
 pub async fn disable_cloud_sync() -> Result<(), String> {
     log::info!("禁用云同步功能");
-    
+
     let settings_lock = CONTEXT.get::<Arc<RwLock<Settings>>>();
-    
+
     // 获取当前设置
     let mut current_settings = match safe_read_lock(&settings_lock) {
         Ok(settings) => settings.clone(),
@@ -422,19 +422,21 @@ pub async fn disable_cloud_sync() -> Result<(), String> {
             return Err(format!("获取设置失败: {}", e));
         }
     };
-    
+
     // 如果已经是关闭状态，无需修改
     if current_settings.cloud_sync == 0 {
         log::debug!("云同步已经处于关闭状态");
         return Ok(());
     }
-    
+
     // 设置云同步为关闭状态
     current_settings.cloud_sync = 0;
-    
+
     // 保存设置
-    save_settings(current_settings).await.map_err(|e| format!("保存设置失败: {}", e))?;
-    
+    save_settings(current_settings)
+        .await
+        .map_err(|e| format!("保存设置失败: {}", e))?;
+
     log::info!("云同步功能已被禁用");
     Ok(())
 }
@@ -442,12 +444,12 @@ pub async fn disable_cloud_sync() -> Result<(), String> {
 /// 验证云同步权限 - 检查用户是否已登录
 async fn validate_cloud_sync_permission() -> Result<(), String> {
     use crate::utils::token_manager::has_valid_auth;
-    
+
     if !has_valid_auth() {
         log::warn!("用户未登录，无法开启云同步功能");
         return Err("请先登录账号才能开启云同步功能".to_string());
     }
-    
+
     log::info!("用户已登录，允许开启云同步功能");
     Ok(())
 }

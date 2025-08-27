@@ -1,10 +1,12 @@
 use crate::{
-    api::user_auth_api::{refresh_token as api_refresh_token, RefreshTokenRequestParam, AuthResponse},
+    CONTEXT,
+    api::user_auth_api::{
+        AuthResponse, RefreshTokenRequestParam, refresh_token as api_refresh_token,
+    },
     utils::secure_store::SECURE_STORE,
-    CONTEXT
 };
-use std::sync::{Arc, RwLock, OnceLock};
 use serde_json;
+use std::sync::{Arc, OnceLock, RwLock};
 use tauri::Emitter;
 
 /// JWT令牌管理器，负责自动刷新令牌
@@ -44,7 +46,10 @@ impl TokenManager {
     pub async fn refresh_access_token(&self) -> Result<Option<String>, String> {
         // 防止并发刷新
         {
-            let is_refreshing = self.is_refreshing.read().map_err(|e| format!("获取刷新锁失败: {}", e))?;
+            let is_refreshing = self
+                .is_refreshing
+                .read()
+                .map_err(|e| format!("获取刷新锁失败: {}", e))?;
             if *is_refreshing {
                 // 等待其他线程完成刷新，然后返回新令牌
                 std::thread::sleep(std::time::Duration::from_millis(100));
@@ -54,7 +59,10 @@ impl TokenManager {
 
         // 设置刷新状态
         {
-            let mut is_refreshing = self.is_refreshing.write().map_err(|e| format!("设置刷新锁失败: {}", e))?;
+            let mut is_refreshing = self
+                .is_refreshing
+                .write()
+                .map_err(|e| format!("设置刷新锁失败: {}", e))?;
             *is_refreshing = true;
         }
 
@@ -62,7 +70,10 @@ impl TokenManager {
 
         // 清除刷新状态
         {
-            let mut is_refreshing = self.is_refreshing.write().map_err(|e| format!("清除刷新锁失败: {}", e))?;
+            let mut is_refreshing = self
+                .is_refreshing
+                .write()
+                .map_err(|e| format!("清除刷新锁失败: {}", e))?;
             *is_refreshing = false;
         }
 
@@ -71,7 +82,8 @@ impl TokenManager {
 
     /// 执行实际的令牌刷新
     async fn do_refresh_token(&self) -> Result<Option<String>, String> {
-        let refresh_token = self.get_stored_refresh_token()
+        let refresh_token = self
+            .get_stored_refresh_token()
             .ok_or("没有有效的刷新令牌")?;
 
         log::info!("开始刷新访问令牌");
@@ -83,7 +95,7 @@ impl TokenManager {
         match api_refresh_token(&request).await {
             Ok(Some(auth_response)) => {
                 log::info!("令牌刷新成功");
-                
+
                 // 更新存储的令牌信息
                 if let Err(e) = self.update_stored_tokens(&auth_response).await {
                     log::error!("更新存储的令牌失败: {}", e);
@@ -176,7 +188,7 @@ impl TokenManager {
     /// 通知前端认证已过期
     async fn notify_auth_expired(&self) {
         log::info!("通知前端认证已过期");
-        
+
         // 通过Tauri事件系统通知前端
         if let Some(app_handle) = CONTEXT.try_get::<tauri::AppHandle>() {
             if let Err(e) = app_handle.emit("auth-expired", ()) {
@@ -191,12 +203,12 @@ impl TokenManager {
     /// 禁用云同步功能
     async fn disable_cloud_sync(&self) {
         log::info!("认证失效，禁用云同步功能");
-        
+
         // 实际修改设置中的云同步开关
         if let Err(e) = crate::biz::system_setting::disable_cloud_sync().await {
             log::error!("禁用云同步设置失败: {}", e);
         }
-        
+
         // 通知前端云同步已被禁用，前端需要更新UI状态
         if let Some(app_handle) = CONTEXT.try_get::<tauri::AppHandle>() {
             if let Err(e) = app_handle.emit("cloud-sync-disabled", ()) {
