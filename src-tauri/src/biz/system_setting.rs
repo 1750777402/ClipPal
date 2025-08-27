@@ -189,8 +189,16 @@ pub async fn save_settings(settings: Settings) -> Result<(), String> {
         }
     }
 
-    // 4. 检查是否需要触发立即云同步
-    if settings.cloud_sync != current_settings.cloud_sync && settings.cloud_sync == 1 {
+    // 4. 先更新上下文中的设置
+    let need_trigger_sync = settings.cloud_sync != current_settings.cloud_sync && settings.cloud_sync == 1;
+    {
+        let lock = CONTEXT.get::<Arc<RwLock<Settings>>>().clone();
+        let mut current = safe_write_lock(&lock).map_err(|e| e.to_string())?;
+        *current = settings;
+    }
+
+    // 5. 检查是否需要触发立即云同步（在设置更新后）
+    if need_trigger_sync {
         log::info!("检测到云同步从关闭变为开启，触发立即同步");
         if let Err(e) = trigger_immediate_sync() {
             log::warn!("触发立即云同步失败: {}", e);
@@ -198,13 +206,6 @@ pub async fn save_settings(settings: Settings) -> Result<(), String> {
         } else {
             log::info!("立即云同步触发成功");
         }
-    }
-
-    // 5. 更新上下文中的设置
-    {
-        let lock = CONTEXT.get::<Arc<RwLock<Settings>>>().clone();
-        let mut current = safe_write_lock(&lock).map_err(|e| e.to_string())?;
-        *current = settings;
     }
 
     Ok(())

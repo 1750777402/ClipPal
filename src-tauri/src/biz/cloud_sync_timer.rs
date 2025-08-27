@@ -92,13 +92,13 @@ impl CloudSyncTimer {
     async fn try_execute_sync(&self, sync_lock: &GlobalSyncLock, source: &str) {
         // 检查云同步是否开启
         if !check_cloud_sync_enabled().await {
-            log::debug!("云同步未开启，跳过{}同步", source);
+            log::info!("云同步未开启，跳过{}同步", source);
             return;
         }
 
         // 检查用户登录状态
         if !has_valid_auth() {
-            log::debug!("用户未登录，跳过{}同步", source);
+            log::info!("用户未登录，跳过{}同步", source);
             return;
         }
 
@@ -115,13 +115,13 @@ impl CloudSyncTimer {
             }
         } else {
             // 获取不到锁，说明已有同步任务在执行
-            log::debug!("{}云同步在执行中，跳过", source);
+            log::info!("{}云同步在执行中，跳过", source);
         }
     }
 
     /// 执行同步任务（带来源标识）
     pub async fn execute_sync_task_with_source(&self, source: &str) -> AppResult<()> {
-        log::debug!("开始执行{}云同步任务", source);
+        log::info!("开始执行{}云同步任务", source);
 
         let last_sync_time = SyncTime::select_last_time(&self.rb).await;
 

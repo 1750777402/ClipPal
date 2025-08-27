@@ -271,9 +271,15 @@ const initEventListeners = async () => {
         }, SINGLE_UPDATE_COOLDOWN);
         
       } else {
-        // 如果找不到记录，说明可能是新数据，进行静默刷新
-        console.log('未找到对应记录，执行静默刷新');
-        silentRefresh();
+        // 如果找不到记录，可能是因为记录不在当前页面中（分页问题）
+        // 不立即刷新，而是标记为已处理，避免触发不必要的全局刷新
+        console.log('未找到对应记录，可能在其他页面，标记为已处理:', record_id);
+        
+        // 标记该记录最近被更新，防止后续的clip_record_change事件触发全局刷新
+        recentlyUpdatedRecords.add(record_id);
+        setTimeout(() => {
+          recentlyUpdatedRecords.delete(record_id);
+        }, SINGLE_UPDATE_COOLDOWN);
       }
     });
   } catch (error) {
