@@ -1,11 +1,15 @@
 use crate::{
+    CONTEXT,
     api::vip_api::{UserVipInfoResponse, user_vip_check},
-    biz::clip_record::ClipRecord,
-    biz::system_setting::{load_settings, save_settings},
+    biz::{
+        clip_record::ClipRecord,
+        system_setting::{load_settings, save_settings},
+    },
     errors::{AppError, AppResult},
     utils::secure_store::{SECURE_STORE, VipInfo, VipType},
 };
 use log;
+use rbatis::RBatis;
 
 pub struct VipChecker;
 
@@ -53,9 +57,7 @@ impl VipChecker {
     }
 
     /// 检查云同步权限（需要传入RBatis实例）
-    pub async fn check_cloud_sync_permission_with_rb(
-        rb: &rbatis::RBatis,
-    ) -> AppResult<(bool, String)> {
+    pub async fn check_cloud_sync_permission_with_rb() -> AppResult<(bool, String)> {
         // 首先检查是否登录
         let has_token = {
             let mut store = SECURE_STORE
@@ -74,7 +76,7 @@ impl VipChecker {
         }
 
         // 免费用户检查10条限制
-        let current_sync_count = Self::get_current_sync_count(rb).await?;
+        let current_sync_count = Self::get_current_sync_count().await?;
         if current_sync_count < 10 {
             Ok((
                 true,
@@ -212,7 +214,8 @@ impl VipChecker {
     }
 
     /// 获取当前云同步记录数（需要传入RBatis实例）
-    pub async fn get_current_sync_count(rb: &rbatis::RBatis) -> AppResult<u32> {
+    pub async fn get_current_sync_count() -> AppResult<u32> {
+        let rb: &RBatis = CONTEXT.get::<RBatis>();
         // 查询已同步到云端的记录数量
         let count = ClipRecord::select_sync_count(rb)
             .await
