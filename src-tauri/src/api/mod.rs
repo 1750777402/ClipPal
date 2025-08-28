@@ -6,6 +6,7 @@ use std::path::Path;
 
 pub mod cloud_sync_api;
 pub mod user_auth_api;
+pub mod vip_api;
 
 /// 获取 API 域名
 fn get_api_domain() -> Result<String, HttpError> {
