@@ -175,10 +175,10 @@ impl SecureStore {
 pub struct VipInfo {
     pub vip_flag: bool,
     pub vip_type: VipType,
-    pub expire_time: Option<u64>, // 到期时间戳
-    pub max_records: u32,         // 最大记录数限制
-    pub max_sync_records: u32,    // 可云同步的最大记录数
-    pub features: Vec<String>,    // VIP功能列表
+    pub expire_time: Option<u64>,      // 到期时间戳
+    pub max_records: u32,              // 最大记录数限制
+    pub max_sync_records: u32,         // 可云同步的最大记录数
+    pub features: Option<Vec<String>>, // VIP功能列表
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

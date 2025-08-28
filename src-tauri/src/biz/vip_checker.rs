@@ -87,6 +87,13 @@ impl VipChecker {
 
     /// 检查云同步权限（兼容性方法，不需要数据库）
     pub async fn check_cloud_sync_permission() -> AppResult<(bool, String)> {
+        Self::check_cloud_sync_permission_with_vip_status(None).await
+    }
+
+    /// 检查云同步权限（优化版本，可传入已知的VIP状态避免重复检查）
+    pub async fn check_cloud_sync_permission_with_vip_status(
+        known_vip_status: Option<bool>,
+    ) -> AppResult<(bool, String)> {
         // 首先检查是否登录
         let has_token = {
             let mut store = SECURE_STORE
@@ -99,8 +106,13 @@ impl VipChecker {
             return Ok((false, "需要登录后才能使用云同步功能".to_string()));
         }
 
-        // 检查VIP状态（调用服务端验证）
-        if Self::is_vip_user().await? {
+        // 使用已知VIP状态或检查VIP状态
+        let is_vip = match known_vip_status {
+            Some(status) => status,
+            None => Self::is_vip_user().await?,
+        };
+
+        if is_vip {
             return Ok((true, "VIP用户，享受完整云同步功能".to_string()));
         }
 

@@ -8,14 +8,13 @@ use crate::{api::api_post, utils::http_client::HttpError};
 #[serde(rename_all = "camelCase")]
 pub struct UserVipInfoResponse {
     pub user_id: u32,
-    pub username: String,
     pub vip_flag: bool,
     pub vip_type: Option<String>, // "monthly", "quarterly", "yearly"
     pub expire_time: Option<u64>, // VIP过期时间戳
     pub max_records: u32,         // 最大记录条数限制
     pub max_sync_records: u32,    // 可云同步的最大记录数
     pub max_file_size: u64,       // 最大文件大小限制(字节)
-    pub features: Vec<String>,    // VIP功能列表
+    pub features: Option<Vec<String>>, // VIP功能列表
     pub current_sync_count: Option<u32>, // 当前已同步记录数
 }
 
@@ -31,6 +30,7 @@ pub struct ServerConfigResponse {
 
 /// 用户VIP信息检查获取
 pub async fn user_vip_check() -> Result<Option<UserVipInfoResponse>, HttpError> {
+    log::info!("user_vip_check");
     api_post("cliPal-sync/vip/check", Some(&serde_json::json!({}))).await
 }
 

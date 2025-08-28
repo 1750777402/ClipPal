@@ -27,15 +27,15 @@ pub async fn check_vip_permission() -> Result<(bool, String), String> {
 
 #[tauri::command]
 pub async fn get_vip_limits() -> Result<serde_json::Value, String> {
-    let max_records = VipChecker::get_max_records_limit()
-        .await
-        .map_err(|e| e.to_string())?;
-    let max_file_size = VipChecker::get_max_file_size()
-        .await
-        .map_err(|e| e.to_string())?;
+    // 只调用一次VIP状态检查，避免并发重复请求
     let is_vip = VipChecker::is_vip_user().await.map_err(|e| e.to_string())?;
-
-    let can_cloud_sync = VipChecker::check_cloud_sync_permission()
+    
+    // 基于VIP状态计算各项限制，避免重复调用服务端
+    let max_records = if is_vip { 1000 } else { 500 };
+    let max_file_size = if is_vip { 5 * 1024 * 1024 } else { 0 };
+    
+    // 检查云同步权限，传入已知的VIP状态避免重复检查
+    let can_cloud_sync = VipChecker::check_cloud_sync_permission_with_vip_status(Some(is_vip))
         .await
         .map_err(|e| e.to_string())?
         .0;
@@ -111,7 +111,7 @@ pub async fn simulate_vip_upgrade(
         expire_time: Some(expire_time),
         max_records: 1000,
         max_sync_records: 1000,
-        features: vec!["云同步".to_string(), "大文件上传".to_string()],
+        features: Some(vec!["云同步".to_string(), "大文件上传".to_string()]),
     };
 
     use crate::utils::secure_store::SECURE_STORE;

@@ -155,30 +155,36 @@ export const vipStore = {
       // 尝试从服务端刷新
       const response = await apiInvoke<boolean>('refresh_vip_status')
       
-      // 无论服务端是否成功，都加载最新的本地数据
-      const [statusLoaded, limitsLoaded] = await Promise.all([
-        this.loadVipStatus(),
-        this.loadVipLimits()
-      ])
-      
-      // 如果服务端更新成功，返回true；否则返回本地数据是否加载成功
       if (isSuccess(response) && response.data) {
+        // 服务端更新成功，加载最新的本地数据
+        const [statusLoaded, limitsLoaded] = await Promise.all([
+          this.loadVipStatus(),
+          this.loadVipLimits()
+        ])
         console.log('VIP状态已从服务器更新')
-        return true
-      } else {
-        console.log('使用本地缓存的VIP状态')
         return statusLoaded && limitsLoaded
+      } else {
+        // 服务端更新失败，仅从本地缓存加载
+        console.log('服务端更新失败，使用本地缓存的VIP状态')
+        const statusLoaded = await this.loadVipStatus()
+        // 如果有本地VIP数据，也加载limits；否则跳过避免触发服务端调用
+        if (vipState.vipInfo) {
+          const limitsLoaded = await this.loadVipLimits()
+          return statusLoaded && limitsLoaded
+        }
+        return statusLoaded
       }
     } catch (error) {
       console.warn('服务端刷新失败，尝试加载本地缓存:', error)
       
       // 服务端失败时，尝试加载本地缓存
-      const [statusLoaded, limitsLoaded] = await Promise.all([
-        this.loadVipStatus(),
-        this.loadVipLimits()
-      ])
-      
-      return statusLoaded && limitsLoaded
+      const statusLoaded = await this.loadVipStatus()
+      // 只有在有本地数据时才加载limits
+      if (vipState.vipInfo) {
+        const limitsLoaded = await this.loadVipLimits()
+        return statusLoaded && limitsLoaded
+      }
+      return statusLoaded
     } finally {
       vipState.loading = false
     }
