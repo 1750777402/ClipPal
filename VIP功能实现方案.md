@@ -33,10 +33,10 @@
 ```
 
 ### 核心模块设计
-- **VipChecker**: 权限检查器，处理所有VIP相关验证
-- **SecureStore**: 扩展现有加密存储，增加VIP信息字段
-- **VipManagement**: Tauri命令层，提供前端API接口
-- **VipStore**: 前端状态管理，响应式VIP状态控制
+- **VipChecker**: 权限检查器，处理所有VIP相关验证 (`src-tauri/src/biz/`)
+- **SecureStore**: 扩展现有加密存储，增加VIP信息字段 (`src-tauri/src/utils/`)
+- **VipManagement**: Tauri命令层，提供前端API接口 (`src-tauri/src/biz/`)
+- **VipStore**: 前端状态管理，响应式VIP状态控制 (`frontend/src/utils/`)
 
 ## 📦 后端实现(Rust)
 
@@ -144,37 +144,84 @@ impl SecureStore {
             Ok(true) // 从未检查过
         }
     }
+
+    /// 更新VIP检查时间戳
+    pub fn update_vip_check_time(&mut self) -> AppResult<()> {
+        if !self.loaded {
+            self.load()?;
+        }
+        
+        let current_time = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+            
+        self.data.vip_last_check = Some(current_time);
+        self.save()
+    }
 }
 ```
 
 ### 3. VIP权限检查器
 
 ```rust
-// src-tauri/src/utils/vip_checker.rs
+// src-tauri/src/biz/vip_checker.rs
+
+use crate::{
+    errors::{AppError, AppResult},
+    utils::secure_store::{SECURE_STORE, VipInfo, VipType, ServerConfig},
+    biz::system_setting::{load_settings, save_settings},
+    api::vip_api::{user_vip_check, get_server_config, UserVipInfoResponse, ServerConfigResponse},
+};
+use std::time::{SystemTime, UNIX_EPOCH};
+use log;
 
 pub struct VipChecker;
 
 impl VipChecker {
-    /// 检查用户是否为VIP
-    pub fn is_vip_user() -> AppResult<bool> {
-        if let Some(vip_info) = Self::get_local_vip_info()? {
-            if vip_info.is_vip {
-                // 检查是否过期
-                if let Some(expire_time) = vip_info.expire_time {
-                    let current_time = SystemTime::now()
-                        .duration_since(UNIX_EPOCH)
-                        .unwrap()
-                        .as_secs();
-                    return Ok(current_time < expire_time);
+    /// 检查用户是否为VIP - 必须调用服务端验证
+    pub async fn is_vip_user() -> AppResult<bool> {
+        // VIP状态必须通过服务端实时验证，不能依赖本地时间
+        match user_vip_check().await {
+            Ok(Some(vip_response)) => {
+                // 更新本地缓存
+                let vip_info = Self::convert_api_response_to_vip_info(vip_response.clone())?;
+                let mut store = SECURE_STORE.write()
+                    .map_err(|_| AppError::Config("获取存储锁失败".to_string()))?;
+                store.set_vip_info(vip_info)?;
+                store.update_vip_check_time()?;
+                
+                // 返回服务端的VIP状态
+                Ok(vip_response.is_vip)
+            }
+            Ok(None) => {
+                log::warn!("服务端返回空的VIP信息");
+                Ok(false)
+            }
+            Err(e) => {
+                log::error!("VIP状态检查失败: {:?}", e);
+                // 网络错误时，使用本地缓存作为fallback（但需要警告）
+                if let Some(cached_vip) = Self::get_local_vip_info()? {
+                    log::warn!("网络错误，使用本地缓存的VIP状态: {}", cached_vip.is_vip);
+                    Ok(cached_vip.is_vip)
+                } else {
+                    Ok(false)
                 }
-                return Ok(true); // 永久VIP
             }
         }
-        Ok(false)
+    }
+
+    /// 获取本地缓存的VIP状态（仅用于离线fallback）
+    pub fn get_cached_vip_status() -> AppResult<bool> {
+        if let Some(vip_info) = Self::get_local_vip_info()? {
+            Ok(vip_info.is_vip)
+        } else {
+            Ok(false)
+        }
     }
 
     /// 检查云同步权限
-    pub fn check_cloud_sync_permission() -> AppResult<(bool, String)> {
+    pub async fn check_cloud_sync_permission() -> AppResult<(bool, String)> {
         // 首先检查是否登录
         let mut store = SECURE_STORE.write()
             .map_err(|_| AppError::Config("获取存储锁失败".to_string()))?;
@@ -182,9 +229,10 @@ impl VipChecker {
         if store.get_jwt_token()?.is_none() {
             return Ok((false, "需要登录后才能使用云同步功能".to_string()));
         }
+        drop(store);
 
-        // 检查VIP状态
-        if Self::is_vip_user()? {
+        // 检查VIP状态（调用服务端验证）
+        if Self::is_vip_user().await? {
             return Ok((true, "VIP用户，享受完整云同步功能".to_string()));
         }
 
@@ -198,8 +246,8 @@ impl VipChecker {
     }
 
     /// 获取最大记录数限制
-    pub fn get_max_records_limit() -> AppResult<u32> {
-        if Self::is_vip_user()? {
+    pub async fn get_max_records_limit() -> AppResult<u32> {
+        if Self::is_vip_user().await? {
             Ok(1000)
         } else {
             Ok(500)
@@ -207,8 +255,8 @@ impl VipChecker {
     }
 
     /// 验证设置的记录条数是否合法
-    pub fn validate_max_records(max_records: u32) -> AppResult<()> {
-        let limit = Self::get_max_records_limit()?;
+    pub async fn validate_max_records(max_records: u32) -> AppResult<()> {
+        let limit = Self::get_max_records_limit().await?;
         
         if max_records < 50 || max_records > limit {
             return Err(AppError::Config(
@@ -242,6 +290,86 @@ impl VipChecker {
         
         Ok(())
     }
+
+    /// 从服务器刷新VIP状态 - 调用现有的user_vip_check方法
+    pub async fn refresh_vip_from_server() -> AppResult<bool> {
+        log::info!("从服务器刷新VIP状态");
+        
+        // 调用现有的user_vip_check API
+        match user_vip_check().await {
+            Ok(Some(vip_response)) => {
+                // 转换API响应为本地VIP信息结构
+                let vip_info = Self::convert_api_response_to_vip_info(vip_response)?;
+                
+                // 保存到加密存储
+                let mut store = SECURE_STORE.write()
+                    .map_err(|_| AppError::Config("获取存储锁失败".to_string()))?;
+                store.set_vip_info(vip_info)?;
+                store.update_vip_check_time()?;
+                
+                log::info!("VIP状态已从服务器更新");
+                Ok(true)
+            }
+            Ok(None) => {
+                log::warn!("服务器返回空的VIP信息");
+                Ok(false)
+            }
+            Err(e) => {
+                log::error!("从服务器获取VIP状态失败: {:?}", e);
+                Err(AppError::Config(format!("VIP状态检查失败: {}", e)))
+            }
+        }
+    }
+
+    /// 获取本地VIP信息
+    pub fn get_local_vip_info() -> AppResult<Option<VipInfo>> {
+        let mut store = SECURE_STORE.write()
+            .map_err(|_| AppError::Config("获取存储锁失败".to_string()))?;
+        store.get_vip_info()
+    }
+
+    /// 获取当前云同步记录数（需要查询数据库）
+    pub fn get_current_sync_count() -> AppResult<u32> {
+        // TODO: 实现数据库查询逻辑
+        // 这里需要查询已同步到云端的记录数量
+        log::warn!("get_current_sync_count 待实现数据库查询");
+        Ok(0) // 临时返回0
+    }
+
+    /// 获取最大文件大小限制
+    pub async fn get_max_file_size() -> AppResult<u64> {
+        if Self::is_vip_user().await? {
+            Ok(5 * 1024 * 1024) // VIP用户5MB
+        } else {
+            Ok(0) // 免费用户不支持文件
+        }
+    }
+
+    /// 转换API响应为VIP信息结构
+    fn convert_api_response_to_vip_info(response: UserVipInfoResponse) -> AppResult<VipInfo> {
+        let vip_type = match response.vip_type.as_deref() {
+            Some("monthly") => VipType::Monthly,
+            Some("quarterly") => VipType::Quarterly, 
+            Some("yearly") => VipType::Yearly,
+            _ => VipType::Free,
+        };
+
+        Ok(VipInfo {
+            is_vip: response.is_vip,
+            vip_type,
+            expire_time: response.expire_time,
+            max_records: response.max_records,
+            max_sync_records: response.max_sync_records,
+            features: response.features,
+        })
+    }
+
+    /// 检查是否需要刷新VIP状态（超过1小时或从未检查过）
+    pub fn should_refresh_vip_status() -> AppResult<bool> {
+        let mut store = SECURE_STORE.write()
+            .map_err(|_| AppError::Config("获取存储锁失败".to_string()))?;
+        store.should_check_vip_status()
+    }
 }
 ```
 
@@ -249,6 +377,19 @@ impl VipChecker {
 
 ```rust
 // src-tauri/src/biz/vip_management.rs
+
+use crate::biz::vip_checker::VipChecker;
+use crate::utils::secure_store::{VipInfo, VipType};
+use serde::Serialize;
+use tauri::AppHandle;
+
+#[derive(Serialize, Clone)]
+struct VipStatusChangedPayload {
+    is_vip: bool,
+    vip_type: Option<VipType>,
+    expire_time: Option<u64>,
+    max_records: u32,
+}
 
 #[tauri::command]
 pub async fn get_vip_status() -> AppResult<Option<VipInfo>> {
@@ -278,33 +419,43 @@ pub async fn get_vip_limits() -> AppResult<serde_json::Value> {
 pub async fn open_vip_purchase_page(app_handle: AppHandle) -> AppResult<()> {
     let url = "https://jingchuanyuexiang.com";
     
-    // 使用系统命令打开浏览器
-    #[cfg(target_os = "macos")]
-    {
-        use std::process::Command;
-        Command::new("open")
-            .arg(url)
-            .spawn()
-            .map_err(|e| AppError::Config(format!("打开浏览器失败: {}", e)))?;
-    }
+    // 使用Tauri2官方插件打开浏览器
+    use tauri_plugin_opener::OpenerExt;
     
-    #[cfg(target_os = "windows")]
-    {
-        use std::process::Command;
-        Command::new("cmd")
-            .args(["/c", "start", url])
-            .spawn()
-            .map_err(|e| AppError::Config(format!("打开浏览器失败: {}", e)))?;
-    }
+    app_handle.opener()
+        .open_url(url, None::<&str>)
+        .map_err(|e| AppError::Config(format!("打开浏览器失败: {}", e)))?;
     
     Ok(())
 }
 
 #[tauri::command]
 pub async fn refresh_vip_status(app_handle: AppHandle) -> AppResult<bool> {
-    // TODO: 调用服务端API检查VIP状态
-    log::info!("刷新VIP状态 - 待实现服务端接口");
-    Ok(false)
+    // 调用VIP检查器的服务器刷新方法
+    match VipChecker::refresh_vip_from_server().await {
+        Ok(updated) => {
+            if updated {
+                // 发送VIP状态变更事件到前端
+                if let Ok(vip_info) = VipChecker::get_local_vip_info() {
+                    if let Some(info) = vip_info {
+                        let payload = VipStatusChangedPayload {
+                            is_vip: info.is_vip,
+                            vip_type: Some(info.vip_type),
+                            expire_time: info.expire_time,
+                            max_records: info.max_records,
+                        };
+                        
+                        let _ = app_handle.emit("vip-status-changed", payload);
+                    }
+                }
+            }
+            Ok(updated)
+        }
+        Err(e) => {
+            log::error!("刷新VIP状态失败: {}", e);
+            Err(e)
+        }
+    }
 }
 
 // 模拟VIP状态更新(用于测试)
@@ -354,7 +505,7 @@ pub async fn simulate_vip_upgrade(
 ```rust
 // src-tauri/src/biz/system_setting.rs
 
-use crate::utils::vip_checker::VipChecker;
+use crate::biz::vip_checker::VipChecker;
 
 // 更新验证设置的有效性函数
 fn validate_settings(settings: &Settings) -> AppResult<()> {
@@ -641,18 +792,37 @@ const handleRefreshStatus = async () => {
 
 ## 🔄 集成步骤
 
-### 第一阶段：基础架构搭建
+### 第一阶段：依赖和基础架构
 
-1. **创建新文件**：
-   - `src-tauri/src/utils/vip_checker.rs`
+1. **添加Cargo依赖**：
+   ```toml
+   # src-tauri/Cargo.toml
+   [dependencies]
+   tauri-plugin-opener = "2.0"
+   ```
+
+2. **注册插件**：
+   ```rust
+   // src-tauri/src/main.rs 或 lib.rs
+   use tauri_plugin_opener;
+   
+   fn main() {
+       tauri::Builder::default()
+           .plugin(tauri_plugin_opener::init())
+           // ... 其他插件
+   }
+   ```
+
+3. **创建新文件**：
+   - `src-tauri/src/biz/vip_checker.rs`
    - `src-tauri/src/biz/vip_management.rs`
 
-2. **修改现有文件**：
+4. **修改现有文件**：
    - 扩展 `src-tauri/src/utils/secure_store.rs`
    - 更新 `src-tauri/src/biz/system_setting.rs`
    - 注册命令到 `src-tauri/src/lib.rs`
 
-3. **前端文件**：
+5. **前端文件**：
    - `frontend/src/utils/vipStore.ts`
    - `frontend/src/components/VipUpgradeDialog.vue`
 
@@ -703,6 +873,115 @@ const handleRefreshStatus = async () => {
 - 支持多种VIP等级扩展
 - 服务端配置控制，无需客户端更新
 - 模块化设计，便于功能增减
+
+## 🔄 云同步集成示例
+
+### 在云同步定时器中集成VIP检查
+
+```rust
+// src-tauri/src/biz/cloud_sync_timer.rs
+
+use crate::biz::vip_checker::VipChecker;
+
+pub async fn perform_cloud_sync() -> AppResult<()> {
+    // 1. 检查云同步权限
+    let (allowed, message) = VipChecker::check_cloud_sync_permission()?;
+    
+    if !allowed {
+        log::warn!("云同步权限检查失败: {}", message);
+        return Err(AppError::Config(format!("云同步被拒绝: {}", message)));
+    }
+    
+    // 2. 检查是否需要刷新VIP状态
+    if VipChecker::should_refresh_vip_status()? {
+        log::info!("检测到需要刷新VIP状态");
+        
+        match VipChecker::refresh_vip_from_server().await {
+            Ok(true) => log::info!("VIP状态已更新"),
+            Ok(false) => log::warn!("VIP状态无更新"),
+            Err(e) => log::error!("VIP状态刷新失败: {}", e),
+        }
+        
+        // 重新检查权限
+        let (still_allowed, _) = VipChecker::check_cloud_sync_permission()?;
+        if !still_allowed {
+            return Err(AppError::Config("刷新后权限检查失败".to_string()));
+        }
+    }
+    
+    // 3. 执行实际的云同步逻辑
+    log::info!("开始执行云同步，权限检查通过: {}", message);
+    
+    // 现有的云同步代码...
+    // sync_clipboard(&request).await?;
+    
+    Ok(())
+}
+```
+
+### 在云同步API中添加记录数限制检查
+
+```rust
+// 在上传记录前检查VIP限制
+pub async fn upload_clip_record(record: &ClipRecord) -> AppResult<()> {
+    // 检查文件大小限制
+    if let Some(file_path) = &record.local_file_path {
+        let file_size = std::fs::metadata(file_path)?.len();
+        let max_size = VipChecker::get_max_file_size()?;
+        
+        if file_size > max_size {
+            let size_mb = file_size as f64 / (1024.0 * 1024.0);
+            let max_mb = max_size as f64 / (1024.0 * 1024.0);
+            return Err(AppError::Config(
+                format!("文件大小 {:.1}MB 超过限制 {:.1}MB", size_mb, max_mb)
+            ));
+        }
+    }
+    
+    // 检查同步权限
+    let (allowed, message) = VipChecker::check_cloud_sync_permission()?;
+    if !allowed {
+        return Err(AppError::Config(message));
+    }
+    
+    // 执行上传
+    // ... 现有上传逻辑
+    
+    Ok(())
+}
+```
+
+## 📦 完整的依赖配置
+
+### Cargo.toml添加依赖
+```toml
+# src-tauri/Cargo.toml
+[dependencies]
+tauri-plugin-opener = "2.0"
+```
+
+### 插件注册示例
+```rust
+// src-tauri/src/lib.rs
+use tauri_plugin_opener;
+
+pub fn run() {
+    tauri::Builder::default()
+        .plugin(tauri_plugin_opener::init())
+        .invoke_handler(tauri::generate_handler![
+            // VIP相关命令
+            get_vip_status,
+            check_vip_permission,
+            get_vip_limits,
+            open_vip_purchase_page,
+            refresh_vip_status,
+            simulate_vip_upgrade,
+            // ... 其他现有命令
+        ])
+        .run(tauri::generate_context!())
+        .expect("error while running tauri application");
+}
+```
 
 ## 🚀 后续服务端对接
 
