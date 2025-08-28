@@ -37,6 +37,14 @@ const ERROR_SEVERITY_MAP: Record<string, ErrorSeverity> = {
   'check_login_status': ErrorSeverity.SILENT,
   'update_user_info': ErrorSeverity.WARNING,
   'check_username': ErrorSeverity.SILENT,
+
+  // VIP相关 - 需要提示
+  'get_vip_status': ErrorSeverity.SILENT,
+  'check_vip_permission': ErrorSeverity.WARNING,
+  'get_vip_limits': ErrorSeverity.SILENT,
+  'open_vip_purchase_page': ErrorSeverity.WARNING,
+  'refresh_vip_status': ErrorSeverity.INFO,
+  'simulate_vip_upgrade': ErrorSeverity.INFO,
 };
 
 // API响应类型

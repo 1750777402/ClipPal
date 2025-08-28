@@ -61,6 +61,52 @@
             </label>
           </div>
 
+          <!-- VIP状态显示 -->
+          <div class="settings-item vip-info-item">
+            <div class="settings-label">
+              <span>会员状态</span>
+              <span class="settings-description">查看当前会员权益和使用情况</span>
+            </div>
+            <div class="vip-status-display">
+              <div class="vip-status" :class="{ 'is-vip': vipStore.isVip }">
+                <span class="vip-icon">{{ vipStore.isVip ? '👑' : '🆓' }}</span>
+                <span class="vip-type">{{ vipStore.vipTypeDisplay }}</span>
+                <span v-if="vipStore.isVip && vipStore.remainingDays.value > 0" class="vip-remaining">
+                  (剩余{{ vipStore.remainingDays.value }}天)
+                </span>
+              </div>
+              <button class="upgrade-button" @click="showVipDialog = true">
+                {{ vipStore.isVip ? '管理会员' : '升级VIP' }}
+              </button>
+            </div>
+          </div>
+
+          <!-- VIP功能限制显示 -->
+          <div class="settings-item vip-limits-item">
+            <div class="settings-label">
+              <span>功能限制</span>
+              <span class="settings-description">当前账户可用功能和限制</span>
+            </div>
+            <div class="vip-limits-display">
+              <div class="limit-item">
+                <span class="limit-label">本地记录:</span>
+                <span class="limit-value">{{ vipStore.maxRecordsLimit }}条</span>
+              </div>
+              <div class="limit-item">
+                <span class="limit-label">云同步:</span>
+                <span class="limit-value" :class="{ 'vip-feature': vipStore.canCloudSync }">
+                  {{ vipStore.canCloudSync ? (vipStore.isVip ? '完整支持' : '10条体验') : '不支持' }}
+                </span>
+              </div>
+              <div class="limit-item">
+                <span class="limit-label">文件上传:</span>
+                <span class="limit-value" :class="{ 'vip-feature': vipStore.isVip }">
+                  {{ vipStore.isVip ? '支持5MB以下' : '不支持' }}
+                </span>
+              </div>
+            </div>
+          </div>
+
           <div class="settings-item-wrapper auto-paste-setting">
             <div class="settings-item">
               <div class="settings-label">
@@ -93,6 +139,9 @@
         </button>
       </div>
     </div>
+    
+    <!-- VIP升级对话框 -->
+    <VipUpgradeDialog v-model="showVipDialog" />
   </div>
 </template>
 
@@ -102,6 +151,8 @@ import { listen } from '@tauri-apps/api/event';
 import { useWindowAdaptive, generateResponsiveClasses } from '../utils/responsive';
 import { settingsApi, isSuccess } from '../utils/api';
 import { useUserStore } from '../utils/userStore';
+import { useVipStore } from '../utils/vipStore';
+import VipUpgradeDialog from './VipUpgradeDialog.vue';
 
 const props = defineProps<{
   modelValue: boolean
@@ -138,6 +189,10 @@ let cloudSyncDisabledListener: (() => void) | null = null;
 
 // 用户状态管理
 const userStore = useUserStore();
+
+// VIP状态管理
+const vipStore = useVipStore();
+const showVipDialog = ref(false);
 
 // 使用响应式工具
 const responsive = useWindowAdaptive();
@@ -1012,5 +1067,87 @@ input:checked+.slider:before {
       background: rgba(0, 0, 0, 0.7);
     }
   }
+}
+
+/* VIP相关样式 */
+.vip-info-item,
+.vip-limits-item {
+  border-bottom: 1px solid var(--border-color, #e2e8f0);
+  padding-bottom: calc(var(--spacing-md) * var(--settings-font-scale));
+}
+
+.vip-status-display {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: calc(var(--spacing-sm) * var(--settings-font-scale));
+}
+
+.vip-status {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--spacing-sm) * var(--settings-font-scale));
+  flex: 1;
+}
+
+.vip-icon {
+  font-size: calc(var(--text-lg) * var(--settings-font-scale));
+}
+
+.vip-type {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.vip-remaining {
+  color: var(--text-secondary);
+  font-size: calc(var(--text-sm) * var(--settings-font-scale));
+}
+
+.vip-status.is-vip .vip-type {
+  color: var(--primary-color);
+}
+
+.upgrade-button {
+  padding: calc(var(--spacing-xs) * var(--settings-font-scale)) calc(var(--spacing-sm) * var(--settings-font-scale));
+  border: 1px solid var(--primary-color);
+  border-radius: calc(4px * var(--settings-font-scale));
+  background: transparent;
+  color: var(--primary-color);
+  font-size: calc(var(--text-sm) * var(--settings-font-scale));
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.upgrade-button:hover {
+  background: var(--primary-color);
+  color: white;
+}
+
+.vip-limits-display {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--spacing-xs) * var(--settings-font-scale));
+}
+
+.limit-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: calc(var(--text-sm) * var(--settings-font-scale));
+}
+
+.limit-label {
+  color: var(--text-secondary);
+}
+
+.limit-value {
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.limit-value.vip-feature {
+  color: var(--primary-color);
+  font-weight: 600;
 }
 </style>

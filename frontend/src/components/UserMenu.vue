@@ -20,9 +20,9 @@
           <span class="menu-arrow">›</span>
         </button>
         
-        <button class="menu-item" @click="handleSettings" type="button">
-          <span class="menu-icon">⚙️</span>
-          <span>账户设置</span>
+        <button class="menu-item" @click="handleVipAccount" type="button">
+          <span class="menu-icon">👑</span>
+          <span>VIP账户</span>
           <span class="menu-arrow">›</span>
         </button>
         
@@ -49,7 +49,7 @@ interface Emits {
   (e: 'update:visible', value: boolean): void
   (e: 'logout'): void
   (e: 'user-info'): void
-  (e: 'settings'): void
+  (e: 'vip-account'): void
 }
 
 defineProps<Props>()
@@ -69,8 +69,8 @@ const handleUserInfo = () => {
   close()
 }
 
-const handleSettings = () => {
-  emit('settings')
+const handleVipAccount = () => {
+  emit('vip-account')
   close()
 }
 </script>

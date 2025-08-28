@@ -398,20 +398,20 @@ pub async fn get_vip_status() -> AppResult<Option<VipInfo>> {
 
 #[tauri::command]
 pub async fn check_vip_permission() -> AppResult<(bool, String)> {
-    VipChecker::check_cloud_sync_permission()
+    VipChecker::check_cloud_sync_permission().await
 }
 
 #[tauri::command]
 pub async fn get_vip_limits() -> AppResult<serde_json::Value> {
-    let max_records = VipChecker::get_max_records_limit()?;
-    let max_file_size = VipChecker::get_max_file_size()?;
-    let is_vip = VipChecker::is_vip_user()?;
+    let max_records = VipChecker::get_max_records_limit().await?;
+    let max_file_size = VipChecker::get_max_file_size().await?;
+    let is_vip = VipChecker::is_vip_user().await?;
     
     Ok(serde_json::json!({
         "isVip": is_vip,
         "maxRecords": max_records,
         "maxFileSize": max_file_size,
-        "canCloudSync": VipChecker::check_cloud_sync_permission()?.0
+        "canCloudSync": VipChecker::check_cloud_sync_permission().await?.0
     }))
 }
 
@@ -508,9 +508,9 @@ pub async fn simulate_vip_upgrade(
 use crate::biz::vip_checker::VipChecker;
 
 // 更新验证设置的有效性函数
-fn validate_settings(settings: &Settings) -> AppResult<()> {
+async fn validate_settings(settings: &Settings) -> AppResult<()> {
     // 使用VIP检查器验证记录条数
-    VipChecker::validate_max_records(settings.max_records)?;
+    VipChecker::validate_max_records(settings.max_records).await?;
     
     // 其他验证逻辑保持不变...
     Ok(())
@@ -885,7 +885,7 @@ use crate::biz::vip_checker::VipChecker;
 
 pub async fn perform_cloud_sync() -> AppResult<()> {
     // 1. 检查云同步权限
-    let (allowed, message) = VipChecker::check_cloud_sync_permission()?;
+    let (allowed, message) = VipChecker::check_cloud_sync_permission().await?;
     
     if !allowed {
         log::warn!("云同步权限检查失败: {}", message);
@@ -903,7 +903,7 @@ pub async fn perform_cloud_sync() -> AppResult<()> {
         }
         
         // 重新检查权限
-        let (still_allowed, _) = VipChecker::check_cloud_sync_permission()?;
+        let (still_allowed, _) = VipChecker::check_cloud_sync_permission().await?;
         if !still_allowed {
             return Err(AppError::Config("刷新后权限检查失败".to_string()));
         }
@@ -927,7 +927,7 @@ pub async fn upload_clip_record(record: &ClipRecord) -> AppResult<()> {
     // 检查文件大小限制
     if let Some(file_path) = &record.local_file_path {
         let file_size = std::fs::metadata(file_path)?.len();
-        let max_size = VipChecker::get_max_file_size()?;
+        let max_size = VipChecker::get_max_file_size().await?;
         
         if file_size > max_size {
             let size_mb = file_size as f64 / (1024.0 * 1024.0);
@@ -939,7 +939,7 @@ pub async fn upload_clip_record(record: &ClipRecord) -> AppResult<()> {
     }
     
     // 检查同步权限
-    let (allowed, message) = VipChecker::check_cloud_sync_permission()?;
+    let (allowed, message) = VipChecker::check_cloud_sync_permission().await?;
     if !allowed {
         return Err(AppError::Config(message));
     }

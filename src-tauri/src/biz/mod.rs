@@ -12,3 +12,5 @@ pub mod sync_time;
 pub mod system_setting;
 pub mod upload_cloud_timer;
 pub mod user_auth;
+pub mod vip_checker;
+pub mod vip_management;

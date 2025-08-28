@@ -19,6 +19,11 @@ pub struct SecureData {
     pub refresh_token: Option<String>,
     pub user_info: Option<String>,
     pub token_expires: Option<i32>,
+
+    // 新增VIP相关字段
+    pub vip_info: Option<String>,      // JSON序列化的VIP信息
+    pub vip_last_check: Option<u64>,   // 上次检查VIP状态的时间戳
+    pub server_config: Option<String>, // 服务器配置信息
 }
 
 pub struct SecureStore {
@@ -166,8 +171,103 @@ impl SecureStore {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VipInfo {
+    pub vip_flag: bool,
+    pub vip_type: VipType,
+    pub expire_time: Option<u64>, // 到期时间戳
+    pub max_records: u32,         // 最大记录数限制
+    pub max_sync_records: u32,    // 可云同步的最大记录数
+    pub features: Vec<String>,    // VIP功能列表
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum VipType {
+    Free,      // 免费用户
+    Monthly,   // 月付费
+    Quarterly, // 季度付费
+    Yearly,    // 年付费
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ServerConfig {
+    pub max_file_size: u64,   // 服务器控制的文件大小限制
+    pub free_sync_limit: u32, // 免费用户云同步限制
+    pub vip_sync_limit: u32,  // VIP用户云同步限制
+}
+
+impl SecureStore {
+    /// 获取VIP信息
+    pub fn get_vip_info(&mut self) -> AppResult<Option<VipInfo>> {
+        if !self.loaded {
+            self.load()?;
+        }
+
+        if let Some(vip_str) = &self.data.vip_info {
+            let vip_info: VipInfo = serde_json::from_str(vip_str)
+                .map_err(|e| AppError::Serde(format!("VIP信息反序列化失败: {}", e)))?;
+            Ok(Some(vip_info))
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// 设置VIP信息并自动保存
+    pub fn set_vip_info(&mut self, vip_info: VipInfo) -> AppResult<()> {
+        if !self.loaded {
+            self.load()?;
+        }
+
+        let vip_str = serde_json::to_string(&vip_info)
+            .map_err(|e| AppError::Serde(format!("VIP信息序列化失败: {}", e)))?;
+
+        self.data.vip_info = Some(vip_str);
+        self.save()
+    }
+
+    /// 清除VIP信息
+    pub fn clear_vip_info(&mut self) -> AppResult<()> {
+        if !self.loaded {
+            self.load()?;
+        }
+        self.data.vip_info = None;
+        self.data.vip_last_check = None;
+        self.save()
+    }
+
+    /// 检查是否需要更新VIP状态(超过1小时)
+    pub fn should_check_vip_status(&mut self) -> AppResult<bool> {
+        if !self.loaded {
+            self.load()?;
+        }
+
+        if let Some(last_check) = self.data.vip_last_check {
+            let current_time = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs();
+
+            Ok(current_time - last_check > 3600) // 1小时
+        } else {
+            Ok(true) // 从未检查过
+        }
+    }
+
+    /// 更新VIP检查时间戳
+    pub fn update_vip_check_time(&mut self) -> AppResult<()> {
+        if !self.loaded {
+            self.load()?;
+        }
+
+        let current_time = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+
+        self.data.vip_last_check = Some(current_time);
+        self.save()
+    }
+}
+
 pub static SECURE_STORE: Lazy<RwLock<SecureStore>> =
     Lazy::new(|| RwLock::new(SecureStore::new().expect("SecureStore初始化失败")));
-
-// 写入 jwt_token
-// SECURE_STORE.write().unwrap().set_jwt_token("your_jwt_token".to_string())?;

@@ -15,6 +15,7 @@ use crate::biz::clip_record_clean::try_clean_clip_record;
 use crate::biz::content_search::add_content_to_index;
 use crate::biz::sync_time::SyncTime;
 use crate::biz::system_setting::{SYNC_INTERVAL_SECONDS, check_cloud_sync_enabled};
+use crate::biz::vip_checker::VipChecker;
 use crate::errors::{AppError, AppResult};
 use crate::utils::config::get_max_file_size_bytes;
 use crate::utils::device_info::GLOBAL_DEVICE_ID;
@@ -100,6 +101,48 @@ impl CloudSyncTimer {
         if !has_valid_auth() {
             log::debug!("用户未登录，跳过{}同步", source);
             return;
+        }
+
+        // 检查VIP云同步权限
+        match VipChecker::check_cloud_sync_permission().await {
+            Ok((allowed, message)) => {
+                if !allowed {
+                    log::warn!("{}同步权限检查失败: {}", source, message);
+                    return;
+                }
+                log::debug!("{}同步权限检查通过: {}", source, message);
+            }
+            Err(e) => {
+                log::error!("{}同步权限检查出错: {}", source, e);
+                return;
+            }
+        }
+
+        // 检查是否需要刷新VIP状态
+        if let Ok(should_refresh) = VipChecker::should_refresh_vip_status() {
+            if should_refresh {
+                log::info!("检测到需要刷新VIP状态");
+                
+                match VipChecker::refresh_vip_from_server().await {
+                    Ok(true) => log::info!("VIP状态已更新"),
+                    Ok(false) => log::warn!("VIP状态无更新"),
+                    Err(e) => log::error!("VIP状态刷新失败: {}", e),
+                }
+                
+                // 重新检查权限
+                match VipChecker::check_cloud_sync_permission().await {
+                    Ok((still_allowed, _)) => {
+                        if !still_allowed {
+                            log::warn!("刷新后{}同步权限检查失败", source);
+                            return;
+                        }
+                    }
+                    Err(e) => {
+                        log::error!("刷新后{}同步权限检查出错: {}", source, e);
+                        return;
+                    }
+                }
+            }
         }
 
         // 尝试获取锁，执行同步任务
@@ -447,7 +490,7 @@ impl CloudSyncTimer {
                 file_path.push(content_str);
 
                 if file_path.exists() {
-                    self.check_single_file_size(&file_path)
+                    self.check_single_file_size(&file_path).await
                 } else {
                     Ok(())
                 }
@@ -476,7 +519,7 @@ impl CloudSyncTimer {
             for file_path_str in &file_paths {
                 let file_path = PathBuf::from(file_path_str);
                 if file_path.exists() {
-                    if let Err(e) = self.check_single_file_size(&file_path) {
+                    if let Err(e) = self.check_single_file_size(&file_path).await {
                         return Err(format!("文件 {}: {}", file_path_str, e));
                     }
                 } else {
@@ -492,16 +535,26 @@ impl CloudSyncTimer {
     }
 
     /// 检查单个文件大小是否超过限制
-    fn check_single_file_size(&self, file_path: &PathBuf) -> Result<(), String> {
+    async fn check_single_file_size(&self, file_path: &PathBuf) -> Result<(), String> {
         match std::fs::metadata(file_path) {
             Ok(metadata) => {
-                let max_file_size = get_max_file_size_bytes().unwrap_or(5 * 1024 * 1024);
+                // 使用VIP检查器获取文件大小限制
+                let max_file_size = match VipChecker::get_max_file_size().await {
+                    Ok(size) => size,
+                    Err(_) => get_max_file_size_bytes().unwrap_or(5 * 1024 * 1024), // fallback
+                };
+                
                 if metadata.len() > max_file_size {
-                    Err(format!(
-                        "文件大小 {} 字节超过限制 {} 字节",
-                        metadata.len(),
-                        max_file_size
-                    ))
+                    if max_file_size == 0 {
+                        Err("免费用户不支持文件同步，请升级VIP".to_string())
+                    } else {
+                        let size_mb = metadata.len() as f64 / (1024.0 * 1024.0);
+                        let max_mb = max_file_size as f64 / (1024.0 * 1024.0);
+                        Err(format!(
+                            "文件大小 {:.1}MB 超过限制 {:.1}MB，请升级VIP以支持更大文件",
+                            size_mb, max_mb
+                        ))
+                    }
                 } else {
                     Ok(())
                 }

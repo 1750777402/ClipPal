@@ -77,7 +77,7 @@
       :user-info="userStore.getUserInfo()" 
       @logout="handleLogout" 
       @user-info="handleUserInfo"
-      @settings="handleUserSettings"
+      @vip-account="handleVipAccount"
     />
     
     <!-- 用户信息对话框 -->
@@ -85,6 +85,12 @@
       v-model:visible="showUserInfoDialog" 
       :user-info="userStore.getUserInfo()" 
       @edit="handleUserInfoEdit"
+    />
+    
+    <!-- VIP账户对话框 -->
+    <VipAccountDialog 
+      v-model:visible="showVipAccountDialog"
+      @login="showLoginDialog = true"
     />
     
     <!-- 回到顶部按钮 -->
@@ -109,6 +115,7 @@ import ClipCard from './ClipCard.vue';
 import LoginDialog from './LoginDialog.vue';
 import UserMenu from './UserMenu.vue';
 import UserInfoDialog from './UserInfoDialog.vue';
+import VipAccountDialog from './VipAccountDialog.vue';
 import { useWindowAdaptive } from '../utils/responsive';
 import { clipApi, settingsApi, isSuccess } from '../utils/api';
 import { useUserStore } from '../utils/userStore';
@@ -159,6 +166,9 @@ const showUserMenu = ref(false);
 
 // 用户信息对话框显示状态
 const showUserInfoDialog = ref(false);
+
+// VIP账户对话框显示状态
+const showVipAccountDialog = ref(false);
 
 // 用户按钮提示文本
 const userButtonTitle = computed(() => {
@@ -542,10 +552,9 @@ const handleUserInfo = () => {
   showUserInfoDialog.value = true;
 };
 
-// 用户设置处理（暂时显示提示）
-const handleUserSettings = () => {
-  // TODO: 这里可以实现用户相关设置功能
-  console.log('用户设置功能，待实现');
+// VIP账户处理
+const handleVipAccount = () => {
+  showVipAccountDialog.value = true;
 };
 
 // 用户信息编辑处理

@@ -14,6 +14,7 @@ use tauri_plugin_global_shortcut::GlobalShortcutExt;
 use crate::{
     CONTEXT,
     biz::cloud_sync_timer::trigger_immediate_sync,
+    biz::vip_checker::VipChecker,
     errors::{AppError, AppResult},
     global_shortcut::parse_shortcut,
     utils::{
@@ -121,7 +122,7 @@ pub fn load_settings() -> Settings {
 #[tauri::command]
 pub async fn save_settings(settings: Settings) -> Result<(), String> {
     // 1. 验证设置的有效性
-    validate_settings(&settings).map_err(|e| e.to_string())?;
+    validate_settings(&settings).await.map_err(|e| e.to_string())?;
 
     // 2. 获取当前设置并立即释放锁
     let current_settings = {
@@ -212,11 +213,10 @@ pub async fn save_settings(settings: Settings) -> Result<(), String> {
 }
 
 // 验证设置的有效性
-fn validate_settings(settings: &Settings) -> AppResult<()> {
+async fn validate_settings(settings: &Settings) -> AppResult<()> {
+    // 基本验证（避免递归调用）
     if settings.max_records < 50 || settings.max_records > 1000 {
-        return Err(AppError::Config(
-            "最大记录条数必须在50-1000之间".to_string(),
-        ));
+        return Err(AppError::Config("记录条数必须在50-1000之间".to_string()));
     }
 
     if settings.shortcut_key.is_empty() {
@@ -416,33 +416,46 @@ pub async fn disable_cloud_sync() -> Result<(), String> {
 
     let settings_lock = CONTEXT.get::<Arc<RwLock<Settings>>>();
 
-    // 获取当前设置
-    let mut current_settings = match safe_read_lock(&settings_lock) {
-        Ok(settings) => settings.clone(),
-        Err(e) => {
-            return Err(format!("获取设置失败: {}", e));
-        }
-    };
+    // 直接更新内存中的设置，避免递归调用
+    {
+        let mut current_settings = match safe_write_lock(&settings_lock) {
+            Ok(settings) => settings,
+            Err(e) => {
+                return Err(format!("获取设置锁失败: {}", e));
+            }
+        };
 
-    // 如果已经是关闭状态，无需修改
-    if current_settings.cloud_sync == 0 {
-        log::debug!("云同步已经处于关闭状态");
-        return Ok(());
+        // 如果已经是关闭状态，无需修改
+        if current_settings.cloud_sync == 0 {
+            log::debug!("云同步已经处于关闭状态");
+            return Ok(());
+        }
+
+        // 设置云同步为关闭状态
+        current_settings.cloud_sync = 0;
     }
 
-    // 设置云同步为关闭状态
-    current_settings.cloud_sync = 0;
+    // 直接保存到文件，避免通过save_settings的验证链
+    let settings_for_file = {
+        let current_settings = match safe_read_lock(&settings_lock) {
+            Ok(settings) => settings.clone(),
+            Err(e) => {
+                return Err(format!("获取设置失败: {}", e));
+            }
+        };
+        current_settings
+    };
 
-    // 保存设置
-    save_settings(current_settings)
-        .await
-        .map_err(|e| format!("保存设置失败: {}", e))?;
-
-    log::info!("云同步功能已被禁用");
-    Ok(())
+    match save_settings_to_file(&settings_for_file) {
+        Ok(_) => {
+            log::info!("云同步功能已被禁用");
+            Ok(())
+        }
+        Err(e) => Err(format!("保存设置失败: {}", e)),
+    }
 }
 
-/// 验证云同步权限 - 检查用户是否已登录
+/// 验证云同步权限 - 检查用户登录状态和VIP权限
 async fn validate_cloud_sync_permission() -> Result<(), String> {
     use crate::utils::token_manager::has_valid_auth;
 
@@ -451,6 +464,19 @@ async fn validate_cloud_sync_permission() -> Result<(), String> {
         return Err("请先登录账号才能开启云同步功能".to_string());
     }
 
-    log::info!("用户已登录，允许开启云同步功能");
-    Ok(())
+    // 检查VIP云同步权限
+    match VipChecker::check_cloud_sync_permission().await {
+        Ok((allowed, message)) => {
+            if !allowed {
+                log::warn!("云同步权限检查失败: {}", message);
+                return Err(message);
+            }
+            log::info!("云同步权限检查通过: {}", message);
+            Ok(())
+        }
+        Err(e) => {
+            log::error!("云同步权限检查出错: {}", e);
+            Err("权限检查失败，请稍后重试".to_string())
+        }
+    }
 }

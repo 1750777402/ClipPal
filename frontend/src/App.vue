@@ -16,6 +16,7 @@ import TutorialGuide from './components/TutorialGuide.vue';
 import { useBreakpoint, generateResponsiveClasses } from './utils/responsive';
 import { setErrorHandler, ErrorSeverity, getFriendlyErrorMessage } from './utils/api';
 import { useUserStore } from './utils/userStore';
+import { useVipStore } from './utils/vipStore';
 
 const messageBar = ref({ visible: false, message: '', type: 'info' as 'info' | 'warning' | 'error' });
 let closeTimer: ReturnType<typeof setTimeout> | null = null;
@@ -56,6 +57,7 @@ function onMessageBarLeave() {
 provide('showMessageBar', showMessageBar);
 
 const userStore = useUserStore();
+const vipStore = useVipStore();
 let authExpiredListener: (() => void) | null = null;
 let authClearedListener: (() => void) | null = null;
 let cloudSyncDisabledListener: (() => void) | null = null;
@@ -78,18 +80,26 @@ onMounted(async () => {
     showMessageBar(friendlyMessage, messageType);
   });
 
+  // 初始化VIP状态
+  try {
+    await vipStore.initialize();
+  } catch (error) {
+    console.error('VIP状态初始化失败:', error);
+  }
+
   // 监听认证过期事件
   authExpiredListener = await listen('auth-expired', () => {
     console.log('收到认证过期事件');
     userStore.clearLoginState();
+    vipStore.clearVipState(); // 清除VIP状态
     showMessageBar('登录已过期，请重新登录', 'warning');
-    // TODO: 关闭云同步功能
   });
 
   // 监听认证清除事件
   authClearedListener = await listen('auth-cleared', () => {
     console.log('收到认证清除事件');
     userStore.clearLoginState();
+    vipStore.clearVipState(); // 清除VIP状态
   });
 
   // 监听云同步禁用事件

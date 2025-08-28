@@ -322,6 +322,238 @@ const handleEdit = () => {
   }
 }
 
+/* VIP区域样式 */
+.vip-section {
+  border-top: 1px solid var(--border-color, #e2e8f0);
+  padding-top: 20px;
+  margin-top: 20px;
+}
+
+.section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+
+.section-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary, #333);
+  margin: 0;
+}
+
+.section-icon {
+  font-size: 18px;
+}
+
+.refresh-btn {
+  background: none;
+  border: none;
+  font-size: 16px;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+  transition: all 0.2s ease;
+  opacity: 0.6;
+}
+
+.refresh-btn:hover {
+  opacity: 1;
+  background: var(--bg-hover, #f5f5f5);
+  transform: rotate(90deg);
+}
+
+.refreshing-indicator {
+  font-size: 16px;
+  opacity: 0.6;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.vip-status-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px;
+  border-radius: var(--radius-lg, 12px);
+  border: 2px solid;
+  margin-bottom: 16px;
+  transition: all 0.3s ease;
+}
+
+.vip-status-card.status-free {
+  border-color: #e2e8f0;
+  background: linear-gradient(135deg, #f8fafc, #edf2f7);
+}
+
+.vip-status-card.status-active {
+  border-color: #f6ad55;
+  background: linear-gradient(135deg, #fffaf0, #fed7aa);
+}
+
+.vip-status-card.status-warning {
+  border-color: #f6ad55;
+  background: linear-gradient(135deg, #fffbeb, #fde68a);
+}
+
+.vip-status-card.status-expired {
+  border-color: #fc8181;
+  background: linear-gradient(135deg, #fef5e7, #fed7d7);
+}
+
+.vip-main-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1;
+}
+
+.vip-icon-large {
+  font-size: 32px;
+  width: 48px;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.5);
+}
+
+.vip-details {
+  flex: 1;
+}
+
+.vip-type {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-primary, #333);
+  margin-bottom: 2px;
+}
+
+.vip-status-text {
+  font-size: 14px;
+  color: var(--text-secondary, #666);
+  margin-bottom: 4px;
+}
+
+.vip-expire-time {
+  font-size: 12px;
+  color: var(--text-secondary, #666);
+  margin-bottom: 2px;
+}
+
+.vip-remaining {
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.text-warning {
+  color: #d69e2e;
+}
+
+.text-danger {
+  color: #e53e3e;
+}
+
+.text-primary {
+  color: var(--primary-color, #2c7a7b);
+  font-weight: 500;
+}
+
+.upgrade-btn {
+  padding: 8px 16px;
+  background: linear-gradient(135deg, #2c7a7b, #319795);
+  color: white;
+  border: none;
+  border-radius: var(--radius-md, 8px);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.upgrade-btn:hover {
+  background: linear-gradient(135deg, #319795, #2dd4bf);
+  box-shadow: 0 4px 12px rgba(44, 122, 123, 0.25);
+  transform: translateY(-1px);
+}
+
+.vip-benefits {
+  margin-top: 16px;
+}
+
+.benefits-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary, #333);
+  margin: 0 0 12px 0;
+}
+
+.benefits-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 12px;
+}
+
+.benefit-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 12px 8px;
+  background: rgba(255, 255, 255, 0.5);
+  border-radius: var(--radius-md, 8px);
+  border: 1px solid rgba(0, 0, 0, 0.05);
+}
+
+.benefit-icon {
+  font-size: 20px;
+  margin-bottom: 6px;
+}
+
+.benefit-label {
+  font-size: 12px;
+  color: var(--text-secondary, #666);
+  margin-bottom: 4px;
+}
+
+.benefit-value {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-primary, #333);
+}
+
+/* 响应式适配 */
+@media (max-width: 480px) {
+  .vip-status-card {
+    flex-direction: column;
+    gap: 12px;
+    text-align: center;
+  }
+  
+  .vip-main-info {
+    flex-direction: column;
+    text-align: center;
+  }
+  
+  .upgrade-btn {
+    width: 100%;
+  }
+  
+  .benefits-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* 暗色模式支持 */
 @media (prefers-color-scheme: dark) {
   .user-info-container {
@@ -332,6 +564,31 @@ const handleEdit = () => {
     --bg-hover: #3d3d3d;
     --border-color: #3d3d3d;
     --border-light: #404040;
+  }
+  
+  .vip-status-card.status-free {
+    border-color: #3d3d3d;
+    background: linear-gradient(135deg, #2a2a2a, #333);
+  }
+  
+  .vip-status-card.status-active {
+    border-color: #f6ad55;
+    background: linear-gradient(135deg, #2d2416, #3a2f1b);
+  }
+  
+  .vip-status-card.status-warning {
+    border-color: #f6ad55;
+    background: linear-gradient(135deg, #332a1b, #3d2d1f);
+  }
+  
+  .vip-status-card.status-expired {
+    border-color: #fc8181;
+    background: linear-gradient(135deg, #2d1b1b, #3d1f1f);
+  }
+  
+  .benefit-item {
+    background: rgba(255, 255, 255, 0.05);
+    border-color: rgba(255, 255, 255, 0.1);
   }
 }
 </style>

@@ -18,6 +18,10 @@ use crate::{
             check_login_status, get_user_info, login, logout, send_email_code, user_register,
             validate_token, check_username,
         },
+        vip_management::{
+            get_vip_status, check_vip_permission, get_vip_limits, open_vip_purchase_page,
+            refresh_vip_status, simulate_vip_upgrade,
+        },
     },
     log_config::init_logging,
     utils::lock_utils::create_global_sync_lock,
@@ -148,7 +152,14 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
             validate_token,
             get_user_info,
             check_login_status,
-            check_username
+            check_username,
+            // VIP相关命令
+            get_vip_status,
+            check_vip_permission,
+            get_vip_limits,
+            open_vip_purchase_page,
+            refresh_vip_status,
+            simulate_vip_upgrade
         ])
         .build(tauri::generate_context!())
         .unwrap_or_else(|e| {
