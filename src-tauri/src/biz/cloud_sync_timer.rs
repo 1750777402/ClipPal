@@ -92,13 +92,13 @@ impl CloudSyncTimer {
     async fn try_execute_sync(&self, sync_lock: &GlobalSyncLock, source: &str) {
         // 检查云同步是否开启
         if !check_cloud_sync_enabled().await {
-            log::info!("云同步未开启，跳过{}同步", source);
+            log::debug!("云同步未开启，跳过{}同步", source);
             return;
         }
 
         // 检查用户登录状态
         if !has_valid_auth() {
-            log::info!("用户未登录，跳过{}同步", source);
+            log::debug!("用户未登录，跳过{}同步", source);
             return;
         }
 
