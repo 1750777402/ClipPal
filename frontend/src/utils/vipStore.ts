@@ -8,14 +8,14 @@ export interface VipInfo {
   expire_time?: number
   max_records: number
   max_sync_records: number
-  max_file_size: number
+  max_file_size: number // 服务端返回的KB单位
   features: string[]
 }
 
 export interface VipLimits {
   isVip: boolean
   maxRecords: number
-  maxFileSize: number
+  maxFileSize: number // 转换为字节单位
   maxSyncRecords: number
   canCloudSync: boolean
 }

@@ -84,7 +84,7 @@
                   <div class="benefit-text">
                     <span class="benefit-label">文件上传</span>
                     <span class="benefit-value" :class="{ 'text-primary': vipStore.isVip }">
-                      {{ vipStore.isVip ? `${(vipStore.limits?.maxFileSize || 0) / 1024 / 1024}MB以下` : '不支持' }}
+                      {{ vipStore.isVip ? `${((vipStore.limits?.maxFileSize || 0) / 1024 / 1024).toFixed(0)}MB以下` : '不支持' }}
                     </span>
                   </div>
                 </div>

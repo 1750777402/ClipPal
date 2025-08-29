@@ -240,15 +240,15 @@ impl VipChecker {
         Ok(count as u32)
     }
 
-    /// 获取最大文件大小限制（基于服务端返回的数据）
+    /// 获取最大文件大小限制（基于服务端返回的数据，转换为字节）
     pub async fn get_max_file_size() -> AppResult<u64> {
         // 调用服务端检查VIP状态，这会同时更新本地VIP信息
         if Self::is_vip_user().await? {
             if let Some(vip_info) = Self::get_local_vip_info()? {
-                // 使用服务端返回的动态文件大小限制
-                Ok(vip_info.max_file_size)
+                // 服务端返回KB，转换为字节进行文件大小比较
+                Ok(vip_info.max_file_size * 1024)
             } else {
-                Ok(5 * 1024 * 1024) // 默认VIP限制（网络错误时的fallback）
+                Ok(5120 * 1024) // 默认VIP限制5MB，服务端返回5120KB，转换为字节
             }
         } else {
             Ok(0) // 免费用户不支持文件
@@ -315,12 +315,12 @@ impl VipChecker {
         Ok(())
     }
 
-    /// 获取VIP感知的文件大小限制（完全基于服务端缓存的数据）
+    /// 获取VIP感知的文件大小限制（完全基于服务端缓存的数据，转换为字节）
     pub async fn get_vip_aware_max_file_size() -> AppResult<u64> {
         // 直接从本地缓存获取服务端返回的文件大小限制
         if let Some(vip_info) = Self::get_local_vip_info()? {
-            // 使用服务端返回的动态文件大小限制
-            Ok(vip_info.max_file_size)
+            // 服务端返回KB，转换为字节进行文件大小比较
+            Ok(vip_info.max_file_size * 1024)
         } else {
             // 无VIP信息时，默认为免费用户（不支持文件）
             Ok(0)
@@ -337,10 +337,11 @@ impl VipChecker {
         }
     }
 
-    /// 获取VIP文件大小限制（仅使用本地缓存，不触发服务器调用）
+    /// 获取VIP文件大小限制（仅使用本地缓存，不触发服务器调用，转换为字节）
     pub fn get_cached_max_file_size() -> AppResult<u64> {
         if let Some(vip_info) = Self::get_local_vip_info()? {
-            Ok(vip_info.max_file_size)
+            // 服务端返回KB，转换为字节
+            Ok(vip_info.max_file_size * 1024)
         } else {
             // 无缓存时，免费用户不支持文件
             Ok(0)

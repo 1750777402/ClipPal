@@ -17,7 +17,7 @@ pub struct UserVipInfoResponse {
     pub expire_time: Option<u64>, // VIP过期时间戳
     pub max_records: u32,         // 最大记录条数限制
     pub max_sync_records: u32,    // 可云同步的最大记录数
-    pub max_file_size: u64,       // 最大文件大小限制(字节)
+    pub max_file_size: u64,       // 最大文件大小限制(KB)
     pub features: Option<Vec<String>>, // VIP功能列表
     pub current_sync_count: Option<u32>, // 当前已同步记录数
 }

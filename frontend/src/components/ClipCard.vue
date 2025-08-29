@@ -504,16 +504,18 @@ const getFileName = (filePath: string) => {
 
 // 检测是否正在从云端下载
 const isDownloadingFromCloud = computed(() => {
-    // 只要sync_flag为1且cloud_source为1，就认为正在下载
-    // 但需要考虑cloud_source可能为空的情况
-    return props.record.sync_flag === 1 && (props.record.cloud_source === 1 || props.record.cloud_source === undefined);
+    // sync_flag为1表示同步中
+    // cloud_source为1表示云端数据，为0或undefined表示本地数据
+    // 但是新创建的本地截图cloud_source可能暂时为undefined
+    // 所以只有明确是云端数据(cloud_source=1)且正在同步才显示下载状态
+    return props.record.sync_flag === 1 && props.record.cloud_source === 1;
 });
 
 // 获取同步状态的提示文本
 const getSyncingTitle = computed(() => {
     if (props.record.sync_flag === 1) {
         // 根据cloud_source判断是本地同步还是云端下载
-        if (props.record.cloud_source === 1 || props.record.cloud_source === undefined) {
+        if (props.record.cloud_source === 1) {
             if (props.record.type === 'Image') {
                 return '正在从云端下载图片...';
             } else if (props.record.type === 'File') {
@@ -529,7 +531,7 @@ const getSyncingTitle = computed(() => {
 
 // 获取图片加载状态文本
 const getImageLoadingText = computed(() => {
-    if (props.record.sync_flag === 2 && (props.record.cloud_source === 1 || props.record.cloud_source === undefined)) {
+    if (props.record.sync_flag === 2 && props.record.cloud_source === 1) {
         // 如果是云端数据且已下载完成，但还没加载图片
         return isLoadingImage.value ? '加载中...' : '点击加载图片';
     }
@@ -547,7 +549,7 @@ onMounted(() => {
                 entries.forEach((entry) => {
                     if (entry.isIntersecting && !shouldLoadImage.value && !isDownloadingFromCloud.value) {
                         // 如果是云端数据且已下载完成，或者是本地数据，则加载图片
-                        const isCloudCompleted = props.record.sync_flag === 2 && (props.record.cloud_source === 1 || props.record.cloud_source === undefined);
+                        const isCloudCompleted = props.record.sync_flag === 2 && props.record.cloud_source === 1;
                         const isLocal = props.record.cloud_source === 0 || props.record.cloud_source === undefined;
                         
                         if (isCloudCompleted || isLocal) {
