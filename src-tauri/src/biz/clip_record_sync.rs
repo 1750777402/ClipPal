@@ -411,9 +411,9 @@ async fn handle_image(
     sort: i32,
 ) -> Result<Option<ClipRecord>, AppError> {
     if let Some(data) = file_data {
-        // 检查图片大小是否超过限制
-        use crate::utils::config::get_max_file_size_bytes;
-        let max_file_size = get_max_file_size_bytes().unwrap_or(5 * 1024 * 1024);
+        // 检查图片大小是否超过VIP限制
+        use crate::biz::vip_checker::VipChecker;
+        let max_file_size = VipChecker::get_vip_aware_max_file_size().await.unwrap_or(0);
 
         let is_oversized = data.len() as u64 > max_file_size;
         if is_oversized {
@@ -522,8 +522,8 @@ async fn handle_file(
     sort: i32,
 ) -> Result<Option<ClipRecord>, AppError> {
     if let Some(paths) = file_paths {
-        use crate::utils::config::get_max_file_size_bytes;
-        let max_file_size = get_max_file_size_bytes().unwrap_or(5 * 1024 * 1024);
+        use crate::biz::vip_checker::VipChecker;
+        let max_file_size = VipChecker::get_vip_aware_max_file_size().await.unwrap_or(0);
 
         // 多文件不支持云同步
         if paths.len() > 1 {

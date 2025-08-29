@@ -30,9 +30,18 @@ pub async fn get_vip_limits() -> Result<serde_json::Value, String> {
     // 只调用一次VIP状态检查，避免并发重复请求
     let is_vip = VipChecker::is_vip_user().await.map_err(|e| e.to_string())?;
     
-    // 基于VIP状态计算各项限制，避免重复调用服务端
-    let max_records = if is_vip { 1000 } else { 500 };
-    let max_file_size = if is_vip { 5 * 1024 * 1024 } else { 0 };
+    // 基于服务端缓存的VIP信息计算各项限制
+    let (max_records, max_file_size, max_sync_records) = if let Ok(Some(vip_info)) = VipChecker::get_local_vip_info() {
+        // 使用服务端返回的动态限制
+        (
+            vip_info.max_records,
+            vip_info.max_file_size,
+            vip_info.max_sync_records,
+        )
+    } else {
+        // 没有VIP信息缓存时，默认为免费用户限制
+        (500, 0, 10)
+    };
     
     // 检查云同步权限，传入已知的VIP状态避免重复检查
     let can_cloud_sync = VipChecker::check_cloud_sync_permission_with_vip_status(Some(is_vip))
@@ -44,6 +53,7 @@ pub async fn get_vip_limits() -> Result<serde_json::Value, String> {
         "isVip": is_vip,
         "maxRecords": max_records,
         "maxFileSize": max_file_size,
+        "maxSyncRecords": max_sync_records,
         "canCloudSync": can_cloud_sync
     }))
 }
@@ -111,6 +121,7 @@ pub async fn simulate_vip_upgrade(
         expire_time: Some(expire_time),
         max_records: 1000,
         max_sync_records: 1000,
+        max_file_size: 5 * 1024 * 1024, // 5MB for test VIP
         features: Some(vec!["云同步".to_string(), "大文件上传".to_string()]),
     };
 

@@ -347,4 +347,35 @@ impl ClipRecord {
             Ok(0)
         }
     }
+
+    /// 获取所有记录总数（包括未同步的，用于VIP记录数限制检查）
+    pub async fn count_all_records(rb: &RBatis) -> Result<i64, Error> {
+        use serde::Deserialize;
+
+        #[derive(Deserialize)]
+        struct CountResult {
+            count: i64,
+        }
+
+        let sql = "SELECT COUNT(*) as count FROM clip_record WHERE del_flag = 0";
+        let result: Vec<CountResult> = rb.query_decode(sql, vec![]).await?;
+        
+        if let Some(row) = result.first() {
+            Ok(row.count)
+        } else {
+            Ok(0)
+        }
+    }
+
+    /// 删除最旧的记录（用于VIP记录数限制清理）
+    pub async fn delete_oldest_records(rb: &RBatis, count: i32) -> Result<(), Error> {
+        let sql = "DELETE FROM clip_record WHERE id IN (
+            SELECT id FROM clip_record 
+            WHERE del_flag = 0 AND pinned_flag = 0 
+            ORDER BY sort ASC, created ASC 
+            LIMIT ?
+        )";
+        rb.exec(sql, vec![to_value!(count)]).await?;
+        Ok(())
+    }
 }

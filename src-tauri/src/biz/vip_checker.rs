@@ -14,18 +14,23 @@ use rbatis::RBatis;
 pub struct VipChecker;
 
 impl VipChecker {
-    /// 检查用户是否为VIP - 必须调用服务端验证
+    /// 检查用户是否为VIP - 必须调用服务端验证，同时处理权益更新
     pub async fn is_vip_user() -> AppResult<bool> {
         // VIP状态必须通过服务端实时验证，不能依赖本地时间
         match user_vip_check().await {
             Ok(Some(vip_response)) => {
                 // 更新本地缓存
                 let vip_info = Self::convert_api_response_to_vip_info(vip_response.clone())?;
-                let mut store = SECURE_STORE
-                    .write()
-                    .map_err(|_| AppError::Config("获取存储锁失败".to_string()))?;
-                store.set_vip_info(vip_info)?;
-                store.update_vip_check_time()?;
+                {
+                    let mut store = SECURE_STORE
+                        .write()
+                        .map_err(|_| AppError::Config("获取存储锁失败".to_string()))?;
+                    store.set_vip_info(vip_info)?;
+                    store.update_vip_check_time()?;
+                } // store在这里被drop
+
+                // 处理本地记录条数限制
+                Self::enforce_local_records_limit(&vip_response).await?;
 
                 // 返回服务端的VIP状态
                 Ok(vip_response.vip_flag)
@@ -63,7 +68,9 @@ impl VipChecker {
             let mut store = SECURE_STORE
                 .write()
                 .map_err(|_| AppError::Config("获取存储锁失败".to_string()))?;
-            store.get_jwt_token()?.is_some()
+            let result = store.get_jwt_token()?.is_some();
+            drop(store);
+            result
         };
 
         if !has_token {
@@ -75,12 +82,13 @@ impl VipChecker {
             return Ok((true, "VIP用户，享受完整云同步功能".to_string()));
         }
 
-        // 免费用户检查10条限制
+        // 免费用户检查云同步限制（使用服务端缓存的数据）
+        let sync_limit = Self::get_sync_records_limit().await?;
         let current_sync_count = Self::get_current_sync_count().await?;
-        if current_sync_count < 10 {
+        if current_sync_count < sync_limit {
             Ok((
                 true,
-                format!("免费体验，已使用 {}/10 条云同步", current_sync_count),
+                format!("免费体验，已使用 {}/{} 条云同步", current_sync_count, sync_limit),
             ))
         } else {
             Ok((false, "免费用户云同步额度已用完，请升级VIP".to_string()))
@@ -101,7 +109,9 @@ impl VipChecker {
             let mut store = SECURE_STORE
                 .write()
                 .map_err(|_| AppError::Config("获取存储锁失败".to_string()))?;
-            store.get_jwt_token()?.is_some()
+            let result = store.get_jwt_token()?.is_some();
+            drop(store);
+            result
         };
 
         if !has_token {
@@ -122,12 +132,18 @@ impl VipChecker {
         Ok((true, "免费用户可尝试云同步".to_string()))
     }
 
-    /// 获取最大记录数限制
+    /// 获取最大记录数限制（基于服务端返回的数据）
     pub async fn get_max_records_limit() -> AppResult<u32> {
+        // 调用服务端检查VIP状态，这会同时更新本地VIP信息
         if Self::is_vip_user().await? {
-            Ok(1000)
+            // 从本地缓存获取服务端返回的具体限制
+            if let Some(vip_info) = Self::get_local_vip_info()? {
+                Ok(vip_info.max_records)
+            } else {
+                Ok(1000) // 默认VIP限制
+            }
         } else {
-            Ok(500)
+            Ok(500) // 免费用户默认限制
         }
     }
 
@@ -224,10 +240,16 @@ impl VipChecker {
         Ok(count as u32)
     }
 
-    /// 获取最大文件大小限制
+    /// 获取最大文件大小限制（基于服务端返回的数据）
     pub async fn get_max_file_size() -> AppResult<u64> {
+        // 调用服务端检查VIP状态，这会同时更新本地VIP信息
         if Self::is_vip_user().await? {
-            Ok(5 * 1024 * 1024) // VIP用户5MB
+            if let Some(vip_info) = Self::get_local_vip_info()? {
+                // 使用服务端返回的动态文件大小限制
+                Ok(vip_info.max_file_size)
+            } else {
+                Ok(5 * 1024 * 1024) // 默认VIP限制（网络错误时的fallback）
+            }
         } else {
             Ok(0) // 免费用户不支持文件
         }
@@ -248,6 +270,7 @@ impl VipChecker {
             expire_time: response.expire_time,
             max_records: response.max_records,
             max_sync_records: response.max_sync_records,
+            max_file_size: response.max_file_size, // 使用服务端返回的动态文件大小限制
             features: response.features,
         })
     }
@@ -258,5 +281,143 @@ impl VipChecker {
             .write()
             .map_err(|_| AppError::Config("获取存储锁失败".to_string()))?;
         store.should_check_vip_status()
+    }
+
+    /// 强制执行本地记录条数限制（仅更新本地设置，避免递归）
+    async fn enforce_local_records_limit(vip_response: &UserVipInfoResponse) -> AppResult<()> {
+        use crate::biz::system_setting::load_settings;
+        
+        let mut settings = load_settings();
+        let current_max = settings.max_records;
+        let server_max = vip_response.max_records;
+        
+        // 如果当前设置超过服务器允许的最大值，强制调整
+        if current_max > server_max {
+            log::warn!("本地记录条数({})超过服务端限制({})，自动调整", current_max, server_max);
+            settings.max_records = server_max;
+            
+            // 直接更新设置存储，避免调用save_settings（会导致递归）
+            use std::sync::Arc;
+            use crate::biz::system_setting::Settings;
+            let settings_lock = CONTEXT.get::<Arc<std::sync::RwLock<Settings>>>();
+            match settings_lock.write() {
+                Ok(mut guard) => {
+                    *guard = settings;
+                    log::info!("VIP记录数限制已应用到内存设置");
+                }
+                Err(e) => {
+                    log::error!("更新内存设置失败: {}", e);
+                    return Err(AppError::Config("更新内存设置失败".to_string()));
+                }
+            }
+        }
+        
+        Ok(())
+    }
+
+    /// 获取VIP感知的文件大小限制（完全基于服务端缓存的数据）
+    pub async fn get_vip_aware_max_file_size() -> AppResult<u64> {
+        // 直接从本地缓存获取服务端返回的文件大小限制
+        if let Some(vip_info) = Self::get_local_vip_info()? {
+            // 使用服务端返回的动态文件大小限制
+            Ok(vip_info.max_file_size)
+        } else {
+            // 无VIP信息时，默认为免费用户（不支持文件）
+            Ok(0)
+        }
+    }
+
+    /// 获取VIP记录数限制（仅使用本地缓存，不触发服务器调用）
+    pub fn get_cached_max_records_limit() -> AppResult<u32> {
+        if let Some(vip_info) = Self::get_local_vip_info()? {
+            Ok(vip_info.max_records)
+        } else {
+            // 无缓存时，使用保守的免费用户限制
+            Ok(500)
+        }
+    }
+
+    /// 获取VIP文件大小限制（仅使用本地缓存，不触发服务器调用）
+    pub fn get_cached_max_file_size() -> AppResult<u64> {
+        if let Some(vip_info) = Self::get_local_vip_info()? {
+            Ok(vip_info.max_file_size)
+        } else {
+            // 无缓存时，免费用户不支持文件
+            Ok(0)
+        }
+    }
+
+    /// 获取云同步记录限制（基于服务端缓存的数据）
+    pub async fn get_sync_records_limit() -> AppResult<u32> {
+        if let Some(vip_info) = Self::get_local_vip_info()? {
+            // 使用服务端返回的动态云同步限制
+            Ok(vip_info.max_sync_records)
+        } else {
+            // 无VIP信息时，默认免费用户限制
+            Ok(10)
+        }
+    }
+
+    /// 检查文件是否可以同步（基于VIP状态和文件大小）
+    pub async fn can_sync_file(file_size: u64) -> AppResult<(bool, String)> {
+        let max_file_size = Self::get_vip_aware_max_file_size().await?;
+        
+        if max_file_size == 0 {
+            return Ok((false, "免费用户不支持文件云同步".to_string()));
+        }
+        
+        if file_size > max_file_size {
+            let size_mb = file_size as f64 / 1024.0 / 1024.0;
+            let max_mb = max_file_size as f64 / 1024.0 / 1024.0;
+            return Ok((false, format!("文件大小 {:.2}MB 超过 {:.2}MB 限制", size_mb, max_mb)));
+        }
+        
+        Ok((true, "文件可以同步".to_string()))
+    }
+
+    /// 检查并强制执行本地记录条数限制
+    pub async fn enforce_local_records_limit_from_db() -> AppResult<()> {
+        use crate::biz::system_setting::{load_settings, save_settings};
+        
+        // 获取当前VIP状态和限制
+        let max_allowed = Self::get_max_records_limit().await?;
+        let mut settings = load_settings();
+        
+        // 如果当前设置超过允许的最大值，强制调整
+        if settings.max_records > max_allowed {
+            log::warn!("本地记录条数({})超过VIP限制({})，自动调整", settings.max_records, max_allowed);
+            settings.max_records = max_allowed;
+            save_settings(settings).await
+                .map_err(|e| AppError::Config(format!("保存设置失败: {}", e)))?;
+        }
+        
+        // 检查数据库中的实际记录数，如果超过限制则进行清理
+        let rb: &RBatis = CONTEXT.get::<RBatis>();
+        let current_count = ClipRecord::count_all_records(rb).await
+            .map_err(|e| AppError::Config(format!("查询记录总数失败: {}", e)))?;
+            
+        if current_count > max_allowed as i64 {
+            log::warn!("数据库记录数({})超过VIP限制({})，执行清理", current_count, max_allowed);
+            // 保留最新的记录，删除超出部分
+            let excess_count = current_count - max_allowed as i64;
+            ClipRecord::delete_oldest_records(rb, excess_count as i32).await
+                .map_err(|e| AppError::Config(format!("清理超出记录失败: {}", e)))?;
+        }
+        
+        Ok(())
+    }
+
+    /// 启动时初始化VIP状态并执行限制检查
+    pub async fn initialize_vip_and_enforce_limits() -> AppResult<()> {
+        log::info!("初始化VIP状态并执行权益限制检查");
+        
+        // 检查VIP状态（这会同时更新本地状态和执行记录数限制）
+        let _ = Self::is_vip_user().await?;
+        
+        // 额外检查数据库记录数并清理超出部分
+        Self::enforce_local_records_limit_from_db().await?;
+        
+        log::info!("VIP状态初始化和权益限制检查完成");
+        Ok(())
     }
 }

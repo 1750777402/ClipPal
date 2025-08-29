@@ -11,7 +11,7 @@ use crate::CONTEXT;
 use crate::api::cloud_sync_api::{ClipRecordParam, SingleCloudSyncParam, sync_single_clip_record};
 use crate::biz::clip_record::{ClipRecord, SKIP_SYNC, SYNCHRONIZED, SYNCHRONIZING};
 use crate::errors::{AppError, AppResult};
-use crate::utils::config::get_max_file_size_bytes;
+use crate::biz::vip_checker::VipChecker;
 use crate::utils::file_dir::get_resources_dir;
 use crate::utils::lock_utils::GlobalSyncLock;
 use clipboard_listener::ClipType;
@@ -268,7 +268,7 @@ async fn check_file_size_for_image(clip: &ClipRecordParam) -> Result<(), String>
             file_path.push(content_str);
 
             if file_path.exists() {
-                check_single_file_size(&file_path)
+                check_single_file_size(&file_path).await
             } else {
                 Err(format!("图片文件不存在: {:?}", file_path))
             }
@@ -298,7 +298,7 @@ async fn check_file_size_for_files(clip: &ClipRecordParam) -> Result<(), String>
         if let Some(file_path_str) = file_paths.first() {
             let file_path = PathBuf::from(file_path_str);
             if file_path.exists() {
-                check_single_file_size(&file_path)
+                check_single_file_size(&file_path).await
             } else {
                 // 文件不存在，跳过同步
                 Err(format!("文件不存在: {}", file_path_str))
@@ -313,18 +313,19 @@ async fn check_file_size_for_files(clip: &ClipRecordParam) -> Result<(), String>
 }
 
 /// 检查单个文件大小是否超过限制
-fn check_single_file_size(file_path: &PathBuf) -> Result<(), String> {
+async fn check_single_file_size(file_path: &PathBuf) -> Result<(), String> {
     match std::fs::metadata(file_path) {
         Ok(metadata) => {
-            let max_file_size = get_max_file_size_bytes().unwrap_or(5 * 1024 * 1024);
-            if metadata.len() > max_file_size {
-                Err(format!(
-                    "文件大小 {} 字节超过限制 {} 字节",
-                    metadata.len(),
-                    max_file_size
-                ))
-            } else {
-                Ok(())
+            let file_size = metadata.len();
+            match VipChecker::can_sync_file(file_size).await {
+                Ok((can_sync, message)) => {
+                    if can_sync {
+                        Ok(())
+                    } else {
+                        Err(message)
+                    }
+                }
+                Err(e) => Err(format!("检查VIP文件权限失败: {}", e))
             }
         }
         Err(e) => Err(format!("读取文件元数据失败: {}", e)),

@@ -122,13 +122,13 @@ impl CloudSyncTimer {
         if let Ok(should_refresh) = VipChecker::should_refresh_vip_status() {
             if should_refresh {
                 log::info!("检测到需要刷新VIP状态");
-                
+
                 match VipChecker::refresh_vip_from_server().await {
                     Ok(true) => log::info!("VIP状态已更新"),
                     Ok(false) => log::warn!("VIP状态无更新"),
                     Err(e) => log::error!("VIP状态刷新失败: {}", e),
                 }
-                
+
                 // 重新检查权限
                 match VipChecker::check_cloud_sync_permission().await {
                     Ok((still_allowed, _)) => {
@@ -543,7 +543,7 @@ impl CloudSyncTimer {
                     Ok(size) => size,
                     Err(_) => get_max_file_size_bytes().unwrap_or(5 * 1024 * 1024), // fallback
                 };
-                
+
                 if metadata.len() > max_file_size {
                     if max_file_size == 0 {
                         Err("免费用户不支持文件同步，请升级VIP".to_string())
@@ -568,10 +568,7 @@ impl CloudSyncTimer {
 pub fn trigger_immediate_sync() -> Result<(), &'static str> {
     if let Some(sender) = TRIGGER_SENDER.get() {
         match sender.send(()) {
-            Ok(()) => {
-                log::info!("立即同步触发信号已发送");
-                Ok(())
-            }
+            Ok(()) => Ok(()),
             Err(_) => {
                 log::warn!("立即同步触发信号发送失败，接收端已关闭");
                 Err("同步任务未启动")

@@ -3,11 +3,12 @@ import { listen } from '@tauri-apps/api/event'
 import { apiInvoke, isSuccess } from './api'
 
 export interface VipInfo {
-  isVip: boolean
-  vipType: 'Free' | 'Monthly' | 'Quarterly' | 'Yearly'
-  expireTime?: number
-  maxRecords: number
-  maxSyncRecords: number
+  vip_flag: boolean
+  vip_type: 'Free' | 'Monthly' | 'Quarterly' | 'Yearly'
+  expire_time?: number
+  max_records: number
+  max_sync_records: number
+  max_file_size: number
   features: string[]
 }
 
@@ -15,6 +16,7 @@ export interface VipLimits {
   isVip: boolean
   maxRecords: number
   maxFileSize: number
+  maxSyncRecords: number
   canCloudSync: boolean
 }
 
@@ -45,13 +47,13 @@ export const vipStore = {
   get initialized() { return vipState.initialized },
 
   // 计算属性
-  isVip: computed(() => vipState.vipInfo?.isVip ?? false),
+  isVip: computed(() => vipState.vipInfo?.vip_flag ?? false),
   canCloudSync: computed(() => vipState.limits?.canCloudSync ?? false),
   maxRecordsLimit: computed(() => vipState.limits?.maxRecords ?? 500),
 
   // VIP类型显示名称
   vipTypeDisplay: computed(() => {
-    switch (vipState.vipInfo?.vipType) {
+    switch (vipState.vipInfo?.vip_type) {
       case 'Monthly': return '月度会员'
       case 'Quarterly': return '季度会员'
       case 'Yearly': return '年度会员'
@@ -61,28 +63,27 @@ export const vipStore = {
 
   // 过期时间显示
   expireTimeDisplay: computed(() => {
-    if (!vipState.vipInfo?.expireTime) return null
-    return new Date(vipState.vipInfo.expireTime * 1000).toLocaleDateString('zh-CN')
+    if (!vipState.vipInfo?.expire_time) return null
+    return new Date(vipState.vipInfo.expire_time * 1000).toLocaleDateString('zh-CN')
   }),
 
   // 初始化VIP状态
   async initialize(): Promise<boolean> {
     if (vipState.initialized) return true
-    
+
     vipState.loading = true
     try {
       const success = await Promise.all([
         this.loadVipStatus(),
         this.loadVipLimits()
       ])
-      
+
       // 监听VIP状态变更事件
       await this.setupEventListeners()
-      
+
       vipState.initialized = true
-      console.log('VIP状态初始化成功')
       return success.every(Boolean)
-      
+
     } catch (error) {
       console.error('初始化VIP状态失败:', error)
       return false
@@ -122,7 +123,7 @@ export const vipStore = {
   },
 
   // 检查云同步权限
-  async checkCloudSyncPermission(): Promise<{allowed: boolean, message: string}> {
+  async checkCloudSyncPermission(): Promise<{ allowed: boolean, message: string }> {
     try {
       const response = await apiInvoke<[boolean, string]>('check_vip_permission')
       if (isSuccess(response)) {
@@ -154,7 +155,7 @@ export const vipStore = {
     try {
       // 尝试从服务端刷新
       const response = await apiInvoke<boolean>('refresh_vip_status')
-      
+
       if (isSuccess(response) && response.data) {
         // 服务端更新成功，加载最新的本地数据
         const [statusLoaded, limitsLoaded] = await Promise.all([
@@ -176,7 +177,7 @@ export const vipStore = {
       }
     } catch (error) {
       console.warn('服务端刷新失败，尝试加载本地缓存:', error)
-      
+
       // 服务端失败时，尝试加载本地缓存
       const statusLoaded = await this.loadVipStatus()
       // 只有在有本地数据时才加载limits
@@ -230,27 +231,35 @@ export const vipStore = {
 
   // 检查是否接近过期（7天内）
   isExpiringSoon: computed(() => {
-    if (!vipState.vipInfo?.expireTime) return false
+    if (!vipState.vipInfo?.expire_time) return false
     const now = Date.now() / 1000
-    const expireTime = vipState.vipInfo.expireTime
+    const expireTime = vipState.vipInfo.expire_time
     const sevenDaysInSeconds = 7 * 24 * 3600
     return (expireTime - now) <= sevenDaysInSeconds && (expireTime - now) > 0
   }),
 
-  // 检查是否已过期
-  isExpired: computed(() => {
-    if (!vipState.vipInfo?.expireTime) return false
-    const now = Date.now() / 1000
-    return now >= vipState.vipInfo.expireTime
-  }),
-
   // 获取剩余天数
   remainingDays: computed(() => {
-    if (!vipState.vipInfo?.expireTime) return 0
+    if (!vipState.vipInfo?.expire_time) return 0
     const now = Date.now() / 1000
-    const remaining = vipState.vipInfo.expireTime - now
+    const remaining = vipState.vipInfo.expire_time - now
     return Math.max(0, Math.ceil(remaining / (24 * 3600)))
-  })
+  }),
+
+  // 检查是否已过期（基于剩余天数，更可靠）
+  isExpired: computed(() => {
+    console.log("isExpired computed被调用了", vipState.vipInfo)
+    if (!vipState.vipInfo?.expire_time) {
+      console.log("没有expire_time，返回false")
+      return false
+    }
+    // 直接使用剩余天数判断，避免时间戳精度问题
+    const now = Date.now() / 1000
+    const remaining = vipState.vipInfo.expire_time - now
+    const days = Math.max(0, Math.ceil(remaining / (24 * 3600)))
+    console.log("剩余天数:", days, "是否过期:", days <= 0)
+    return days <= 0
+  }),
 }
 
 // 导出VIP状态以供组件使用

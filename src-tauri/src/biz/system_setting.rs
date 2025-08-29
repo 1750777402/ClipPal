@@ -122,7 +122,9 @@ pub fn load_settings() -> Settings {
 #[tauri::command]
 pub async fn save_settings(settings: Settings) -> Result<(), String> {
     // 1. 验证设置的有效性
-    validate_settings(&settings).await.map_err(|e| e.to_string())?;
+    validate_settings(&settings)
+        .await
+        .map_err(|e| e.to_string())?;
 
     // 2. 获取当前设置并立即释放锁
     let current_settings = {
@@ -191,7 +193,8 @@ pub async fn save_settings(settings: Settings) -> Result<(), String> {
     }
 
     // 4. 先更新上下文中的设置
-    let need_trigger_sync = settings.cloud_sync != current_settings.cloud_sync && settings.cloud_sync == 1;
+    let need_trigger_sync =
+        settings.cloud_sync != current_settings.cloud_sync && settings.cloud_sync == 1;
     {
         let lock = CONTEXT.get::<Arc<RwLock<Settings>>>().clone();
         let mut current = safe_write_lock(&lock).map_err(|e| e.to_string())?;
@@ -200,30 +203,41 @@ pub async fn save_settings(settings: Settings) -> Result<(), String> {
 
     // 5. 检查是否需要触发立即云同步（在设置更新后）
     if need_trigger_sync {
-        log::info!("检测到云同步从关闭变为开启，触发立即同步");
         if let Err(e) = trigger_immediate_sync() {
             log::warn!("触发立即云同步失败: {}", e);
             // 不返回错误，因为设置保存成功了，只是立即同步失败
-        } else {
-            log::info!("立即云同步触发成功");
         }
     }
 
     Ok(())
 }
 
-// 验证设置的有效性
+// 验证设置的有效性（使用VIP感知的限制）
 async fn validate_settings(settings: &Settings) -> AppResult<()> {
-    // 基本验证（避免递归调用）
-    if settings.max_records < 50 || settings.max_records > 1000 {
-        return Err(AppError::Config("记录条数必须在50-1000之间".to_string()));
+    // 1. 获取VIP允许的最大记录数限制（仅使用缓存，避免网络调用）
+    let max_allowed = match VipChecker::get_cached_max_records_limit() {
+        Ok(limit) => limit,
+        Err(_) => {
+            // 如果缓存读取失败，使用保守的默认限制
+            log::warn!("无法获取VIP缓存限制，使用默认验证");
+            500 // 免费用户限制
+        }
+    };
+
+    // 2. 验证记录条数
+    if settings.max_records < 50 || settings.max_records > max_allowed {
+        return Err(AppError::Config(format!(
+            "记录条数必须在50-{}之间",
+            max_allowed
+        )));
     }
 
+    // 3. 验证快捷键
     if settings.shortcut_key.is_empty() {
         return Err(AppError::Config("快捷键不能为空".to_string()));
     }
 
-    // 验证快捷键格式
+    // 4. 验证快捷键格式
     if !is_valid_shortcut_format(&settings.shortcut_key) {
         return Err(AppError::Config("快捷键格式无效".to_string()));
     }

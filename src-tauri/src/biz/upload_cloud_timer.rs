@@ -10,7 +10,7 @@ use crate::api::cloud_sync_api::{FileCloudSyncParam, upload_file_clip_record};
 use crate::biz::clip_record::{ClipRecord, SKIP_SYNC, SYNCHRONIZED, SYNCHRONIZING};
 use crate::biz::system_setting::check_cloud_sync_enabled;
 use crate::errors::{AppError, AppResult};
-use crate::utils::config::get_max_file_size_bytes;
+use crate::biz::vip_checker::VipChecker;
 use crate::utils::file_dir::get_resources_dir;
 use crate::utils::retry_helper::{RetryConfig, retry_with_config};
 use crate::utils::token_manager::has_valid_auth;
@@ -218,20 +218,20 @@ async fn process_file_sync(record: &ClipRecord) -> AppResult<()> {
     }
 }
 
-/// 检查文件大小是否超过限制
+/// 检查文件大小是否超过VIP限制
 async fn check_file_size(file_path: &PathBuf) -> Result<(), String> {
     match std::fs::metadata(file_path) {
         Ok(metadata) => {
-            let max_file_size = get_max_file_size_bytes().unwrap_or(5 * 1024 * 1024);
-
-            if metadata.len() > max_file_size {
-                Err(format!(
-                    "文件大小 {} 字节超过限制 {} 字节",
-                    metadata.len(),
-                    max_file_size
-                ))
-            } else {
-                Ok(())
+            let file_size = metadata.len();
+            match VipChecker::can_sync_file(file_size).await {
+                Ok((can_sync, message)) => {
+                    if can_sync {
+                        Ok(())
+                    } else {
+                        Err(message)
+                    }
+                }
+                Err(e) => Err(format!("检查VIP文件权限失败: {}", e))
             }
         }
         Err(e) => Err(format!("读取文件元数据失败: {}", e)),

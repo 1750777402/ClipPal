@@ -36,7 +36,8 @@
                 <div class="vip-details">
                   <div class="vip-type">{{ vipStore.vipTypeDisplay }}</div>
                   <div class="vip-status-text">
-                    {{ vipStore.isVip ? (vipStore.isExpired ? 'VIP已过期' : 'VIP会员') : '免费用户' }}
+                    <!-- 使用新的computed -->
+                    {{ vipStatus }}
                   </div>
                   <div v-if="vipStore.isVip && vipStore.expireTimeDisplay" class="vip-expire-time">
                     到期时间: {{ vipStore.expireTimeDisplay }}
@@ -74,7 +75,7 @@
                   <div class="benefit-text">
                     <span class="benefit-label">云同步</span>
                     <span class="benefit-value" :class="{ 'text-primary': vipStore.canCloudSync }">
-                      {{ vipStore.canCloudSync ? (vipStore.isVip ? '完整支持' : '10条体验') : '不支持' }}
+                      {{ vipStore.canCloudSync ? (vipStore.isVip ? `${vipStore.vipInfo?.max_sync_records || '无限'}条` : '10条体验') : '不支持' }}
                     </span>
                   </div>
                 </div>
@@ -83,7 +84,7 @@
                   <div class="benefit-text">
                     <span class="benefit-label">文件上传</span>
                     <span class="benefit-value" :class="{ 'text-primary': vipStore.isVip }">
-                      {{ vipStore.isVip ? '5MB以下' : '不支持' }}
+                      {{ vipStore.isVip ? `${(vipStore.limits?.maxFileSize || 0) / 1024 / 1024}MB以下` : '不支持' }}
                     </span>
                   </div>
                 </div>
@@ -132,6 +133,26 @@ const userStore = useUserStore()
 const showVipDialog = ref(false)
 const isRefreshing = ref(false)
 
+// VIP状态显示逻辑：区分从未开过VIP、VIP过期、VIP有效三种情况
+const vipStatus = computed(() => {
+  const vipInfo = vipStore.vipInfo
+  
+  // 情况1：从未开过VIP（API返回None或无expire_time）
+  if (!vipInfo || !vipInfo.expire_time) {
+    return '普通用户'
+  }
+  
+  // 情况2和3：有expire_time，判断是否过期
+  const now = Date.now() / 1000
+  const isExpired = now > vipInfo.expire_time
+  
+  if (isExpired) {
+    return 'VIP已过期'  // VIP已过期，但用户身份仍显示为普通用户
+  } else {
+    return 'VIP会员'     // VIP有效
+  }
+})
+
 // 实时刷新VIP状态的功能
 const refreshVipStatus = async () => {
   if (isRefreshing.value) return
@@ -169,9 +190,9 @@ const remainingDaysText = computed(() => {
 
 // VIP状态样式
 const vipStatusClass = computed(() => {
-  if (!vipStore.isVip) return 'status-free'
-  if (vipStore.isExpired) return 'status-expired'
-  if (vipStore.isExpiringSoon) return 'status-warning'
+  if (!vipStore.isVip.value) return 'status-free'
+  if (vipStore.isExpired.value) return 'status-expired'
+  if (vipStore.isExpiringSoon.value) return 'status-warning'
   return 'status-active'
 })
 

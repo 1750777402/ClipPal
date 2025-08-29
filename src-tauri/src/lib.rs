@@ -85,6 +85,10 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
         log::error!("搜索索引初始化失败: {}", e);
     }
 
+    // 为不同的地方克隆RBatis实例
+    let rb_for_setup = rb_res.clone();
+    let rb_for_run = rb_res.clone();
+
     tauri::Builder::default()
         // 本机系统对话框，用于打开和保存文件，以及消息对话框
         .plugin(tauri_plugin_dialog::init())
@@ -121,7 +125,7 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
 
             // 启动云同步定时任务
             let app_handle = app.handle().clone();
-            let rb = rb_res.clone();
+            let rb = rb_for_setup.clone();
             tokio::spawn(async move {
                 start_cloud_sync_timer(app_handle, rb).await;
             });
@@ -189,6 +193,15 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
 
                 // 开启粘贴板内容监听器
                 manager.start_event_loop();
+
+                // 初始化VIP状态并执行权益限制检查
+                let rb_for_vip = rb_for_run.clone();
+                tokio::spawn(async move {
+                    CONTEXT.set(rb_for_vip);
+                    if let Err(e) = crate::biz::vip_checker::VipChecker::initialize_vip_and_enforce_limits().await {
+                        log::error!("VIP状态初始化失败: {}", e);
+                    }
+                });
             }
             _ => {}
         });
