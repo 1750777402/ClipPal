@@ -38,6 +38,8 @@ pub struct ClipRecordDTO {
     pub image_info: Option<ImageInfo>,
     // 是否已同步标识
     pub sync_flag: Option<i32>,
+    // 数据来源标识
+    pub cloud_source: Option<i32>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -117,6 +119,7 @@ pub async fn get_clip_records(param: QueryParam) -> Result<Vec<ClipRecordDTO>, S
                     file_info: get_file_info_with_paths(content_str, local_paths),
                     image_info: None,
                     sync_flag: item.sync_flag,
+                    cloud_source: item.cloud_source,
                 };
             } else if item.r#type == ClipType::Image.to_string() {
                 // 对于图片类型，不转换为base64，而是返回元数据
@@ -132,6 +135,7 @@ pub async fn get_clip_records(param: QueryParam) -> Result<Vec<ClipRecordDTO>, S
                     file_info: vec![],
                     image_info,
                     sync_flag: item.sync_flag,
+                    cloud_source: item.cloud_source,
                 };
             } else {
                 return ClipRecordDTO {
@@ -144,6 +148,7 @@ pub async fn get_clip_records(param: QueryParam) -> Result<Vec<ClipRecordDTO>, S
                     file_info: vec![],
                     image_info: None,
                     sync_flag: item.sync_flag,
+                    cloud_source: item.cloud_source,
                 };
             }
         })
