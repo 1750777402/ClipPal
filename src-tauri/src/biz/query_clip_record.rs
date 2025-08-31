@@ -40,6 +40,10 @@ pub struct ClipRecordDTO {
     pub sync_flag: Option<i32>,
     // 数据来源标识
     pub cloud_source: Option<i32>,
+    // 内容是否被截断
+    pub content_truncated: bool,
+    // 原始内容长度（字节）
+    pub original_content_length: Option<usize>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -72,6 +76,18 @@ pub struct GetImageParam {
 pub struct ImageBase64Response {
     pub id: String,
     pub base64_data: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct GetFullContentParam {
+    pub record_id: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct FullContentResponse {
+    pub id: String,
+    pub content: String,
+    pub content_length: usize,
 }
 
 #[tauri::command]
@@ -120,6 +136,8 @@ pub async fn get_clip_records(param: QueryParam) -> Result<Vec<ClipRecordDTO>, S
                     image_info: None,
                     sync_flag: item.sync_flag,
                     cloud_source: item.cloud_source,
+                    content_truncated: false, // 文件类型不截断
+                    original_content_length: None,
                 };
             } else if item.r#type == ClipType::Image.to_string() {
                 // 对于图片类型，不转换为base64，而是返回元数据
@@ -136,12 +154,20 @@ pub async fn get_clip_records(param: QueryParam) -> Result<Vec<ClipRecordDTO>, S
                     image_info,
                     sync_flag: item.sync_flag,
                     cloud_source: item.cloud_source,
+                    content_truncated: false, // 图片类型不截断
+                    original_content_length: None,
                 };
             } else {
+                // 处理文本类型，如果内容过大则截断
+                let processed_content =
+                    ContentProcessor::process_by_clip_type(&item.r#type, item.content.clone());
+                let (truncated_content, is_truncated, original_length) =
+                    truncate_large_text(&processed_content);
+
                 return ClipRecordDTO {
                     id: item.id.clone(),
                     r#type: item.r#type.clone(),
-                    content: ContentProcessor::process_by_clip_type(&item.r#type, item.content),
+                    content: truncated_content,
                     os_type: item.os_type.clone(),
                     created: item.created,
                     pinned_flag: item.pinned_flag,
@@ -149,6 +175,8 @@ pub async fn get_clip_records(param: QueryParam) -> Result<Vec<ClipRecordDTO>, S
                     image_info: None,
                     sync_flag: item.sync_flag,
                     cloud_source: item.cloud_source,
+                    content_truncated: is_truncated,
+                    original_content_length: original_length,
                 };
             }
         })
@@ -299,5 +327,64 @@ pub async fn get_image_base64(param: GetImageParam) -> Result<ImageBase64Respons
     Ok(ImageBase64Response {
         id: param.record_id,
         base64_data,
+    })
+}
+
+/// 截断大文本，返回 (截断后内容, 是否被截断, 原始长度)
+fn truncate_large_text(content: &str) -> (String, bool, Option<usize>) {
+    const MAX_PREVIEW_SIZE: usize = 128 * 1024; // 128KB
+
+    if content.len() <= MAX_PREVIEW_SIZE {
+        (content.to_string(), false, None)
+    } else {
+        // 简单按字节截断，但确保不会截断到 UTF-8 字符中间
+        let mut end_pos = MAX_PREVIEW_SIZE;
+
+        // 向前查找安全的截断位置（UTF-8 字符边界）
+        while end_pos > 0 && !content.is_char_boundary(end_pos) {
+            end_pos -= 1;
+        }
+
+        // 如果找不到合适的边界，至少保留一些内容
+        if end_pos == 0 {
+            end_pos = content
+                .char_indices()
+                .nth(1000)
+                .map(|(i, _)| i)
+                .unwrap_or(content.len().min(4096));
+        }
+
+        let truncated = content[..end_pos].to_string();
+        (truncated, true, Some(content.len()))
+    }
+}
+
+// 获取记录的完整文本内容
+#[tauri::command]
+pub async fn get_full_text_content(
+    param: GetFullContentParam,
+) -> Result<FullContentResponse, String> {
+    let rb: &RBatis = CONTEXT.get::<RBatis>();
+
+    // 从数据库获取记录
+    let records = ClipRecord::select_by_id(rb, &param.record_id)
+        .await
+        .map_err(|e| format!("查询记录失败: {}", e))?;
+
+    let record = records.first().ok_or("记录不存在")?;
+
+    // 验证是否为文本类型
+    if record.r#type != ClipType::Text.to_string() {
+        return Err("记录类型不是文本".to_string());
+    }
+
+    // 处理完整内容（解密等）
+    let full_content =
+        ContentProcessor::process_by_clip_type(&record.r#type, record.content.clone());
+
+    Ok(FullContentResponse {
+        id: param.record_id,
+        content: full_content.clone(),
+        content_length: full_content.len(),
     })
 }

@@ -47,10 +47,13 @@
             <!-- 文本类型 - 使用智能内容显示 -->
             <template v-if="record.type === 'Text'">
                 <SmartContentDisplay 
-                    :content="record.content" 
+                    :content="currentTextContent" 
                     :show-type-indicator="false"
                     :max-height="300"
+                    :is-truncated="record.content_truncated || false"
+                    :on-load-full-content="loadFullContentForDisplay"
                     @copy="handleSmartCopy"
+                    @update:content="handleContentUpdate"
                 />
             </template>
 
@@ -237,6 +240,14 @@ const showTip = ref(false);
 const showConfirm = ref(false);
 const showAutoPasteWarning = ref(false);
 
+// 大文本处理状态
+const isLoadingFullContent = ref(false);
+const hasLoadedFullContent = ref(false);
+const fullTextContent = ref('');
+const currentTextContent = computed(() => {
+    return hasLoadedFullContent.value ? fullTextContent.value : props.record.content;
+});
+
 // 图片懒加载相关状态
 const imageBase64Data = shallowRef<string>('');
 const isLoadingImage = ref(false);
@@ -364,6 +375,28 @@ const handleCardDoubleClick = async () => {
 const handleCopyOnly = async () => {
     await clipApi.copyRecordNoPaste(props.record.id);
     // 错误处理由全局错误处理器自动处理
+};
+
+// 为 SmartContentDisplay 提供的全量加载函数
+const loadFullContentForDisplay = async (): Promise<string> => {
+    if (hasLoadedFullContent.value) {
+        return fullTextContent.value;
+    }
+    
+    const result = await invoke('get_full_text_content', {
+        param: { record_id: props.record.id }
+    });
+    
+    fullTextContent.value = result.content;
+    hasLoadedFullContent.value = true;
+    
+    return result.content;
+};
+
+// 处理内容更新事件
+const handleContentUpdate = (newContent: string) => {
+    fullTextContent.value = newContent;
+    hasLoadedFullContent.value = true;
 };
 
 // 智能内容复制处理
@@ -1932,4 +1965,5 @@ onMounted(() => {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
 }
+
 </style>

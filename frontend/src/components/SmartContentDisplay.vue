@@ -85,15 +85,21 @@
 
       <!-- 默认文本内容 -->
       <div v-else class="text-content">
-        <p class="text-preview">{{ content }}</p>
+        <p class="text-preview">{{ currentDisplayContent }}</p>
       </div>
     </div>
 
     <!-- 展开控制 -->
     <div v-if="shouldShowExpand" class="expand-controls">
-      <button class="expand-btn" @click.stop="toggleExpand">
-        {{ isExpanded ? '收起内容' : '展开内容' }}
-        <i class="expand-icon" :class="{ 'expanded': isExpanded }"></i>
+      <button class="expand-btn" @click.stop="toggleExpand" :disabled="isLoadingFullContent">
+        <span v-if="isLoadingFullContent" class="loading-text">
+          <span class="loading-spinner"></span>
+          加载中...
+        </span>
+        <span v-else>
+          {{ isExpanded ? '收起内容' : '展开内容' }}
+          <i class="expand-icon" :class="{ 'expanded': isExpanded }"></i>
+        </span>
       </button>
     </div>
 
@@ -131,16 +137,20 @@ interface Props {
   showTypeIndicator?: boolean;
   maxHeight?: number;
   autoExpand?: boolean;
+  isTruncated?: boolean;
+  onLoadFullContent?: () => Promise<string>;
 }
 
 const props = withDefaults(defineProps<Props>(), {
   showTypeIndicator: false,
   maxHeight: 300,
-  autoExpand: false
+  autoExpand: false,
+  isTruncated: false
 });
 
 const emit = defineEmits<{
   (e: 'copy', content: string): void;
+  (e: 'update:content', content: string): void;
 }>();
 
 // 响应式数据
@@ -153,14 +163,14 @@ const markdownViewMode = ref<'preview' | 'code'>('preview');
 const contentArea = ref<HTMLElement | null>(null);
 const codeElement = ref<HTMLElement | null>(null);
 
-// 内容检测
+// 内容检测（基于当前显示内容）
 const detectedContent = computed<DetectedContent>(() => {
-  return detectContentType(props.content);
+  return detectContentType(currentDisplayContent.value);
 });
 
 // 格式化内容
 const formattedContent = computed(() => {
-  return formatContent(props.content, detectedContent.value.type);
+  return formatContent(currentDisplayContent.value, detectedContent.value.type);
 });
 
 // 语法高亮
@@ -179,36 +189,36 @@ const highlightedContent = computed(() => {
   return content;
 });
 
-// Markdown 渲染
+// Markdown 渲染（基于当前显示内容）
 const renderedMarkdown = computed(() => {
   if (detectedContent.value.type.type === 'markdown') {
     try {
-      return marked(props.content, {
+      return marked(currentDisplayContent.value, {
         breaks: true,
         gfm: true,
       });
     } catch (error) {
       console.warn('Markdown渲染失败:', error);
-      return props.content;
+      return currentDisplayContent.value;
     }
   }
   return '';
 });
 
-// 提取URL
+// 提取URL（基于当前显示内容）
 const extractedUrls = computed(() => {
   if (detectedContent.value.type.type === 'url') {
     const urlPattern = /https?:\/\/[^\s]+/gi;
-    return props.content.match(urlPattern) || [];
+    return currentDisplayContent.value.match(urlPattern) || [];
   }
   return [];
 });
 
-// 提取邮箱
+// 提取邮箱（基于当前显示内容）
 const extractedEmails = computed(() => {
   if (detectedContent.value.type.type === 'email') {
     const emailPattern = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/gi;
-    return props.content.match(emailPattern) || [];
+    return currentDisplayContent.value.match(emailPattern) || [];
   }
   return [];
 });
@@ -250,8 +260,50 @@ const copyContent = async () => {
   }
 };
 
+// 当前显示内容（支持渐进加载）
+const currentDisplayContent = ref(props.content);
+const isLoadingFullContent = ref(false);
+
+// 渐进式更新大内容，避免UI卡顿
+const updateContentProgressively = async (content: string) => {
+  if (content.length <= 500 * 1024) {
+    // 小于500KB直接更新
+    currentDisplayContent.value = content;
+    return;
+  }
+  
+  // 大内容分批更新
+  const chunkSize = 100 * 1024; // 100KB每块
+  let currentPos = 0;
+  
+  while (currentPos < content.length) {
+    const nextPos = Math.min(currentPos + chunkSize, content.length);
+    currentDisplayContent.value = content.substring(0, nextPos);
+    currentPos = nextPos;
+    
+    // 让出控制权给UI线程
+    await new Promise(resolve => setTimeout(resolve, 5));
+  }
+};
+
 // 切换展开状态
-const toggleExpand = () => {
+const toggleExpand = async () => {
+  if (!isExpanded.value && props.isTruncated && props.onLoadFullContent) {
+    // 展开截断内容时，先获取全量数据
+    isLoadingFullContent.value = true;
+    try {
+      const fullContent = await props.onLoadFullContent();
+      // 渐进式更新内容避免卡顿
+      await updateContentProgressively(fullContent);
+      emit('update:content', fullContent);
+    } catch (error) {
+      console.error('获取全量内容失败:', error);
+      // 即使失败也要展开当前内容
+    } finally {
+      isLoadingFullContent.value = false;
+    }
+  }
+  
   isExpanded.value = !isExpanded.value;
 };
 
@@ -296,8 +348,17 @@ watch(isExpanded, (newVal) => {
   }
 });
 
+// 监听内容变化
+watch(() => props.content, (newContent) => {
+  currentDisplayContent.value = newContent;
+  nextTick(() => {
+    checkExpandNeeded();
+  });
+});
+
 // 组件挂载
 onMounted(() => {
+  currentDisplayContent.value = props.content;
   nextTick(() => {
     checkExpandNeeded();
   });
@@ -686,11 +747,31 @@ onBeforeUnmount(() => {
   position: relative;
 }
 
-.expand-btn:hover {
+.expand-btn:hover:not(:disabled) {
   color: var(--text-primary, #1e293b);
   background: var(--button-hover-bg, #f1f5f9);
   border-color: var(--border-hover-color, #cbd5e1);
   box-shadow: 0 3px 8px rgba(0, 0, 0, 0.08);
+}
+
+.expand-btn:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.loading-text {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.loading-spinner {
+  width: 12px;
+  height: 12px;
+  border: 2px solid rgba(0, 0, 0, 0.2);
+  border-top-color: var(--text-secondary, #64748b);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
 }
 
 .expand-icon {

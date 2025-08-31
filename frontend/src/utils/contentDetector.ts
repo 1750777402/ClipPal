@@ -59,19 +59,27 @@ function detectJSON(content: string): ContentType | null {
         }
     }
 
-    // 如果有足够的JSON特征，尝试解析
+    // 如果有足够的JSON特征，尝试解析（大内容只验证不解析）
     if (featureCount >= 2) {
+        // 对于大内容（>50KB），跳过JSON.parse验证，直接基于特征判断
+        if (trimmed.length > 50 * 1024) {
+            return { type: 'json', confidence: 0.8 };
+        }
+        
         try {
             JSON.parse(trimmed);
             return { type: 'json', confidence: 0.95 };
         } catch {
-            // 尝试修复JSON
-            try {
-                jsonrepair(trimmed);
-                return { type: 'json', confidence: 0.8 };
-            } catch {
-                return null;
+            // 尝试修复JSON（小内容才做修复）
+            if (trimmed.length <= 10 * 1024) {
+                try {
+                    jsonrepair(trimmed);
+                    return { type: 'json', confidence: 0.8 };
+                } catch {
+                    return null;
+                }
             }
+            return null;
         }
     }
 
@@ -81,7 +89,12 @@ function detectJSON(content: string): ContentType | null {
 // 统一的代码检测函数（合并SQL、HTML、XML检测）
 function detectCodeType(content: string): ContentType | null {
     const trimmed = content.trim();
-    const upperContent = content.toUpperCase().trim();
+    
+    // 对大内容只检测前20KB样本
+    const sampleContent = trimmed.length > 50 * 1024 
+        ? trimmed.substring(0, 20 * 1024)
+        : trimmed;
+    const upperContent = sampleContent.toUpperCase();
 
     // 检测SQL
     const sqlPatterns = [
@@ -104,7 +117,7 @@ function detectCodeType(content: string): ContentType | null {
     let sqlKeywordCount = 0;
 
     for (const pattern of sqlPatterns) {
-        if (pattern.test(content)) {
+        if (pattern.test(sampleContent)) {
             sqlMatchCount++;
         }
     }
@@ -130,12 +143,12 @@ function detectCodeType(content: string): ContentType | null {
     ];
 
     const tagPattern = /<\/?[a-zA-Z][a-zA-Z0-9]*[^>]*>/g;
-    const tags = trimmed.match(tagPattern) || [];
-    const tagDensity = tags.length / trimmed.length;
+    const tags = sampleContent.match(tagPattern) || [];
+    const tagDensity = tags.length / sampleContent.length;
 
     let htmlDocumentFeatures = 0;
     for (const pattern of htmlFeatures) {
-        if (pattern.test(trimmed)) {
+        if (pattern.test(sampleContent)) {
             htmlDocumentFeatures++;
         }
     }
@@ -143,7 +156,7 @@ function detectCodeType(content: string): ContentType | null {
     const commonHtmlTags = ['div', 'span', 'p', 'a', 'img', 'ul', 'li', 'table', 'tr', 'td'];
     let commonTagCount = 0;
     for (const tag of commonHtmlTags) {
-        if (new RegExp(`<\\/?${tag}[^>]*>`, 'i').test(trimmed)) {
+        if (new RegExp(`<\\/?${tag}[^>]*>`, 'i').test(sampleContent)) {
             commonTagCount++;
         }
     }
@@ -154,7 +167,7 @@ function detectCodeType(content: string): ContentType | null {
     }
 
     // 检测XML
-    const hasXmlDecl = /^<\?xml\s+version\s*=\s*["'][^"']*["'][^>]*\?>/i.test(trimmed);
+    const hasXmlDecl = /^<\?xml\s+version\s*=\s*["'][^"']*["'][^>]*\?>/i.test(sampleContent);
     const xmlFeatures = [
         /^<\?xml/i,                     // XML声明
         /<\/[a-zA-Z][a-zA-Z0-9:]*>/,   // 结束标签
@@ -166,13 +179,13 @@ function detectCodeType(content: string): ContentType | null {
 
     let xmlFeatureCount = 0;
     for (const pattern of xmlFeatures) {
-        if (pattern.test(trimmed)) {
+        if (pattern.test(sampleContent)) {
             xmlFeatureCount++;
         }
     }
 
-    const openTags = (trimmed.match(/<[a-zA-Z][a-zA-Z0-9:]*[^>\/]*>/g) || []).length;
-    const closeTags = (trimmed.match(/<\/[a-zA-Z][a-zA-Z0-9:]*>/g) || []).length;
+    const openTags = (sampleContent.match(/<[a-zA-Z][a-zA-Z0-9:]*[^>\/]*>/g) || []).length;
+    const closeTags = (sampleContent.match(/<\/[a-zA-Z][a-zA-Z0-9:]*>/g) || []).length;
     const hasBalancedTags = Math.abs(openTags - closeTags) <= 1;
     const hasXmlStructure = hasXmlDecl || xmlFeatureCount >= 2 || (tagDensity > 0.05 && hasBalancedTags);
 
@@ -282,8 +295,13 @@ function detectGeneralCode(content: string): ContentType | null {
     const isVeryLongText = content.length > 1000 && lines.length > 20;
 
     try {
-        // 使用 highlight.js 自动检测语言
-        const { language, relevance } = hljs.highlightAuto(content);
+        // 对于大于50KB的内容，只取前10KB进行hljs检测，避免性能问题
+        const sampleContent = content.length > 50 * 1024 
+            ? content.substring(0, 10 * 1024)
+            : content;
+            
+        // 使用 highlight.js 自动检测语言（仅检测样本）
+        const { language, relevance } = hljs.highlightAuto(sampleContent);
 
         // 1. highlight.js 检测成功 + 置信度较高
         if (language && relevance >= 5) {
@@ -305,16 +323,22 @@ function detectGeneralCode(content: string): ContentType | null {
             'interface', 'extends', 'implements', 'async', 'await', 'typeof'
         ];
 
-        const score = keywords.reduce((acc, kw) => acc + (content.includes(kw) ? 1 : 0), 0);
-        const indentedLines = lines.filter(line => line.startsWith('  ') || line.startsWith('\t')).length;
-        const hasSymbols = /[{};=()\[\]]/.test(content);
-        const hasFunctionCalls = /\w+\s*\(/.test(content);
-        const hasCodeComments = /\/\/|\/\*|\*\/|#(?!\s*\w+\s*$)|<!--/.test(content);
+        // 对大内容只检测前10KB的样本，避免正则表达式性能问题
+        const detectionSample = content.length > 50 * 1024 
+            ? content.substring(0, 10 * 1024)
+            : content;
+            
+        const score = keywords.reduce((acc, kw) => acc + (detectionSample.includes(kw) ? 1 : 0), 0);
+        const indentedLines = lines.slice(0, Math.min(lines.length, 100)).filter(line => line.startsWith('  ') || line.startsWith('\t')).length;
+        const hasSymbols = /[{};=()\[\]]/.test(detectionSample);
+        const hasFunctionCalls = /\w+\s*\(/.test(detectionSample);
+        const hasCodeComments = /\/\/|\/\*|\*\/|#(?!\s*\w+\s*$)|<!--/.test(detectionSample);
 
-        const symbolDensity = (content.match(/[{};=()\[\]]/g) || []).length / content.length;
-        const hasNaturalLanguage = /[.!?]+\s+[A-Z]/.test(content);
-        const hasContinuousText = /\w{15,}/.test(content);
-        const hasCommonWords = /\b(the|and|or|but|in|on|at|to|for|of|with|by)\b/gi.test(content);
+        const symbolMatches = detectionSample.match(/[{};=()\[\]]/g) || [];
+        const symbolDensity = symbolMatches.length / detectionSample.length;
+        const hasNaturalLanguage = /[.!?]+\s+[A-Z]/.test(detectionSample);
+        const hasContinuousText = /\w{15,}/.test(detectionSample);
+        const hasCommonWords = /\b(the|and|or|but|in|on|at|to|for|of|with|by)\b/gi.test(detectionSample);
 
         const isLikelyCode = (
             (score >= 2 && hasSymbols && hasFunctionCalls) ||
@@ -371,6 +395,15 @@ export function detectContentType(content: string): DetectedContent {
             original: content,
             type: { type: 'text', confidence: 1 },
             preview: content
+        };
+    }
+
+    // 对于超大文本（>500KB），简化检测避免性能问题
+    if (content.length > 500 * 1024) {
+        return {
+            original: content,
+            type: { type: 'text', confidence: 1 },
+            preview: content.substring(0, 200) + (content.length > 200 ? '...' : '')
         };
     }
 

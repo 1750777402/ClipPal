@@ -88,7 +88,10 @@ impl VipChecker {
         if current_sync_count < sync_limit {
             Ok((
                 true,
-                format!("免费体验，已使用 {}/{} 条云同步", current_sync_count, sync_limit),
+                format!(
+                    "免费体验，已使用 {}/{} 条云同步",
+                    current_sync_count, sync_limit
+                ),
             ))
         } else {
             Ok((false, "免费用户云同步额度已用完，请升级VIP".to_string()))
@@ -286,19 +289,23 @@ impl VipChecker {
     /// 强制执行本地记录条数限制（仅更新本地设置，避免递归）
     async fn enforce_local_records_limit(vip_response: &UserVipInfoResponse) -> AppResult<()> {
         use crate::biz::system_setting::load_settings;
-        
+
         let mut settings = load_settings();
         let current_max = settings.max_records;
         let server_max = vip_response.max_records;
-        
+
         // 如果当前设置超过服务器允许的最大值，强制调整
         if current_max > server_max {
-            log::warn!("本地记录条数({})超过服务端限制({})，自动调整", current_max, server_max);
+            log::warn!(
+                "本地记录条数({})超过服务端限制({})，自动调整",
+                current_max,
+                server_max
+            );
             settings.max_records = server_max;
-            
+
             // 直接更新设置存储，避免调用save_settings（会导致递归）
-            use std::sync::Arc;
             use crate::biz::system_setting::Settings;
+            use std::sync::Arc;
             let settings_lock = CONTEXT.get::<Arc<std::sync::RwLock<Settings>>>();
             match settings_lock.write() {
                 Ok(mut guard) => {
@@ -311,7 +318,7 @@ impl VipChecker {
                 }
             }
         }
-        
+
         Ok(())
     }
 
@@ -362,62 +369,76 @@ impl VipChecker {
     /// 检查文件是否可以同步（基于VIP状态和文件大小）
     pub async fn can_sync_file(file_size: u64) -> AppResult<(bool, String)> {
         let max_file_size = Self::get_vip_aware_max_file_size().await?;
-        
+
         if max_file_size == 0 {
             return Ok((false, "免费用户不支持文件云同步".to_string()));
         }
-        
+
         if file_size > max_file_size {
             let size_mb = file_size as f64 / 1024.0 / 1024.0;
             let max_mb = max_file_size as f64 / 1024.0 / 1024.0;
-            return Ok((false, format!("文件大小 {:.2}MB 超过 {:.2}MB 限制", size_mb, max_mb)));
+            return Ok((
+                false,
+                format!("文件大小 {:.2}MB 超过 {:.2}MB 限制", size_mb, max_mb),
+            ));
         }
-        
+
         Ok((true, "文件可以同步".to_string()))
     }
 
     /// 检查并强制执行本地记录条数限制
     pub async fn enforce_local_records_limit_from_db() -> AppResult<()> {
         use crate::biz::system_setting::{load_settings, save_settings};
-        
+
         // 获取当前VIP状态和限制
         let max_allowed = Self::get_max_records_limit().await?;
         let mut settings = load_settings();
-        
+
         // 如果当前设置超过允许的最大值，强制调整
         if settings.max_records > max_allowed {
-            log::warn!("本地记录条数({})超过VIP限制({})，自动调整", settings.max_records, max_allowed);
+            log::warn!(
+                "本地记录条数({})超过VIP限制({})，自动调整",
+                settings.max_records,
+                max_allowed
+            );
             settings.max_records = max_allowed;
-            save_settings(settings).await
+            save_settings(settings)
+                .await
                 .map_err(|e| AppError::Config(format!("保存设置失败: {}", e)))?;
         }
-        
+
         // 检查数据库中的实际记录数，如果超过限制则进行清理
         let rb: &RBatis = CONTEXT.get::<RBatis>();
-        let current_count = ClipRecord::count_all_records(rb).await
+        let current_count = ClipRecord::count_all_records(rb)
+            .await
             .map_err(|e| AppError::Config(format!("查询记录总数失败: {}", e)))?;
-            
+
         if current_count > max_allowed as i64 {
-            log::warn!("数据库记录数({})超过VIP限制({})，执行清理", current_count, max_allowed);
+            log::warn!(
+                "数据库记录数({})超过VIP限制({})，执行清理",
+                current_count,
+                max_allowed
+            );
             // 保留最新的记录，删除超出部分
             let excess_count = current_count - max_allowed as i64;
-            ClipRecord::delete_oldest_records(rb, excess_count as i32).await
+            ClipRecord::delete_oldest_records(rb, excess_count as i32)
+                .await
                 .map_err(|e| AppError::Config(format!("清理超出记录失败: {}", e)))?;
         }
-        
+
         Ok(())
     }
 
     /// 启动时初始化VIP状态并执行限制检查
     pub async fn initialize_vip_and_enforce_limits() -> AppResult<()> {
         log::info!("初始化VIP状态并执行权益限制检查");
-        
+
         // 检查VIP状态（这会同时更新本地状态和执行记录数限制）
         let _ = Self::is_vip_user().await?;
-        
+
         // 额外检查数据库记录数并清理超出部分
         Self::enforce_local_records_limit_from_db().await?;
-        
+
         log::info!("VIP状态初始化和权益限制检查完成");
         Ok(())
     }
