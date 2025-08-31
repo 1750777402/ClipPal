@@ -211,6 +211,7 @@
 import { ref, computed, onMounted, onUnmounted, shallowRef, watch } from 'vue';
 import { formatDistanceToNow } from 'date-fns';
 import { zhCN } from 'date-fns/locale';
+import { invoke } from '@tauri-apps/api/core';
 import VueEasyLightbox from 'vue-easy-lightbox';
 import SmartContentDisplay from './SmartContentDisplay.vue';
 import { clipApi, settingsApi, isSuccess } from '../utils/api';
@@ -241,7 +242,6 @@ const showConfirm = ref(false);
 const showAutoPasteWarning = ref(false);
 
 // 大文本处理状态
-const isLoadingFullContent = ref(false);
 const hasLoadedFullContent = ref(false);
 const fullTextContent = ref('');
 const currentTextContent = computed(() => {
@@ -385,7 +385,7 @@ const loadFullContentForDisplay = async (): Promise<string> => {
     
     const result = await invoke('get_full_text_content', {
         param: { record_id: props.record.id }
-    });
+    }) as { content: string };
     
     fullTextContent.value = result.content;
     hasLoadedFullContent.value = true;
