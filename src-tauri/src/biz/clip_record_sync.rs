@@ -315,6 +315,20 @@ async fn handle_text(
         return Ok(None);
     }
 
+    // 检查文本大小是否超过VIP限制
+    use crate::biz::vip_checker::VipChecker;
+    let max_file_size = VipChecker::get_vip_aware_max_file_size().await.unwrap_or(0);
+    let text_size = trimmed_content.len() as u64;
+
+    let is_oversized = text_size > max_file_size;
+    if is_oversized {
+        log::warn!(
+            "文本大小 {} 字节超过限制 {} 字节，将创建记录但标记为不支持同步",
+            text_size,
+            max_file_size
+        );
+    }
+
     let encrypt_res = encrypt_content(trimmed_content);
     match encrypt_res {
         Ok(encrypted) => {
@@ -330,13 +344,18 @@ async fn handle_text(
             if let Some(record) = existing.first() {
                 if record.del_flag == Some(1) {
                     // 已删除的记录，更新为新记录的所有字段
-                    let new_record = build_clip_record(
+                    let mut new_record = build_clip_record(
                         record.id.clone(), // 保持原ID
                         ClipType::Text.to_string(),
                         Value::String(encrypted),
                         md5_str,
                         sort,
                     );
+
+                    // 如果文本超过大小限制，标记为不支持同步
+                    if is_oversized {
+                        new_record.sync_flag = Some(SKIP_SYNC);
+                    }
 
                     if let Err(e) =
                         ClipRecord::update_deleted_record_as_new(rb, &record.id, &new_record).await
@@ -367,13 +386,18 @@ async fn handle_text(
             }
 
             // 创建新记录
-            let record = build_clip_record(
+            let mut record = build_clip_record(
                 Uuid::new_v4().to_string(),
                 ClipType::Text.to_string(),
                 Value::String(encrypted),
                 md5_str,
                 sort,
             );
+
+            // 如果文本超过大小限制，标记为不支持同步
+            if is_oversized {
+                record.sync_flag = Some(SKIP_SYNC);
+            }
 
             match ClipRecord::insert(rb, &record).await {
                 Ok(_res) => {
