@@ -65,7 +65,7 @@ rbs = {version = "=4.5"}           # RBatis 底层结构支持
 # =========================
 # Tauri 核心 & 插件
 # =========================
-tauri = {version = "=2.6.0", features = ["tray-icon", "image-png"]}
+tauri = {version = "2", features = ["tray-icon", "image-png"]}
 # Tauri 主框架，tray-icon 系统托盘，image-png 图标支持
 
 tauri-plugin-dialog = "2"          # 对话框（文件选择、提示）
