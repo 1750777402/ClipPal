@@ -69,7 +69,7 @@ tauri = {version = "2", features = ["tray-icon", "image-png"]}
 # Tauri 主框架，tray-icon 系统托盘，image-png 图标支持
 
 tauri-plugin-dialog = "2"          # 对话框（文件选择、提示）
-tauri-plugin-http = { version = "=2.4.4", features = ["multipart"] }
+tauri-plugin-http = { version = "2", features = ["multipart"] }
 # HTTP 客户端，支持 multipart 上传
 
 tauri-plugin-opener = "2"          # 打开系统文件/URL
@@ -90,4 +90,4 @@ core-graphics = "0.24.0"           # macOS 图形 API
 # 构建依赖
 # =========================
 tauri-build = "2"                  # Tauri 构建工具
-tauri-plugin = "2.0.2"             # 自定义 Tauri 插件开发
+tauri-plugin = "2"             # 自定义 Tauri 插件开发

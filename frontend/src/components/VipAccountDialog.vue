@@ -35,10 +35,7 @@
                 </div>
                 <div class="vip-details">
                   <div class="vip-type">{{ vipStore.vipTypeDisplay }}</div>
-                  <div class="vip-status-text">
-                    <!-- 使用新的computed -->
-                    {{ vipStatus }}
-                  </div>
+                  
                   <div v-if="vipStore.isVip && vipStore.expireTimeDisplay" class="vip-expire-time">
                     到期时间: {{ vipStore.expireTimeDisplay }}
                   </div>
@@ -136,7 +133,6 @@ const isRefreshing = ref(false)
 // VIP状态显示逻辑：区分从未开过VIP、VIP过期、VIP有效三种情况
 const vipStatus = computed(() => {
   const vipInfo = vipStore.vipInfo
-  
   // 情况1：从未开过VIP（API返回None或无expire_time）
   if (!vipInfo || !vipInfo.expire_time) {
     return '普通用户'
