@@ -91,3 +91,13 @@ core-graphics = "0.24.0"           # macOS 图形 API
 # =========================
 tauri-build = "2"                  # Tauri 构建工具
 tauri-plugin = "2"             # 自定义 Tauri 插件开发
+
+# =========================
+# 发布版本优化配置
+# =========================
+[profile.release]
+panic = "abort"   # 去掉昂贵的恐慌清理逻辑
+codegen-units = 1 # 一个接一个地编译包，这样编译器就可以更好地优化
+lto = true        # 启用链接到优化
+opt-level = "s"   # 优化二进制文件大小,并且不会太大消耗性能,"z"极致优化大小但是会消耗性能
+strip = true      # 删除调试符号
