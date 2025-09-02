@@ -235,7 +235,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, inject, watch, computed } from 'vue'
+import { ref, reactive, inject, watch, computed, onUnmounted } from 'vue'
 import { userApi, isSuccess } from '../utils/api'
 
 interface Props {
@@ -695,6 +695,14 @@ const onUsernameBlur = async () => {
 watch(() => props.visible, (newVisible) => {
   if (newVisible) {
     resetForms()
+  }
+})
+
+// 组件卸载时清理定时器
+onUnmounted(() => {
+  if (countdownTimer) {
+    clearInterval(countdownTimer)
+    countdownTimer = null
   }
 })
 </script>

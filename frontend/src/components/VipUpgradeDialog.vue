@@ -123,7 +123,7 @@ const vipPlans = [
   {
     type: 'Yearly',
     title: '年度会员',
-    price: 50,
+    price: 60,
     period: '12个月',
     features: ['1000条记录存储', '1000条云同步', '5MB文件上传', '多设备同步', '年度超值价'],
     buttonText: '开通年度会员',

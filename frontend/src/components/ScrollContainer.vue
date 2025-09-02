@@ -42,8 +42,9 @@
       
       <!-- 真实数据，透明度渐变 -->
       <div class="real-content" :class="{ 'content-updating': isRefreshing }">
-        <ClipCard v-for="item in cards" :key="item.id" :record="item" :is-mobile="responsive.isMobile.value" 
+        <ClipCard v-for="item in visibleCards" :key="item.id" :record="item" :is-mobile="responsive.isMobile.value" 
                   :cloud-sync-enabled="cloudSyncEnabled" @click="handleCardClick" @pin="handlePin" @delete="handleDel" />
+        
       </div>
     </div>
 
@@ -56,8 +57,9 @@
       </div>
       
       <!-- 数据列表 -->
-      <ClipCard v-for="item in cards" :key="item.id" :record="item" :is-mobile="responsive.isMobile.value" 
+      <ClipCard v-for="item in visibleCards" :key="item.id" :record="item" :is-mobile="responsive.isMobile.value" 
                 :cloud-sync-enabled="cloudSyncEnabled" @click="handleCardClick" @pin="handlePin" @delete="handleDel" />
+
 
       <div v-if="isFetchingMore" class="bottom-loading">
         <div class="loading-spinner small"></div>
@@ -119,15 +121,10 @@ import VipAccountDialog from './VipAccountDialog.vue';
 import { useWindowAdaptive } from '../utils/responsive';
 import { clipApi, settingsApi, isSuccess } from '../utils/api';
 import { useUserStore } from '../utils/userStore';
+import { createDebouncedFunction, useMemoryManager } from '../utils/memoryManager';
 
-// 简单的防抖函数实现
-function debounce<T extends (...args: any[]) => any>(func: T, wait: number): (...args: Parameters<T>) => void {
-  let timeout: ReturnType<typeof setTimeout> | null = null;
-  return function (...args: Parameters<T>) {
-    if (timeout) clearTimeout(timeout);
-    timeout = setTimeout(() => func(...args), wait);
-  };
-}
+// 使用内存安全的防抖函数
+// 原有的防抖函数保留以确保兼容性，但推荐使用新的createDebouncedFunction
 
 const search = ref('');
 const isInitialLoading = ref(false);  // 初始加载状态
@@ -137,6 +134,10 @@ const cards = ref<ClipRecord[]>([]);
 const page = ref(1);
 const pageSize = 20;
 const hasMore = ref(true);
+
+const visibleCards = computed(() => {
+  return cards.value;
+});
 
 // 缓存机制
 const lastFetchTime = ref(0);
@@ -154,6 +155,9 @@ const showBackToTop = ref(false);
 
 // 使用响应式工具
 const responsive = useWindowAdaptive();
+
+// 使用内存管理器
+const memoryManager = useMemoryManager();
 
 // 用户状态管理
 const userStore = useUserStore();
@@ -276,7 +280,7 @@ const initEventListeners = async () => {
         
         // 标记该记录最近被更新，防止不必要的全局刷新
         recentlyUpdatedRecords.add(record_id);
-        setTimeout(() => {
+        memoryManager.setTimeout(() => {
           recentlyUpdatedRecords.delete(record_id);
         }, SINGLE_UPDATE_COOLDOWN);
         
@@ -287,7 +291,7 @@ const initEventListeners = async () => {
         
         // 标记该记录最近被更新，防止后续的clip_record_change事件触发全局刷新
         recentlyUpdatedRecords.add(record_id);
-        setTimeout(() => {
+        memoryManager.setTimeout(() => {
           recentlyUpdatedRecords.delete(record_id);
         }, SINGLE_UPDATE_COOLDOWN);
       }
@@ -337,7 +341,7 @@ const silentRefresh = async () => {
     
   } finally {
     // 延迟移除刷新状态，让动画更平滑
-    setTimeout(() => {
+    memoryManager.setTimeout(() => {
       isRefreshing.value = false;
     }, 300);
   }
@@ -416,8 +420,8 @@ const scrollToTop = () => {
   });
 };
 
-// 优化搜索防抖
-const searchDebounced = debounce((newValue: string) => {
+// 使用内存安全的防抖函数
+const searchDebounced = createDebouncedFunction((newValue: string) => {
   // 如果搜索值没有实际变化，不触发请求
   if (newValue === lastSearchValue.value) return;
   
@@ -435,8 +439,8 @@ const searchDebounced = debounce((newValue: string) => {
   }
 }, 400); // 增加防抖时间，减少请求频率
 
-// 防抖刷新
-const debouncedRefresh = debounce(() => {
+// 使用内存安全的防抖刷新
+const debouncedRefresh = createDebouncedFunction(() => {
   if (cards.value.length > 0) {
     silentRefresh();
   } else {
@@ -583,9 +587,21 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   // 响应式监听器在useWindowAdaptive中自动清理
   
+  // 清理防抖函数
+  debouncedRefresh.cancel();
+  searchDebounced.cancel();
+  
+  // 清理Set中的所有项目，防止内存泄漏
+  recentlyUpdatedRecords.clear();
+  
   // 清理云同步事件监听器
   if (cloudSyncDisabledListener) {
-    cloudSyncDisabledListener();
+    try {
+      cloudSyncDisabledListener();
+    } catch (error) {
+      console.warn('清理cloudSyncDisabledListener失败:', error);
+    }
+    cloudSyncDisabledListener = null;
   }
 });
 </script>
@@ -944,6 +960,7 @@ onBeforeUnmount(() => {
   font-size: 18px;
   line-height: 1;
 }
+
 
 /* 响应式布局 */
 @media (max-width: 768px) {

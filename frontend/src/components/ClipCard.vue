@@ -208,13 +208,14 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, shallowRef, watch } from 'vue';
+import { ref, computed, onMounted, shallowRef, watch } from 'vue';
 import { formatDistanceToNow } from 'date-fns';
 import { zhCN } from 'date-fns/locale';
 import { invoke } from '@tauri-apps/api/core';
 import VueEasyLightbox from 'vue-easy-lightbox';
 import SmartContentDisplay from './SmartContentDisplay.vue';
 import { clipApi, settingsApi, isSuccess } from '../utils/api';
+import { useMemoryManager } from '../utils/memoryManager';
 
 // 导入全局类型
 import type { ClipRecord } from '../types/global';
@@ -272,17 +273,39 @@ const loadImageBase64 = async () => {
             return;
         }
         
-        // 预加载图片确保能正常显示
-        const img = new Image();
-        img.onload = () => {
+        // 清理旧的Image实例
+        if (imageInstance) {
+            imageInstance.onload = null;
+            imageInstance.onerror = null;
+            imageInstance.src = '';
+            imageInstance = null;
+        }
+        
+        // 创建新的Image实例进行预加载，使用内存管理器跟踪
+        imageInstance = memoryManager.addImageInstance(new Image());
+        imageInstance.onload = () => {
             isImageLoaded.value = true;
             imageError.value = false;
+            // 预加载完成后清理实例
+            if (imageInstance) {
+                imageInstance.onload = null;
+                imageInstance.onerror = null;
+                imageInstance.src = '';
+                imageInstance = null;
+            }
         };
-        img.onerror = () => {
+        imageInstance.onerror = () => {
             isImageLoaded.value = false;
             imageError.value = true;
+            // 错误时也要清理实例
+            if (imageInstance) {
+                imageInstance.onload = null;
+                imageInstance.onerror = null;
+                imageInstance.src = '';
+                imageInstance = null;
+            }
         };
-        img.src = imageBase64Data.value;
+        imageInstance.src = imageBase64Data.value;
         
     } catch (error) {
         console.error('加载图片失败:', error);
@@ -309,8 +332,8 @@ watch(() => props.record.sync_flag, (newFlag, oldFlag) => {
     // 当从同步中(1)变为已同步(2)时，且是图片类型，自动加载图片
     if (oldFlag === 1 && newFlag === 2 && props.record.type === 'Image') {
         console.log('云端下载完成，自动加载图片:', props.record.id);
-        // 稍微延迟一下再加载，确保状态更新完成
-        setTimeout(() => {
+        // 稍微延迟一下再加载，确保状态更新完成，使用内存管理器
+        memoryManager.setTimeout(() => {
             if (!shouldLoadImage.value && !imageBase64Data.value) {
                 shouldLoadImage.value = true;
                 loadImageBase64();
@@ -574,10 +597,16 @@ const getImageLoadingText = computed(() => {
 // 图片容器引用
 const imageContainer = ref<HTMLElement>();
 
+// 内存管理器
+const memoryManager = useMemoryManager();
+
+// Image对象引用，用于清理
+let imageInstance: HTMLImageElement | null = null;
+
 // 使用 Intersection Observer 实现可见时自动加载
 onMounted(() => {
     if (props.record.type === 'Image' && imageContainer.value) {
-        const observer = new IntersectionObserver(
+        const observer = memoryManager.addObserver(new IntersectionObserver(
             (entries) => {
                 entries.forEach((entry) => {
                     if (entry.isIntersecting && !shouldLoadImage.value && !isDownloadingFromCloud.value) {
@@ -596,14 +625,9 @@ onMounted(() => {
                 rootMargin: '50px', // 提前50px开始加载
                 threshold: 0.1
             }
-        );
+        ));
         
         observer.observe(imageContainer.value);
-        
-        // 组件卸载时清理observer
-        onUnmounted(() => {
-            observer.disconnect();
-        });
     }
 });
 </script>

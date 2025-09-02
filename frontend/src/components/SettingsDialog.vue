@@ -106,8 +106,6 @@ import { listen } from '@tauri-apps/api/event';
 import { useWindowAdaptive, generateResponsiveClasses } from '../utils/responsive';
 import { settingsApi, isSuccess } from '../utils/api';
 import { useUserStore } from '../utils/userStore';
-import { useVipStore } from '../utils/vipStore';
-import VipUpgradeDialog from './VipUpgradeDialog.vue';
 
 const props = defineProps<{
   modelValue: boolean
@@ -146,7 +144,6 @@ let cloudSyncDisabledListener: (() => void) | null = null;
 const userStore = useUserStore();
 
 // VIP状态管理
-const vipStore = useVipStore();
 const showVipDialog = ref(false);
 
 // 使用响应式工具

@@ -131,23 +131,23 @@ const showVipDialog = ref(false)
 const isRefreshing = ref(false)
 
 // VIP状态显示逻辑：区分从未开过VIP、VIP过期、VIP有效三种情况
-const vipStatus = computed(() => {
-  const vipInfo = vipStore.vipInfo
-  // 情况1：从未开过VIP（API返回None或无expire_time）
-  if (!vipInfo || !vipInfo.expire_time) {
-    return '普通用户'
-  }
+// const vipStatus = computed(() => {
+//   const vipInfo = vipStore.vipInfo
+//   // 情况1：从未开过VIP（API返回None或无expire_time）
+//   if (!vipInfo || !vipInfo.expire_time) {
+//     return '普通用户'
+//   }
   
-  // 情况2和3：有expire_time，判断是否过期
-  const now = Date.now() / 1000
-  const isExpired = now > vipInfo.expire_time
+//   // 情况2和3：有expire_time，判断是否过期
+//   const now = Date.now() / 1000
+//   const isExpired = now > vipInfo.expire_time
   
-  if (isExpired) {
-    return 'VIP已过期'  // VIP已过期，但用户身份仍显示为普通用户
-  } else {
-    return 'VIP会员'     // VIP有效
-  }
-})
+//   if (isExpired) {
+//     return 'VIP已过期'  // VIP已过期，但用户身份仍显示为普通用户
+//   } else {
+//     return 'VIP会员'     // VIP有效
+//   }
+// })
 
 // 实时刷新VIP状态的功能
 const refreshVipStatus = async () => {

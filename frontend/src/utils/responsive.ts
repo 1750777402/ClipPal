@@ -178,7 +178,10 @@ export function useBreakpoint() {
 
     onBeforeUnmount(() => {
         window.removeEventListener('resize', handleResize)
-        if (resizeTimer) clearTimeout(resizeTimer)
+        if (resizeTimer) {
+            clearTimeout(resizeTimer)
+            resizeTimer = null // 清空引用防止内存泄漏
+        }
     })
 
     return {

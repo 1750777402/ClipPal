@@ -112,15 +112,33 @@ onMounted(async () => {
 
 // 清理事件监听器
 onUnmounted(() => {
-  if (authExpiredListener) {
-    authExpiredListener();
+  // 清理定时器
+  if (closeTimer) {
+    clearTimeout(closeTimer);
+    closeTimer = null;
   }
-  if (authClearedListener) {
-    authClearedListener();
-  }
-  if (cloudSyncDisabledListener) {
-    cloudSyncDisabledListener();
-  }
+  
+  // 清理事件监听器，增强错误处理
+  const listeners = [
+    { listener: authExpiredListener, name: 'authExpired' },
+    { listener: authClearedListener, name: 'authCleared' },
+    { listener: cloudSyncDisabledListener, name: 'cloudSyncDisabled' }
+  ];
+  
+  listeners.forEach(({ listener, name }) => {
+    if (listener && typeof listener === 'function') {
+      try {
+        listener();
+      } catch (error) {
+        console.warn(`清理${name}监听器失败:`, error);
+      }
+    }
+  });
+  
+  // 重置引用防止内存泄漏
+  authExpiredListener = null;
+  authClearedListener = null;
+  cloudSyncDisabledListener = null;
 });
 </script>
 
