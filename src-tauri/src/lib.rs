@@ -20,7 +20,7 @@ use crate::{
         },
         vip_management::{
             check_vip_permission, get_server_config, get_vip_limits, get_vip_status,
-            open_vip_purchase_page, refresh_vip_status, simulate_vip_upgrade,
+            open_vip_purchase_page, refresh_vip_status,
         },
     },
     log_config::init_logging,
@@ -170,7 +170,6 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
             get_vip_limits,
             open_vip_purchase_page,
             refresh_vip_status,
-            simulate_vip_upgrade,
             get_server_config
         ])
         .build(tauri::generate_context!())

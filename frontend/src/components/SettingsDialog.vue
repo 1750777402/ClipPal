@@ -257,15 +257,16 @@ const handleConfirm = async () => {
   try {
     const response = await settingsApi.saveSettings({ settings: settings.value });
     if (!isSuccess(response)) {
-      console.error('设置保存失败');
+      // 使用顶部消息栏显示具体的错误信息
+      const errorMsg = response.error || '设置保存失败';
+      showMessageBar(errorMsg, 'error');
       return;
     }
     emit('save', settings.value);
     handleClose();
   } catch (error) {
     console.error('保存设置失败:', error);
-    // 显示错误信息给用户
-    alert(`保存设置失败: ${error}`);
+    showMessageBar(`保存设置失败: ${error}`, 'error');
   } finally {
     isSaving.value = false;
   }

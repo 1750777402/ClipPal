@@ -177,7 +177,6 @@ pub struct VipInfo {
     pub vip_type: VipType,
     pub expire_time: Option<u64>,      // 到期时间戳
     pub max_records: u32,              // 最大记录数限制
-    pub max_sync_records: u32,         // 可云同步的最大记录数
     pub max_file_size: u64,            // 最大文件大小限制(KB)
     pub features: Option<Vec<String>>, // VIP功能列表
 }
@@ -248,7 +247,7 @@ impl SecureStore {
                 .unwrap()
                 .as_secs();
 
-            Ok(current_time - last_check > 3600) // 1小时
+            Ok(current_time - last_check > 600) // 10分钟
         } else {
             Ok(true) // 从未检查过
         }

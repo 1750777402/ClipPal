@@ -32,17 +32,17 @@ pub async fn get_vip_limits() -> Result<serde_json::Value, String> {
     let is_vip = VipChecker::is_vip_user().await.map_err(|e| e.to_string())?;
 
     // 基于服务端缓存的VIP信息计算各项限制
-    let (max_records, max_file_size) =
-        if let Ok(Some(vip_info)) = VipChecker::get_local_vip_info() {
-            // 使用服务端返回的动态限制（服务端返回KB，转换为字节用于前端显示）
-            (
-                vip_info.max_records,
-                vip_info.max_file_size * 1024, // 转换KB为字节
-            )
-        } else {
-            // 没有VIP信息缓存时，默认为免费用户限制
-            (500, 0)
-        };
+    let (max_records, max_file_size) = if let Ok(Some(vip_info)) = VipChecker::get_local_vip_info()
+    {
+        // 使用服务端返回的动态限制（服务端返回KB，转换为字节用于前端显示）
+        (
+            vip_info.max_records,
+            vip_info.max_file_size * 1024, // 转换KB为字节
+        )
+    } else {
+        // 没有VIP信息缓存时，默认为免费用户限制
+        (300, 0)
+    };
 
     // 检查云同步权限，传入已知的VIP状态避免重复检查
     let can_cloud_sync = VipChecker::check_cloud_sync_permission_with_vip_status(Some(is_vip))
@@ -102,55 +102,12 @@ pub async fn refresh_vip_status(app_handle: AppHandle) -> Result<bool, String> {
     }
 }
 
-// 模拟VIP状态更新(用于测试)
 #[tauri::command]
-pub async fn simulate_vip_upgrade(
-    app_handle: AppHandle,
-    vip_type: VipType,
-    days: u32,
-) -> Result<(), String> {
-    let expire_time = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_secs()
-        + (days as u64 * 24 * 3600);
-
-    let vip_info = VipInfo {
-        vip_flag: true,
-        vip_type: vip_type.clone(),
-        expire_time: Some(expire_time),
-        max_records: 1000,
-        max_sync_records: 1000,
-        max_file_size: 5 * 1024, // 5MB以KB为单位 (5120KB)
-        features: Some(vec!["云同步".to_string(), "大文件上传".to_string()]),
-    };
-
-    use crate::utils::secure_store::SECURE_STORE;
-    let mut store = SECURE_STORE
-        .write()
-        .map_err(|_| "获取存储锁失败".to_string())?;
-    store
-        .set_vip_info(vip_info.clone())
-        .map_err(|e| e.to_string())?;
-    store.update_vip_check_time().map_err(|e| e.to_string())?;
-    drop(store);
-
-    // 发送状态变更事件
-    let payload = VipStatusChangedPayload {
-        is_vip: true,
-        vip_type: Some(vip_type),
-        expire_time: Some(expire_time),
-        max_records: 1000,
-    };
-
-    app_handle
-        .emit("vip-status-changed", payload)
-        .map_err(|e| format!("发送事件失败: {}", e))?;
-
-    Ok(())
-}
-
-#[tauri::command]
-pub async fn get_server_config() -> Result<Option<std::collections::HashMap<VipType, crate::api::vip_api::ServerConfigResponse>>, String> {
-    vip_api::get_server_config().await.map_err(|e| e.to_string())
+pub async fn get_server_config() -> Result<
+    Option<std::collections::HashMap<VipType, crate::api::vip_api::ServerConfigResponse>>,
+    String,
+> {
+    vip_api::get_server_config()
+        .await
+        .map_err(|e| e.to_string())
 }

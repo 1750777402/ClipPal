@@ -44,7 +44,6 @@ const ERROR_SEVERITY_MAP: Record<string, ErrorSeverity> = {
   'get_vip_limits': ErrorSeverity.SILENT,
   'open_vip_purchase_page': ErrorSeverity.WARNING,
   'refresh_vip_status': ErrorSeverity.INFO,
-  'simulate_vip_upgrade': ErrorSeverity.INFO,
 };
 
 // API响应类型
@@ -282,7 +281,7 @@ export function getFriendlyErrorMessage(error: string, command: string): string 
   const friendlyMessages: Record<string, string> = {
     // 系统设置相关
     'load_settings': '载入设置失败',
-    'save_settings': '设置保存失败，请检查配置',
+    'save_settings': '设置保存失败',
     'validate_shortcut': '快捷键校验失败',
 
     // 剪贴板记录查询

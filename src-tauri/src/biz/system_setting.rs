@@ -220,16 +220,26 @@ async fn validate_settings(settings: &Settings) -> AppResult<()> {
         Err(_) => {
             // 如果缓存读取失败，使用保守的默认限制
             log::warn!("无法获取VIP缓存限制，使用默认验证");
-            500 // 免费用户限制
+            300 // 免费用户默认限制
         }
     };
 
     // 2. 验证记录条数
-    if settings.max_records < 50 || settings.max_records > max_allowed {
-        return Err(AppError::Config(format!(
-            "记录条数必须在50-{}之间",
-            max_allowed
-        )));
+    if settings.max_records < 50 {
+        return Err(AppError::Config("记录条数不能少于50条".to_string()));
+    }
+
+    if settings.max_records > max_allowed {
+        // 根据不同的限制给出更友好的提示
+        let vip_hint = if max_allowed <= 300 {
+            format!("您当前为免费用户，最多支持{}条记录。升级VIP可获得更多存储空间", max_allowed)
+        } else if max_allowed <= 1000 {
+            format!("您当前VIP等级最多支持{}条记录", max_allowed)
+        } else {
+            format!("记录条数不能超过{}条", max_allowed)
+        };
+
+        return Err(AppError::Config(vip_hint));
     }
 
     // 3. 验证快捷键
@@ -239,7 +249,9 @@ async fn validate_settings(settings: &Settings) -> AppResult<()> {
 
     // 4. 验证快捷键格式
     if !is_valid_shortcut_format(&settings.shortcut_key) {
-        return Err(AppError::Config("快捷键格式无效".to_string()));
+        return Err(AppError::Config(
+            "快捷键格式错误，请使用如 Ctrl+Shift+C 的组合键".to_string(),
+        ));
     }
 
     Ok(())
@@ -313,7 +325,7 @@ fn set_auto_start(auto_start: bool) -> AppResult<()> {
 }
 
 // 保存设置到文件
-fn save_settings_to_file(settings: &Settings) -> AppResult<()> {
+pub fn save_settings_to_file(settings: &Settings) -> AppResult<()> {
     let path = get_settings_file_path()
         .ok_or_else(|| AppError::Config("无法获取配置文件路径".to_string()))?;
 

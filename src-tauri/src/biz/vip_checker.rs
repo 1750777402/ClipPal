@@ -134,7 +134,13 @@ impl VipChecker {
                 Ok(1000) // 默认VIP限制
             }
         } else {
-            Ok(500) // 免费用户默认限制
+            // 免费用户：尝试从服务器配置获取，如果没有则使用默认值300
+            if let Ok(Some(server_config)) = crate::api::vip_api::get_server_config().await {
+                if let Some(free_config) = server_config.get(&VipType::Free) {
+                    return Ok(free_config.record_limit);
+                }
+            }
+            Ok(300) // 免费用户默认限制300条
         }
     }
 
@@ -188,14 +194,19 @@ impl VipChecker {
         match user_vip_check().await {
             Ok(Some(vip_response)) => {
                 // 转换API响应为本地VIP信息结构
-                let vip_info = Self::convert_api_response_to_vip_info(vip_response)?;
+                let vip_info = Self::convert_api_response_to_vip_info(vip_response.clone())?;
 
                 // 保存到加密存储
-                let mut store = SECURE_STORE
-                    .write()
-                    .map_err(|_| AppError::Config("获取存储锁失败".to_string()))?;
-                store.set_vip_info(vip_info)?;
-                store.update_vip_check_time()?;
+                {
+                    let mut store = SECURE_STORE
+                        .write()
+                        .map_err(|_| AppError::Config("获取存储锁失败".to_string()))?;
+                    store.set_vip_info(vip_info)?;
+                    store.update_vip_check_time()?;
+                } // store在这里被drop
+
+                // 处理本地记录条数限制 - VIP状态变化时自动调整max_records设置
+                Self::enforce_local_records_limit(&vip_response).await?;
 
                 log::info!("VIP状态已从服务器更新");
                 Ok(true)
@@ -219,17 +230,6 @@ impl VipChecker {
             .map_err(|_| AppError::Config("获取存储锁失败".to_string()))?;
         store.get_vip_info()
     }
-
-    // /// 获取当前云同步记录数（需要传入RBatis实例）- 不再需要条数限制
-    // pub async fn get_current_sync_count() -> AppResult<u32> {
-    //     let rb: &RBatis = CONTEXT.get::<RBatis>();
-    //     // 查询已同步到云端的记录数量
-    //     let count = ClipRecord::select_sync_count(rb)
-    //         .await
-    //         .map_err(|e| AppError::Config(format!("查询同步记录数失败: {}", e)))?;
-    //
-    //     Ok(count as u32)
-    // }
 
     /// 获取最大文件大小限制（基于服务端返回的数据，转换为字节）
     pub async fn get_max_file_size() -> AppResult<u64> {
@@ -255,7 +255,6 @@ impl VipChecker {
             vip_type,
             expire_time: response.expire_time,
             max_records: response.max_records,
-            max_sync_records: 0, // 已废弃，使用默认值
             max_file_size: response.max_file_size, // 使用服务端返回的动态文件大小限制
             features: response.features,
         })
@@ -271,7 +270,8 @@ impl VipChecker {
 
     /// 强制执行本地记录条数限制（仅更新本地设置，避免递归）
     async fn enforce_local_records_limit(vip_response: &UserVipInfoResponse) -> AppResult<()> {
-        use crate::biz::system_setting::load_settings;
+        use crate::biz::system_setting::{Settings, load_settings};
+        use std::sync::Arc;
 
         let mut settings = load_settings();
         let current_max = settings.max_records;
@@ -286,19 +286,26 @@ impl VipChecker {
             );
             settings.max_records = server_max;
 
-            // 直接更新设置存储，避免调用save_settings（会导致递归）
-            use crate::biz::system_setting::Settings;
-            use std::sync::Arc;
+            // 更新内存设置
             let settings_lock = CONTEXT.get::<Arc<std::sync::RwLock<Settings>>>();
             match settings_lock.write() {
                 Ok(mut guard) => {
-                    *guard = settings;
+                    *guard = settings.clone();
                     log::info!("VIP记录数限制已应用到内存设置");
                 }
                 Err(e) => {
                     log::error!("更新内存设置失败: {}", e);
                     return Err(AppError::Config("更新内存设置失败".to_string()));
                 }
+            }
+
+            // 持久化到磁盘
+            use crate::biz::system_setting::save_settings_to_file;
+            if let Err(e) = save_settings_to_file(&settings) {
+                log::error!("持久化设置到磁盘失败: {}", e);
+                // 不返回错误，因为内存已经更新成功
+            } else {
+                log::info!("VIP记录数限制已持久化到磁盘");
             }
         }
 
@@ -319,12 +326,15 @@ impl VipChecker {
 
     /// 获取VIP记录数限制（仅使用本地缓存，不触发服务器调用）
     pub fn get_cached_max_records_limit() -> AppResult<u32> {
+        // 优先从VIP信息获取（适用于VIP用户）
         if let Some(vip_info) = Self::get_local_vip_info()? {
-            Ok(vip_info.max_records)
-        } else {
-            // 无缓存时，使用保守的免费用户限制
-            Ok(500)
+            // 如果是VIP用户，使用VIP信息中的限制
+            if vip_info.vip_flag {
+                return Ok(vip_info.max_records);
+            }
         }
+
+        Ok(300) // 免费用户默认限制300条
     }
 
     /// 获取VIP文件大小限制（仅使用本地缓存，不触发服务器调用，转换为字节）
