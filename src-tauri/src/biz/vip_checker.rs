@@ -169,13 +169,25 @@ impl VipChecker {
         store.clear_vip_info()?;
         drop(store);
 
+        // 获取免费用户的记录限制（从服务器配置或默认值）
+        let free_limit = if let Ok(Some(server_config)) = crate::api::vip_api::get_server_config().await {
+            if let Some(free_config) = server_config.get(&VipType::Free) {
+                free_config.record_limit
+            } else {
+                300 // 服务器配置中没有免费用户配置时的默认值
+            }
+        } else {
+            300 // 无法获取服务器配置时的默认值
+        };
+
         // 更新系统设置
         let mut settings = load_settings();
         settings.cloud_sync = 0; // 关闭云同步
 
-        // 如果当前记录数超过免费限制，调整为500
-        if settings.max_records > 500 {
-            settings.max_records = 500;
+        // 如果当前记录数超过免费限制，调整为服务器返回的限制
+        if settings.max_records > free_limit {
+            settings.max_records = free_limit;
+            log::info!("调整记录数限制为免费用户限制: {}", free_limit);
         }
 
         save_settings(settings)

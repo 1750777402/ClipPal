@@ -110,8 +110,8 @@ export const vipStore = {
       Monthly: {
         name: '月度会员',
         features: [
-          `${vipState.serverConfig.Monthly?.recordLimit || 500}条本地记录`,
-          `${((vipState.serverConfig.Monthly?.maxFileSize || 5120) / 1024).toFixed(0)}MB文件上传`,
+          `${vipState.serverConfig.Monthly?.recordLimit || 300}条本地记录`,
+          `${((vipState.serverConfig.Monthly?.maxFileSize || 3072) / 1024).toFixed(0)}MB文件上传`,
           '多设备同步',
           '高级功能解锁'
         ]
@@ -119,8 +119,8 @@ export const vipStore = {
       Quarterly: {
         name: '季度会员',
         features: [
-          `${vipState.serverConfig.Quarterly?.recordLimit || 1000}条本地记录`,
-          `${((vipState.serverConfig.Quarterly?.maxFileSize || 5120) / 1024).toFixed(0)}MB文件上传`,
+          `${vipState.serverConfig.Quarterly?.recordLimit || 500}条本地记录`,
+          `${((vipState.serverConfig.Quarterly?.maxFileSize || 4096) / 1024).toFixed(0)}MB文件上传`,
           '多设备同步',
           '高级功能解锁',
           '季度优惠价'
