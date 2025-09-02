@@ -170,6 +170,13 @@ fn get_clip_pal_record_schema(schema: &mut HashMap<String, TableSchema>) {
             default_value: Some("0".to_string()),
             primary_key: false,
         },
+        ColumnInfo {
+            name: "skip_type".to_string(),
+            r#type: "INTEGER".to_string(),
+            not_null: false,
+            default_value: None,
+            primary_key: false,
+        },
     ];
 
     schema.insert(

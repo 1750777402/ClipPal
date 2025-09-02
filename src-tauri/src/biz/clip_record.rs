@@ -42,6 +42,8 @@ pub struct ClipRecord {
     pub del_flag: Option<i32>,
     // 是否是云端同步下来的数据
     pub cloud_source: Option<i32>,
+    // 跳过云同步的原因类型  跳过后是否可以再次尝试同步
+    pub skip_type: Option<i32>,
 }
 
 crud!(ClipRecord {}, "clip_record");
@@ -340,7 +342,7 @@ impl ClipRecord {
     //
     //     let sql = "SELECT COUNT(*) as count FROM clip_record WHERE sync_flag = 2 AND del_flag = 0";
     //     let result: Vec<CountResult> = rb.query_decode(sql, vec![]).await?;
-    //     
+    //
     //     if let Some(row) = result.first() {
     //         Ok(row.count)
     //     } else {
@@ -359,7 +361,7 @@ impl ClipRecord {
 
         let sql = "SELECT COUNT(*) as count FROM clip_record WHERE del_flag = 0";
         let result: Vec<CountResult> = rb.query_decode(sql, vec![]).await?;
-        
+
         if let Some(row) = result.first() {
             Ok(row.count)
         } else {
