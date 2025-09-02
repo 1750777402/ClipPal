@@ -20,6 +20,13 @@ export interface VipLimits {
   canCloudSync: boolean
 }
 
+export interface ServerConfigResponse {
+  maxFileSize: number
+  recordLimit: number
+  syncLimit: number
+  syncCheckInterval: number
+}
+
 export interface VipStatusChangedPayload {
   is_vip: boolean
   vip_type?: 'Free' | 'Monthly' | 'Quarterly' | 'Yearly'
@@ -31,6 +38,7 @@ export interface VipStatusChangedPayload {
 const vipState = reactive({
   vipInfo: null as VipInfo | null,
   limits: null as VipLimits | null,
+  serverConfig: null as Record<string, ServerConfigResponse> | null,
   loading: false,
   initialized: false
 })
@@ -43,6 +51,7 @@ export const vipStore = {
   // 状态访问器
   get vipInfo() { return vipState.vipInfo },
   get limits() { return vipState.limits },
+  get serverConfig() { return vipState.serverConfig },
   get loading() { return vipState.loading },
   get initialized() { return vipState.initialized },
 
@@ -67,6 +76,75 @@ export const vipStore = {
     return new Date(vipState.vipInfo.expire_time * 1000).toLocaleDateString('zh-CN')
   }),
 
+  // 获取当前用户类型的服务器配置
+  currentServerConfig: computed(() => {
+    if (!vipState.serverConfig) return null
+
+    // 映射前端VIP类型到服务端key
+    const getServerKey = (vipType: string) => {
+      switch (vipType) {
+        case 'Free': return 'Free'
+        case 'Monthly': return 'Monthly'
+        case 'Quarterly': return 'Quarterly'
+        case 'Yearly': return 'Yearly'
+        default: return 'Free'
+      }
+    }
+
+    const userType = vipState.vipInfo?.vip_flag ? vipState.vipInfo.vip_type : 'Free'
+    const serverKey = getServerKey(userType)
+    return vipState.serverConfig[serverKey] || null
+  }),
+
+  // 获取VIP会员权益配置（基于服务器配置）
+  getVipBenefits: computed(() => {
+    if (!vipState.serverConfig) return {}
+
+    return {
+      Free: {
+        name: '免费用户',
+        features: [
+          `${vipState.serverConfig.Free?.recordLimit || 300}条本地记录`,
+          `${vipState.serverConfig.Free?.syncLimit || 10}条云同步`,
+          '基础功能使用',
+          '有限制的文件上传'
+        ]
+      },
+      Monthly: {
+        name: '月度会员',
+        features: [
+          `${vipState.serverConfig.Monthly?.recordLimit || 500}条本地记录`,
+          `${vipState.serverConfig.Monthly?.syncLimit || 500}条云同步`,
+          `${((vipState.serverConfig.Monthly?.maxFileSize || 5120) / 1024).toFixed(0)}MB文件上传`,
+          '多设备同步',
+          '高级功能解锁'
+        ]
+      },
+      Quarterly: {
+        name: '季度会员',
+        features: [
+          `${vipState.serverConfig.Quarterly?.recordLimit || 1000}条本地记录`,
+          `${vipState.serverConfig.Quarterly?.syncLimit || 1000}条云同步`,
+          `${((vipState.serverConfig.Quarterly?.maxFileSize || 5120) / 1024).toFixed(0)}MB文件上传`,
+          '多设备同步',
+          '高级功能解锁',
+          '季度优惠价'
+        ]
+      },
+      Yearly: {
+        name: '年度会员',
+        features: [
+          `${vipState.serverConfig.Yearly?.recordLimit || 1000}条本地记录`,
+          `${vipState.serverConfig.Yearly?.syncLimit || 1000}条云同步`,
+          `${((vipState.serverConfig.Yearly?.maxFileSize || 5120) / 1024).toFixed(0)}MB文件上传`,
+          '多设备同步',
+          '高级功能解锁',
+          '年度超值价'
+        ]
+      }
+    }
+  }),
+
   // 初始化VIP状态
   async initialize(): Promise<boolean> {
     if (vipState.initialized) return true
@@ -75,7 +153,8 @@ export const vipStore = {
     try {
       const success = await Promise.all([
         this.loadVipStatus(),
-        this.loadVipLimits()
+        this.loadVipLimits(),
+        this.loadServerConfig()
       ])
 
       // 监听VIP状态变更事件
@@ -122,6 +201,21 @@ export const vipStore = {
     }
   },
 
+  // 加载服务器配置信息
+  async loadServerConfig(): Promise<boolean> {
+    try {
+      const response = await apiInvoke<Record<string, ServerConfigResponse>>('get_server_config')
+      if (isSuccess(response)) {
+        vipState.serverConfig = response.data || null
+        return true
+      }
+      return false
+    } catch (error) {
+      console.error('获取服务器配置失败:', error)
+      return false
+    }
+  },
+
   // 检查云同步权限
   async checkCloudSyncPermission(): Promise<{ allowed: boolean, message: string }> {
     try {
@@ -149,43 +243,29 @@ export const vipStore = {
     }
   },
 
-  // 刷新VIP状态 - 服务端优先，失败时展示本地缓存
+  // 刷新VIP状态 - 只调用一次refresh_vip_status，后端会更新所有相关数据
   async refreshStatus(): Promise<boolean> {
     vipState.loading = true
     try {
-      // 尝试从服务端刷新
+      // refresh_vip_status 会刷新VIP状态、限制和服务器配置，只需调用一次
       const response = await apiInvoke<boolean>('refresh_vip_status')
 
-      if (isSuccess(response) && response.data) {
-        // 服务端更新成功，加载最新的本地数据
-        const [statusLoaded, limitsLoaded] = await Promise.all([
+      if (isSuccess(response)) {
+        // 刷新成功后，从本地存储加载最新数据（避免重复网络请求）
+        const [statusLoaded, limitsLoaded, configLoaded] = await Promise.all([
           this.loadVipStatus(),
-          this.loadVipLimits()
+          this.loadVipLimits(),
+          this.loadServerConfig()
         ])
-        console.log('VIP状态已从服务器更新')
-        return statusLoaded && limitsLoaded
+        console.log('VIP状态已刷新')
+        return statusLoaded && limitsLoaded && configLoaded
       } else {
-        // 服务端更新失败，仅从本地缓存加载
-        console.log('服务端更新失败，使用本地缓存的VIP状态')
-        const statusLoaded = await this.loadVipStatus()
-        // 如果有本地VIP数据，也加载limits；否则跳过避免触发服务端调用
-        if (vipState.vipInfo) {
-          const limitsLoaded = await this.loadVipLimits()
-          return statusLoaded && limitsLoaded
-        }
-        return statusLoaded
+        console.log('VIP状态刷新失败，使用本地缓存')
+        return false
       }
     } catch (error) {
-      console.warn('服务端刷新失败，尝试加载本地缓存:', error)
-
-      // 服务端失败时，尝试加载本地缓存
-      const statusLoaded = await this.loadVipStatus()
-      // 只有在有本地数据时才加载limits
-      if (vipState.vipInfo) {
-        const limitsLoaded = await this.loadVipLimits()
-        return statusLoaded && limitsLoaded
-      }
-      return statusLoaded
+      console.warn('VIP状态刷新失败:', error)
+      return false
     } finally {
       vipState.loading = false
     }

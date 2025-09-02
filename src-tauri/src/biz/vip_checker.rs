@@ -260,12 +260,7 @@ impl VipChecker {
 
     /// 转换API响应为VIP信息结构
     fn convert_api_response_to_vip_info(response: UserVipInfoResponse) -> AppResult<VipInfo> {
-        let vip_type = match response.vip_type.as_deref() {
-            Some("monthly") => VipType::Monthly,
-            Some("quarterly") => VipType::Quarterly,
-            Some("yearly") => VipType::Yearly,
-            _ => VipType::Free,
-        };
+        let vip_type = response.vip_type.unwrap_or(VipType::Free);
 
         Ok(VipInfo {
             vip_flag: response.vip_flag,

@@ -13,7 +13,7 @@ use crate::{
 pub struct UserVipInfoResponse {
     pub user_id: u32,
     pub vip_flag: bool,
-    pub vip_type: Option<String>, // "monthly", "quarterly", "yearly"
+    pub vip_type: Option<VipType>,
     pub expire_time: Option<u64>, // VIP过期时间戳
     pub max_records: u32,         // 最大记录条数限制
     pub max_sync_records: u32,    // 可云同步的最大记录数

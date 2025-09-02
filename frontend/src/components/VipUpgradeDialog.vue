@@ -6,27 +6,6 @@
         <button class="close-button" @click="handleClose">×</button>
       </div>
       
-      <!-- 当前状态显示 -->
-      <div class="current-status" v-if="vipStore.vipInfo">
-        <div class="status-card" :class="{ 'vip-active': vipStore.isVip }">
-          <div class="status-icon">{{ vipStore.isVip ? '👑' : '🆓' }}</div>
-          <div class="status-info">
-            <div class="status-title">{{ vipStore.vipTypeDisplay }}</div>
-            <div class="status-detail" v-if="vipStore.isVip && vipStore.expireTimeDisplay">
-              到期时间: {{ vipStore.expireTimeDisplay }}
-            </div>
-            <div class="status-detail" v-if="vipStore.isVip && vipStore.remainingDays.value > 0">
-              剩余 {{ vipStore.remainingDays.value }} 天
-            </div>
-            <div class="status-warning" v-if="vipStore.isExpiringSoon">
-              ⚠️ VIP即将到期，请及时续费
-            </div>
-            <div class="status-expired" v-if="vipStore.isExpired">
-              ❌ VIP已过期
-            </div>
-          </div>
-        </div>
-      </div>
 
       <!-- VIP方案选择 -->
       <div class="plans-section">
@@ -100,36 +79,73 @@ const vipStore = useVipStore()
 // State
 const showPurchaseGuide = ref(false)
 
-// VIP方案配置
-const vipPlans = [
-  {
-    type: 'Monthly',
-    title: '月度会员',
-    price: 6,
-    period: '月',
-    features: ['1000条记录存储', '1000条云同步', '5MB文件上传', '多设备同步'],
-    buttonText: '开通月度会员',
-    recommended: false
-  },
-  {
-    type: 'Quarterly', 
-    title: '季度会员',
-    price: 15,
-    period: '3个月',
-    features: ['1000条记录存储', '1000条云同步', '5MB文件上传', '多设备同步', '季度优惠价'],
-    buttonText: '开通季度会员',
-    recommended: true
-  },
-  {
-    type: 'Yearly',
-    title: '年度会员',
-    price: 60,
-    period: '12个月',
-    features: ['1000条记录存储', '1000条云同步', '5MB文件上传', '多设备同步', '年度超值价'],
-    buttonText: '开通年度会员',
-    recommended: false
+// VIP方案配置（基于服务器配置）
+const vipPlans = computed(() => {
+  try {
+    const benefits = vipStore.getVipBenefits?.value || {}
+    
+    return [
+      {
+        type: 'Monthly',
+        title: '月度会员',
+        price: 6,
+        period: '月',
+        features: benefits.Monthly?.features || ['500条记录存储', '500条云同步', '5MB文件上传', '多设备同步'],
+        buttonText: '开通月度会员',
+        recommended: false
+      },
+      {
+        type: 'Quarterly', 
+        title: '季度会员',
+        price: 15,
+        period: '3个月',
+        features: benefits.Quarterly?.features || ['1000条记录存储', '1000条云同步', '5MB文件上传', '多设备同步', '季度优惠价'],
+        buttonText: '开通季度会员',
+        recommended: true
+      },
+      {
+        type: 'Yearly',
+        title: '年度会员',
+        price: 60,
+        period: '12个月',
+        features: benefits.Yearly?.features || ['1000条记录存储', '1000条云同步', '5MB文件上传', '多设备同步', '年度超值价'],
+        buttonText: '开通年度会员',
+        recommended: false
+      }
+    ]
+  } catch (error) {
+    console.error('生成VIP方案配置失败:', error)
+    return [
+      {
+        type: 'Monthly',
+        title: '月度会员',
+        price: 6,
+        period: '月',
+        features: ['500条记录存储', '500条云同步', '5MB文件上传', '多设备同步'],
+        buttonText: '开通月度会员',
+        recommended: false
+      },
+      {
+        type: 'Quarterly', 
+        title: '季度会员',
+        price: 15,
+        period: '3个月',
+        features: ['1000条记录存储', '1000条云同步', '5MB文件上传', '多设备同步', '季度优惠价'],
+        buttonText: '开通季度会员',
+        recommended: true
+      },
+      {
+        type: 'Yearly',
+        title: '年度会员',
+        price: 60,
+        period: '12个月',
+        features: ['1000条记录存储', '1000条云同步', '5MB文件上传', '多设备同步', '年度超值价'],
+        buttonText: '开通年度会员',
+        recommended: false
+      }
+    ]
   }
-]
+})
 
 // Methods
 const handleClose = () => {
@@ -225,56 +241,6 @@ const handleRefreshStatus = async () => {
   transform: scale(1.1);
 }
 
-/* 当前状态显示 */
-.current-status {
-  padding: 16px 20px;
-  border-bottom: 1px solid var(--border-color, #e2e8f0);
-  background: var(--card-bg, #ffffff);
-  flex-shrink: 0;
-}
-
-.status-card {
-  display: flex;
-  align-items: center;
-  padding: 16px;
-  border-radius: 8px;
-  background: var(--bg-secondary, #f8fafc);
-  border: 2px solid transparent;
-}
-
-.status-card.vip-active {
-  background: linear-gradient(135deg, #ffd700 0%, #ffed4e 100%);
-  border-color: #ffd700;
-}
-
-.status-icon {
-  font-size: 2rem;
-  margin-right: 16px;
-}
-
-.status-title {
-  font-size: 1.2rem;
-  font-weight: 600;
-  color: var(--text-primary, #333);
-}
-
-.status-detail {
-  color: var(--text-secondary, #666);
-  font-size: 0.9rem;
-  margin-top: 4px;
-}
-
-.status-warning {
-  color: #f59e0b;
-  font-size: 0.9rem;
-  margin-top: 4px;
-}
-
-.status-expired {
-  color: #ef4444;
-  font-size: 0.9rem;
-  margin-top: 4px;
-}
 
 /* VIP方案 */
 .plans-section {
@@ -469,9 +435,6 @@ const handleRefreshStatus = async () => {
     font-size: 1.3rem;
   }
 
-  .current-status {
-    padding: 12px 16px;
-  }
 
   .plans-section {
     padding: 12px 16px;
@@ -549,7 +512,6 @@ const handleRefreshStatus = async () => {
     font-size: 1.2rem;
   }
 
-  .current-status,
   .plans-section,
   .purchase-guide {
     padding: 8px 12px;
@@ -692,7 +654,6 @@ const handleRefreshStatus = async () => {
     font-size: 1.4rem;
   }
 
-  .current-status,
   .plans-section,
   .purchase-guide {
     padding: 4px 8px;

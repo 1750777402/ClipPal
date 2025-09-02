@@ -64,7 +64,7 @@
                   <span class="benefit-icon">📄</span>
                   <div class="benefit-text">
                     <span class="benefit-label">本地记录</span>
-                    <span class="benefit-value">{{ vipStore.maxRecordsLimit }}</span>
+                    <span class="benefit-value">{{ currentRecordLimit }}条</span>
                   </div>
                 </div>
                 <div class="benefit-item">
@@ -72,7 +72,7 @@
                   <div class="benefit-text">
                     <span class="benefit-label">云同步</span>
                     <span class="benefit-value" :class="{ 'text-primary': vipStore.canCloudSync }">
-                      {{ vipStore.canCloudSync ? (vipStore.isVip ? `${vipStore.vipInfo?.max_sync_records || '无限'}条` : '10条体验') : '不支持' }}
+                      {{ currentSyncLimit }}条
                     </span>
                   </div>
                 </div>
@@ -81,7 +81,7 @@
                   <div class="benefit-text">
                     <span class="benefit-label">文件上传</span>
                     <span class="benefit-value" :class="{ 'text-primary': vipStore.isVip }">
-                      {{ vipStore.isVip ? `${((vipStore.limits?.maxFileSize || 0) / 1024 / 1024).toFixed(0)}MB以下` : '不支持' }}
+                      {{ currentFileSizeLimit }}
                     </span>
                   </div>
                 </div>
@@ -168,10 +168,13 @@ const refreshVipStatus = async () => {
   }
 }
 
-// 当弹窗打开时自动刷新VIP状态
+// 当弹窗打开时检查是否需要刷新VIP状态（避免重复调用）
 watch(() => props.visible, (newVisible) => {
   if (newVisible && userStore.isLoggedIn()) {
-    refreshVipStatus()
+    // 只有在VIP状态未初始化或数据过期时才刷新
+    if (!vipStore.initialized || !vipStore.vipInfo) {
+      refreshVipStatus()
+    }
   }
 })
 
@@ -190,6 +193,37 @@ const vipStatusClass = computed(() => {
   if (vipStore.isExpired.value) return 'status-expired'
   if (vipStore.isExpiringSoon.value) return 'status-warning'
   return 'status-active'
+})
+
+// 基于服务器配置的动态权益显示
+const currentRecordLimit = computed(() => {
+  try {
+    const config = vipStore.currentServerConfig?.value
+    return config?.recordLimit || (vipStore.isVip?.value ? 1000 : 300)
+  } catch {
+    return vipStore.isVip?.value ? 1000 : 300
+  }
+})
+
+const currentSyncLimit = computed(() => {
+  try {
+    const config = vipStore.currentServerConfig?.value
+    return config?.syncLimit || (vipStore.isVip?.value ? 1000 : 10)
+  } catch {
+    return vipStore.isVip?.value ? 1000 : 10
+  }
+})
+
+const currentFileSizeLimit = computed(() => {
+  try {
+    const config = vipStore.currentServerConfig?.value
+    if (config?.maxFileSize) {
+      return `${(config.maxFileSize / 1024).toFixed(0)}MB以下`
+    }
+    return vipStore.isVip?.value ? '5MB以下' : '不支持'
+  } catch {
+    return vipStore.isVip?.value ? '5MB以下' : '不支持'
+  }
 })
 
 const close = () => {

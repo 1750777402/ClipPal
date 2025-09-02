@@ -1,4 +1,5 @@
 use crate::{
+    api::vip_api,
     biz::vip_checker::VipChecker,
     utils::secure_store::{VipInfo, VipType},
 };
@@ -149,4 +150,9 @@ pub async fn simulate_vip_upgrade(
         .map_err(|e| format!("发送事件失败: {}", e))?;
 
     Ok(())
+}
+
+#[tauri::command]
+pub async fn get_server_config() -> Result<Option<std::collections::HashMap<VipType, crate::api::vip_api::ServerConfigResponse>>, String> {
+    vip_api::get_server_config().await.map_err(|e| e.to_string())
 }
