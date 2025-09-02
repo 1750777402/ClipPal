@@ -68,15 +68,6 @@
                   </div>
                 </div>
                 <div class="benefit-item">
-                  <span class="benefit-icon">☁️</span>
-                  <div class="benefit-text">
-                    <span class="benefit-label">云同步</span>
-                    <span class="benefit-value" :class="{ 'text-primary': vipStore.canCloudSync }">
-                      {{ currentSyncLimit }}条
-                    </span>
-                  </div>
-                </div>
-                <div class="benefit-item">
                   <span class="benefit-icon">📁</span>
                   <div class="benefit-text">
                     <span class="benefit-label">文件上传</span>
@@ -205,14 +196,6 @@ const currentRecordLimit = computed(() => {
   }
 })
 
-const currentSyncLimit = computed(() => {
-  try {
-    const config = vipStore.currentServerConfig?.value
-    return config?.syncLimit || (vipStore.isVip?.value ? 1000 : 10)
-  } catch {
-    return vipStore.isVip?.value ? 1000 : 10
-  }
-})
 
 const currentFileSizeLimit = computed(() => {
   try {

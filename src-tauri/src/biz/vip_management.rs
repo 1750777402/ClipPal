@@ -32,17 +32,16 @@ pub async fn get_vip_limits() -> Result<serde_json::Value, String> {
     let is_vip = VipChecker::is_vip_user().await.map_err(|e| e.to_string())?;
 
     // 基于服务端缓存的VIP信息计算各项限制
-    let (max_records, max_file_size, max_sync_records) =
+    let (max_records, max_file_size) =
         if let Ok(Some(vip_info)) = VipChecker::get_local_vip_info() {
             // 使用服务端返回的动态限制（服务端返回KB，转换为字节用于前端显示）
             (
                 vip_info.max_records,
                 vip_info.max_file_size * 1024, // 转换KB为字节
-                vip_info.max_sync_records,
             )
         } else {
             // 没有VIP信息缓存时，默认为免费用户限制
-            (500, 0, 10)
+            (500, 0)
         };
 
     // 检查云同步权限，传入已知的VIP状态避免重复检查
@@ -55,7 +54,6 @@ pub async fn get_vip_limits() -> Result<serde_json::Value, String> {
         "isVip": is_vip,
         "maxRecords": max_records,
         "maxFileSize": max_file_size,
-        "maxSyncRecords": max_sync_records,
         "canCloudSync": can_cloud_sync
     }))
 }

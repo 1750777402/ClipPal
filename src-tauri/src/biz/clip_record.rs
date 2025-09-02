@@ -329,24 +329,24 @@ impl ClipRecord {
             .map_err(|e| AppError::Database(rbatis::Error::from(e)))
     }
 
-    /// 获取已同步记录数量（用于VIP限制检查）
-    pub async fn select_sync_count(rb: &RBatis) -> AppResult<i64> {
-        use serde::Deserialize;
-
-        #[derive(Deserialize)]
-        struct CountResult {
-            count: i64,
-        }
-
-        let sql = "SELECT COUNT(*) as count FROM clip_record WHERE sync_flag = 2 AND del_flag = 0";
-        let result: Vec<CountResult> = rb.query_decode(sql, vec![]).await?;
-        
-        if let Some(row) = result.first() {
-            Ok(row.count)
-        } else {
-            Ok(0)
-        }
-    }
+    // /// 获取已同步记录数量（用于VIP限制检查）- 不再需要条数限制
+    // pub async fn select_sync_count(rb: &RBatis) -> AppResult<i64> {
+    //     use serde::Deserialize;
+    //
+    //     #[derive(Deserialize)]
+    //     struct CountResult {
+    //         count: i64,
+    //     }
+    //
+    //     let sql = "SELECT COUNT(*) as count FROM clip_record WHERE sync_flag = 2 AND del_flag = 0";
+    //     let result: Vec<CountResult> = rb.query_decode(sql, vec![]).await?;
+    //     
+    //     if let Some(row) = result.first() {
+    //         Ok(row.count)
+    //     } else {
+    //         Ok(0)
+    //     }
+    // }
 
     /// 获取所有记录总数（包括未同步的，用于VIP记录数限制检查）
     pub async fn count_all_records(rb: &RBatis) -> Result<i64, Error> {

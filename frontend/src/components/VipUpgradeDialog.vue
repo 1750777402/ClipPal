@@ -90,7 +90,7 @@ const vipPlans = computed(() => {
         title: '月度会员',
         price: 6,
         period: '月',
-        features: benefits.Monthly?.features || ['500条记录存储', '500条云同步', '5MB文件上传', '多设备同步'],
+        features: benefits.Monthly?.features || ['500条记录存储', '5MB文件上传', '多设备同步'],
         buttonText: '开通月度会员',
         recommended: false
       },
@@ -99,7 +99,7 @@ const vipPlans = computed(() => {
         title: '季度会员',
         price: 15,
         period: '3个月',
-        features: benefits.Quarterly?.features || ['1000条记录存储', '1000条云同步', '5MB文件上传', '多设备同步', '季度优惠价'],
+        features: benefits.Quarterly?.features || ['1000条记录存储', '5MB文件上传', '多设备同步', '季度优惠价'],
         buttonText: '开通季度会员',
         recommended: true
       },
@@ -108,7 +108,7 @@ const vipPlans = computed(() => {
         title: '年度会员',
         price: 60,
         period: '12个月',
-        features: benefits.Yearly?.features || ['1000条记录存储', '1000条云同步', '5MB文件上传', '多设备同步', '年度超值价'],
+        features: benefits.Yearly?.features || ['1000条记录存储', '5MB文件上传', '多设备同步', '年度超值价'],
         buttonText: '开通年度会员',
         recommended: false
       }
@@ -121,7 +121,7 @@ const vipPlans = computed(() => {
         title: '月度会员',
         price: 6,
         period: '月',
-        features: ['500条记录存储', '500条云同步', '5MB文件上传', '多设备同步'],
+        features: ['500条记录存储', '5MB文件上传', '多设备同步'],
         buttonText: '开通月度会员',
         recommended: false
       },
@@ -130,7 +130,7 @@ const vipPlans = computed(() => {
         title: '季度会员',
         price: 15,
         period: '3个月',
-        features: ['1000条记录存储', '1000条云同步', '5MB文件上传', '多设备同步', '季度优惠价'],
+        features: ['1000条记录存储', '5MB文件上传', '多设备同步', '季度优惠价'],
         buttonText: '开通季度会员',
         recommended: true
       },
@@ -139,7 +139,7 @@ const vipPlans = computed(() => {
         title: '年度会员',
         price: 60,
         period: '12个月',
-        features: ['1000条记录存储', '1000条云同步', '5MB文件上传', '多设备同步', '年度超值价'],
+        features: ['1000条记录存储', '5MB文件上传', '多设备同步', '年度超值价'],
         buttonText: '开通年度会员',
         recommended: false
       }

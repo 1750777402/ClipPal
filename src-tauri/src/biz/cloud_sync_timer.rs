@@ -306,8 +306,102 @@ impl CloudSyncTimer {
     }
 
     async fn get_unsynced_records(&self) -> AppResult<Vec<ClipRecord>> {
-        let records = ClipRecord::select_by_sync_flag(&self.rb, NOT_SYNCHRONIZED).await?;
-        Ok(records)
+        let all_records = ClipRecord::select_by_sync_flag(&self.rb, NOT_SYNCHRONIZED).await?;
+        
+        // 获取当前用户的文件大小限制（根据VIP等级）
+        let max_file_size = VipChecker::get_cached_max_file_size().unwrap_or(0);
+        
+        // 如果max_file_size为0，说明用户不支持文件同步（免费用户）
+        if max_file_size == 0 {
+            // 过滤掉所有文件和图片类型
+            let mut filtered_records = Vec::new();
+            for record in &all_records {
+                if record.r#type == ClipType::Text.to_string() {
+                    filtered_records.push(record.clone());
+                } else {
+                    log::debug!(
+                        "用户不支持文件同步，跳过: ID={}, 类型={}",
+                        record.id, record.r#type
+                    );
+                }
+            }
+            
+            if filtered_records.len() != all_records.len() {
+                log::info!(
+                    "同步过滤（不支持文件）: 总记录={}, 符合条件={}",
+                    all_records.len(),
+                    filtered_records.len()
+                );
+            }
+            
+            return Ok(filtered_records);
+        }
+        
+        // 有文件大小限制的用户（各级VIP），检查每个文件的大小
+        let mut filtered_records = Vec::new();
+        
+        for record in &all_records {
+            match record.r#type.as_str() {
+                t if t == ClipType::Text.to_string() => {
+                    // 文本类型：所有用户都可以同步
+                    filtered_records.push(record.clone());
+                }
+                t if t == ClipType::Image.to_string() => {
+                    // 图片类型：检查文件大小
+                    if let Some(content_str) = record.content.as_str() {
+                        if let Some(resource_path) = get_resources_dir() {
+                            let mut file_path = resource_path;
+                            file_path.push(content_str);
+                            if file_path.exists() {
+                                if let Ok(metadata) = std::fs::metadata(&file_path) {
+                                    if metadata.len() <= max_file_size {
+                                        filtered_records.push(record.clone());
+                                    } else {
+                                        log::debug!(
+                                            "跳过超限图片同步: ID={}, 大小={}, 限制={}",
+                                            record.id, metadata.len(), max_file_size
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                t if t == ClipType::File.to_string() => {
+                    // 文件类型：检查文件大小
+                    if let Some(local_path) = &record.local_file_path {
+                        let paths: Vec<&str> = local_path.split(":::").collect();
+                        if let Some(first_path) = paths.first() {
+                            if let Ok(metadata) = std::fs::metadata(first_path) {
+                                if metadata.len() <= max_file_size {
+                                    filtered_records.push(record.clone());
+                                } else {
+                                    log::debug!(
+                                        "跳过超限文件同步: ID={}, 大小={}, 限制={}",
+                                        record.id, metadata.len(), max_file_size
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+                _ => {
+                    // 其他类型：默认允许同步
+                    filtered_records.push(record.clone());
+                }
+            }
+        }
+        
+        if filtered_records.len() != all_records.len() {
+            log::info!(
+                "同步过滤（大小限制）: 总记录={}, 符合条件={}, 限制={}字节",
+                all_records.len(),
+                filtered_records.len(),
+                max_file_size
+            );
+        }
+        
+        Ok(filtered_records)
     }
 
     /// 根据记录类型更新同步状态

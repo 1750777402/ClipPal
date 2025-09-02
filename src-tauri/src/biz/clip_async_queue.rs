@@ -9,7 +9,7 @@ use tokio::time::{Duration, sleep};
 
 use crate::CONTEXT;
 use crate::api::cloud_sync_api::{ClipRecordParam, SingleCloudSyncParam, sync_single_clip_record};
-use crate::biz::clip_record::{ClipRecord, SKIP_SYNC, SYNCHRONIZED, SYNCHRONIZING};
+use crate::biz::clip_record::{ClipRecord, NOT_SYNCHRONIZED, SKIP_SYNC, SYNCHRONIZED, SYNCHRONIZING};
 use crate::errors::{AppError, AppResult};
 use crate::biz::vip_checker::VipChecker;
 use crate::utils::file_dir::get_resources_dir;
@@ -153,12 +153,38 @@ async fn handle_sync_inner(param: SingleCloudSyncParam) -> AppResult<i32> {
     let record_id = param.clip.id.clone().unwrap_or_default();
     let record_type = param.clip.r#type.clone().unwrap_or_default();
 
-    // 先检查文件类型是否应该跳过同步
+    // 先检查文件类型是否应该跳过同步（技术限制）
     if should_skip_sync(&param.clip, &record_type).await {
         log::debug!("记录 {} ({}) 不支持云同步", record_id, record_type);
         let rb: &RBatis = CONTEXT.get::<RBatis>();
         update_sync_status(rb, &record_id, SKIP_SYNC, 0).await?;
         return Ok(SKIP_SYNC);
+    }
+    
+    // 检查文件大小限制（所有用户都需要检查，根据VIP等级有不同限制）
+    if record_type == "file" || record_type == "image" {
+        // 获取文件大小
+        let file_size = get_file_size_from_param(&param.clip).await;
+        // 获取当前用户的文件大小限制（根据VIP等级）
+        let max_file_size = VipChecker::get_cached_max_file_size().unwrap_or(0);
+        
+        if max_file_size == 0 {
+            log::info!(
+                "用户不支持文件同步，暂不同步: 记录ID={}, 类型={}",
+                record_id, record_type
+            );
+            // 注意：不修改sync_flag，保持为0，等用户升级VIP后可以同步
+            return Ok(NOT_SYNCHRONIZED);
+        }
+        
+        if file_size > max_file_size {
+            log::info!(
+                "文件超过大小限制，暂不同步: 记录ID={}, 大小={}, 限制={}",
+                record_id, file_size, max_file_size
+            );
+            // 注意：不修改sync_flag，保持为0，等用户升级VIP后可以同步
+            return Ok(NOT_SYNCHRONIZED);
+        }
     }
 
     // 执行实际同步
@@ -204,6 +230,34 @@ async fn notify_frontend_sync_status_with_flag(ids: Vec<String>, sync_flag: i32)
 }
 
 /// 判断记录是否应该跳过同步
+// 从参数中获取文件大小
+async fn get_file_size_from_param(clip: &ClipRecordParam) -> u64 {
+    // 如果是图片，从resources目录获取
+    if let Some(content_str) = clip.content.as_str() {
+        if let Some(resource_path) = get_resources_dir() {
+            let mut file_path = resource_path;
+            file_path.push(content_str);
+            if file_path.exists() {
+                if let Ok(metadata) = std::fs::metadata(&file_path) {
+                    return metadata.len();
+                }
+            }
+        }
+    }
+    
+    // 如果是文件，从local_file_path获取
+    if let Some(local_path) = &clip.local_file_path {
+        let paths: Vec<&str> = local_path.split(":::").collect();
+        if let Some(first_path) = paths.first() {
+            if let Ok(metadata) = std::fs::metadata(first_path) {
+                return metadata.len();
+            }
+        }
+    }
+    
+    0
+}
+
 async fn should_skip_sync(clip: &ClipRecordParam, record_type: &str) -> bool {
     match record_type {
         x if x == ClipType::Image.to_string() => check_file_size_for_image(clip).await.is_err(),

@@ -7,7 +7,7 @@ export interface VipInfo {
   vip_type: 'Free' | 'Monthly' | 'Quarterly' | 'Yearly'
   expire_time?: number
   max_records: number
-  max_sync_records: number
+  max_sync_records?: number // 保留字段但标记为可选，后续可以完全移除
   max_file_size: number // 服务端返回的KB单位
   features: string[]
 }
@@ -16,14 +16,12 @@ export interface VipLimits {
   isVip: boolean
   maxRecords: number
   maxFileSize: number // 转换为字节单位
-  maxSyncRecords: number
   canCloudSync: boolean
 }
 
 export interface ServerConfigResponse {
   maxFileSize: number
   recordLimit: number
-  syncLimit: number
   syncCheckInterval: number
 }
 
@@ -105,7 +103,6 @@ export const vipStore = {
         name: '免费用户',
         features: [
           `${vipState.serverConfig.Free?.recordLimit || 300}条本地记录`,
-          `${vipState.serverConfig.Free?.syncLimit || 10}条云同步`,
           '基础功能使用',
           '有限制的文件上传'
         ]
@@ -114,7 +111,6 @@ export const vipStore = {
         name: '月度会员',
         features: [
           `${vipState.serverConfig.Monthly?.recordLimit || 500}条本地记录`,
-          `${vipState.serverConfig.Monthly?.syncLimit || 500}条云同步`,
           `${((vipState.serverConfig.Monthly?.maxFileSize || 5120) / 1024).toFixed(0)}MB文件上传`,
           '多设备同步',
           '高级功能解锁'
@@ -124,7 +120,6 @@ export const vipStore = {
         name: '季度会员',
         features: [
           `${vipState.serverConfig.Quarterly?.recordLimit || 1000}条本地记录`,
-          `${vipState.serverConfig.Quarterly?.syncLimit || 1000}条云同步`,
           `${((vipState.serverConfig.Quarterly?.maxFileSize || 5120) / 1024).toFixed(0)}MB文件上传`,
           '多设备同步',
           '高级功能解锁',
@@ -135,7 +130,6 @@ export const vipStore = {
         name: '年度会员',
         features: [
           `${vipState.serverConfig.Yearly?.recordLimit || 1000}条本地记录`,
-          `${vipState.serverConfig.Yearly?.syncLimit || 1000}条云同步`,
           `${((vipState.serverConfig.Yearly?.maxFileSize || 5120) / 1024).toFixed(0)}MB文件上传`,
           '多设备同步',
           '高级功能解锁',

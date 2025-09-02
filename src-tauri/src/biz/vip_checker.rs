@@ -82,20 +82,8 @@ impl VipChecker {
             return Ok((true, "VIP用户，享受完整云同步功能".to_string()));
         }
 
-        // 免费用户检查云同步限制（使用服务端缓存的数据）
-        let sync_limit = Self::get_sync_records_limit().await?;
-        let current_sync_count = Self::get_current_sync_count().await?;
-        if current_sync_count < sync_limit {
-            Ok((
-                true,
-                format!(
-                    "免费体验，已使用 {}/{} 条云同步",
-                    current_sync_count, sync_limit
-                ),
-            ))
-        } else {
-            Ok((false, "免费用户云同步额度已用完，请升级VIP".to_string()))
-        }
+        // 免费用户也可以使用云同步，不再限制条数
+        Ok((true, "云同步功能已启用".to_string()))
     }
 
     /// 检查云同步权限（兼容性方法，不需要数据库）
@@ -131,8 +119,8 @@ impl VipChecker {
             return Ok((true, "VIP用户，享受完整云同步功能".to_string()));
         }
 
-        // 免费用户没有数据库连接时，允许尝试同步（会在实际同步时检查限制）
-        Ok((true, "免费用户可尝试云同步".to_string()))
+        // 免费用户也可以使用云同步，不再限制条数
+        Ok((true, "云同步功能已启用".to_string()))
     }
 
     /// 获取最大记录数限制（基于服务端返回的数据）
@@ -232,16 +220,16 @@ impl VipChecker {
         store.get_vip_info()
     }
 
-    /// 获取当前云同步记录数（需要传入RBatis实例）
-    pub async fn get_current_sync_count() -> AppResult<u32> {
-        let rb: &RBatis = CONTEXT.get::<RBatis>();
-        // 查询已同步到云端的记录数量
-        let count = ClipRecord::select_sync_count(rb)
-            .await
-            .map_err(|e| AppError::Config(format!("查询同步记录数失败: {}", e)))?;
-
-        Ok(count as u32)
-    }
+    // /// 获取当前云同步记录数（需要传入RBatis实例）- 不再需要条数限制
+    // pub async fn get_current_sync_count() -> AppResult<u32> {
+    //     let rb: &RBatis = CONTEXT.get::<RBatis>();
+    //     // 查询已同步到云端的记录数量
+    //     let count = ClipRecord::select_sync_count(rb)
+    //         .await
+    //         .map_err(|e| AppError::Config(format!("查询同步记录数失败: {}", e)))?;
+    //
+    //     Ok(count as u32)
+    // }
 
     /// 获取最大文件大小限制（基于服务端返回的数据，转换为字节）
     pub async fn get_max_file_size() -> AppResult<u64> {
@@ -267,7 +255,7 @@ impl VipChecker {
             vip_type,
             expire_time: response.expire_time,
             max_records: response.max_records,
-            max_sync_records: response.max_sync_records,
+            max_sync_records: 0, // 已废弃，使用默认值
             max_file_size: response.max_file_size, // 使用服务端返回的动态文件大小限制
             features: response.features,
         })
@@ -350,16 +338,16 @@ impl VipChecker {
         }
     }
 
-    /// 获取云同步记录限制（基于服务端缓存的数据）
-    pub async fn get_sync_records_limit() -> AppResult<u32> {
-        if let Some(vip_info) = Self::get_local_vip_info()? {
-            // 使用服务端返回的动态云同步限制
-            Ok(vip_info.max_sync_records)
-        } else {
-            // 无VIP信息时，默认免费用户限制
-            Ok(10)
-        }
-    }
+    // /// 获取云同步记录限制（基于服务端缓存的数据）- 不再需要条数限制
+    // pub async fn get_sync_records_limit() -> AppResult<u32> {
+    //     if let Some(vip_info) = Self::get_local_vip_info()? {
+    //         // 使用服务端返回的动态云同步限制
+    //         Ok(vip_info.max_sync_records)
+    //     } else {
+    //         // 无VIP信息时，默认免费用户限制
+    //         Ok(10)
+    //     }
+    // }
 
     /// 检查文件是否可以同步（基于VIP状态和文件大小）
     pub async fn can_sync_file(file_size: u64) -> AppResult<(bool, String)> {

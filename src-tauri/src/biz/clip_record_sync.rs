@@ -231,25 +231,6 @@ fn build_clip_record(
     }
 }
 
-fn build_oversized_file_record(id: &str, file_path: &str, md5_str: &str, sort: i32) -> ClipRecord {
-    let filename = std::path::Path::new(file_path)
-        .file_name()
-        .and_then(|name| name.to_str())
-        .unwrap_or(file_path);
-
-    let mut record = build_clip_record(
-        id.to_string(),
-        ClipType::File.to_string(),
-        Value::String(filename.to_string()),
-        md5_str.to_string(),
-        sort,
-    );
-
-    record.sync_flag = Some(SKIP_SYNC);
-    record.local_file_path = Some(file_path.to_string());
-    record
-}
-
 fn build_sync_eligible_file_record(
     id: &str,
     file_path: &str,
@@ -315,20 +296,6 @@ async fn handle_text(
         return Ok(None);
     }
 
-    // 检查文本大小是否超过VIP限制
-    use crate::biz::vip_checker::VipChecker;
-    let max_file_size = VipChecker::get_vip_aware_max_file_size().await.unwrap_or(0);
-    let text_size = trimmed_content.len() as u64;
-
-    let is_oversized = text_size > max_file_size;
-    if is_oversized {
-        log::warn!(
-            "文本大小 {} 字节超过限制 {} 字节，将创建记录但标记为不支持同步",
-            text_size,
-            max_file_size
-        );
-    }
-
     let encrypt_res = encrypt_content(trimmed_content);
     match encrypt_res {
         Ok(encrypted) => {
@@ -344,18 +311,13 @@ async fn handle_text(
             if let Some(record) = existing.first() {
                 if record.del_flag == Some(1) {
                     // 已删除的记录，更新为新记录的所有字段
-                    let mut new_record = build_clip_record(
+                    let new_record = build_clip_record(
                         record.id.clone(), // 保持原ID
                         ClipType::Text.to_string(),
                         Value::String(encrypted),
                         md5_str,
                         sort,
                     );
-
-                    // 如果文本超过大小限制，标记为不支持同步
-                    if is_oversized {
-                        new_record.sync_flag = Some(SKIP_SYNC);
-                    }
 
                     if let Err(e) =
                         ClipRecord::update_deleted_record_as_new(rb, &record.id, &new_record).await
@@ -386,18 +348,13 @@ async fn handle_text(
             }
 
             // 创建新记录
-            let mut record = build_clip_record(
+            let record = build_clip_record(
                 Uuid::new_v4().to_string(),
                 ClipType::Text.to_string(),
                 Value::String(encrypted),
                 md5_str,
                 sort,
             );
-
-            // 如果文本超过大小限制，标记为不支持同步
-            if is_oversized {
-                record.sync_flag = Some(SKIP_SYNC);
-            }
 
             match ClipRecord::insert(rb, &record).await {
                 Ok(_res) => {
@@ -435,18 +392,6 @@ async fn handle_image(
     sort: i32,
 ) -> Result<Option<ClipRecord>, AppError> {
     if let Some(data) = file_data {
-        // 检查图片大小是否超过VIP限制
-        use crate::biz::vip_checker::VipChecker;
-        let max_file_size = VipChecker::get_vip_aware_max_file_size().await.unwrap_or(0);
-
-        let is_oversized = data.len() as u64 > max_file_size;
-        if is_oversized {
-            log::warn!(
-                "图片大小 {} 字节超过限制 {} 字节，将创建记录但标记为不支持同步",
-                data.len(),
-                max_file_size
-            );
-        }
 
         let md5_str = format!("{:x}", md5::compute(data));
 
@@ -463,18 +408,13 @@ async fn handle_image(
                 // 先生成文件名，然后保存图片
                 let filename = generate_unique_filename("png");
                 if save_image_with_filename(&filename, data).await {
-                    let mut new_record = build_clip_record(
+                    let new_record = build_clip_record(
                         id.clone(),
                         ClipType::Image.to_string(),
                         Value::String(filename.clone()), // 直接设置为生成的文件名
                         md5_str,
                         sort,
                     );
-
-                    // 如果图片大小超过限制，设置为不支持同步状态
-                    if is_oversized {
-                        new_record.sync_flag = Some(SKIP_SYNC);
-                    }
 
                     if let Err(e) =
                         ClipRecord::update_deleted_record_as_new(rb, &id, &new_record).await
@@ -506,18 +446,13 @@ async fn handle_image(
         let filename = generate_unique_filename("png");
 
         if save_image_with_filename(&filename, data).await {
-            let mut record = build_clip_record(
+            let record = build_clip_record(
                 id.clone(),
                 ClipType::Image.to_string(),
                 Value::String(filename.clone()), // 直接设置为生成的文件名
                 md5_str,
                 sort,
             );
-
-            // 如果图片大小超过限制，设置为不支持同步状态
-            if is_oversized {
-                record.sync_flag = Some(SKIP_SYNC);
-            }
 
             match ClipRecord::insert(rb, &record).await {
                 Ok(_) => {
@@ -546,10 +481,7 @@ async fn handle_file(
     sort: i32,
 ) -> Result<Option<ClipRecord>, AppError> {
     if let Some(paths) = file_paths {
-        use crate::biz::vip_checker::VipChecker;
-        let max_file_size = VipChecker::get_vip_aware_max_file_size().await.unwrap_or(0);
-
-        // 多文件不支持云同步
+        // 多文件不支持云同步（技术限制）
         if paths.len() > 1 {
             log::info!(
                 "检测到多文件复制({} 个文件)，不支持云同步，仅保留本地记录",
@@ -567,7 +499,7 @@ async fn handle_file(
                 return Ok(None);
             }
 
-            let metadata = match std::fs::metadata(path) {
+            let _metadata = match std::fs::metadata(path) {
                 Ok(metadata) => metadata,
                 Err(e) => {
                     log::warn!("读取文件元数据失败: {}, 文件: {}", e, file_path);
@@ -594,112 +526,82 @@ async fn handle_file(
 
             if let Some(record) = existing.first() {
                 if record.del_flag == Some(1) {
-                    // 已删除的记录，根据文件大小决定处理方式
-                    if metadata.len() > max_file_size {
-                        // 超大文件：更新为不支持同步的记录
-                        let new_record =
-                            build_oversized_file_record(&record.id, file_path, &md5_str, sort);
-                        if let Err(e) =
-                            ClipRecord::update_deleted_record_as_new(rb, &record.id, &new_record)
-                                .await
+                    // 已删除的记录，复制文件并更新记录
+                    let original_filename = std::path::Path::new(file_path)
+                        .file_name()
+                        .and_then(|name| name.to_str())
+                        .unwrap_or(file_path);
+
+                    let file_path_buf = std::path::PathBuf::from(file_path);
+
+                    // 先尝试复制文件
+                    if let Some((_relative_path, absolute_path)) =
+                        copy_file_to_resources(&record.id, &file_path_buf).await
+                    {
+                        // 文件复制成功，创建支持云同步的记录
+                        let mut new_record = build_sync_eligible_file_record(
+                            &record.id, file_path, &md5_str, sort,
+                        );
+                        new_record.content = Value::String(original_filename.to_string());
+                        new_record.local_file_path = Some(absolute_path.clone());
+
+                        if let Err(e) = ClipRecord::update_deleted_record_as_new(
+                            rb,
+                            &record.id,
+                            &new_record,
+                        )
+                        .await
                         {
-                            log::error!("更新已删除超大文件记录失败: {}", e);
+                            log::error!("更新已删除文件记录失败: {}", e);
+                            // 数据库更新失败时删除已复制的文件
+                            delete_copied_file(&absolute_path).await;
                             return Err(e);
                         }
 
-                        // 更新搜索索引
-                        let record_id_copy = record.id.clone();
-                        let filename = std::path::Path::new(file_path)
-                            .file_name()
-                            .and_then(|name| name.to_str())
-                            .unwrap_or(file_path)
-                            .to_string();
-                        tokio::spawn(async move {
-                            if let Err(e) = add_content_to_index(&record_id_copy, &filename).await {
-                                log::error!("搜索索引更新失败: {}", e);
-                            }
-                        });
-
-                        log::info!("更新已删除的超大文件记录为新数据: {}", record.id);
-                        return Ok(Some(new_record));
+                        log::info!(
+                            "更新已删除的文件记录为新数据: {}, 复制到: {}",
+                            record.id,
+                            absolute_path
+                        );
                     } else {
-                        // 小文件：先复制文件，再更新为支持同步的记录
-                        let original_filename = std::path::Path::new(file_path)
-                            .file_name()
-                            .and_then(|name| name.to_str())
-                            .unwrap_or(file_path);
+                        // 文件复制失败，创建不支持云同步的记录
+                        log::warn!("文件复制失败，设置为不支持同步: {}", file_path);
+                        let mut new_record = build_sync_eligible_file_record(
+                            &record.id, file_path, &md5_str, sort,
+                        );
+                        new_record.content = Value::String(original_filename.to_string());
+                        new_record.sync_flag = Some(SKIP_SYNC);
+                        new_record.local_file_path = Some(file_path.to_string());
 
-                        let file_path_buf = std::path::PathBuf::from(file_path);
-
-                        // 先尝试复制文件
-                        if let Some((_relative_path, absolute_path)) =
-                            copy_file_to_resources(&record.id, &file_path_buf).await
+                        if let Err(e) = ClipRecord::update_deleted_record_as_new(
+                            rb,
+                            &record.id,
+                            &new_record,
+                        )
+                        .await
                         {
-                            // 文件复制成功，创建支持云同步的记录
-                            let mut new_record = build_sync_eligible_file_record(
-                                &record.id, file_path, &md5_str, sort,
-                            );
-                            new_record.content = Value::String(original_filename.to_string());
-                            new_record.local_file_path = Some(absolute_path.clone());
-
-                            if let Err(e) = ClipRecord::update_deleted_record_as_new(
-                                rb,
-                                &record.id,
-                                &new_record,
-                            )
-                            .await
-                            {
-                                log::error!("更新已删除小文件记录失败: {}", e);
-                                // 数据库更新失败时删除已复制的文件
-                                delete_copied_file(&absolute_path).await;
-                                return Err(e);
-                            }
-
-                            log::info!(
-                                "更新已删除的小文件记录为新数据: {}, 复制到: {}",
-                                record.id,
-                                absolute_path
-                            );
-                        } else {
-                            // 文件复制失败，创建不支持云同步的记录
-                            log::warn!("文件复制失败，设置为不支持同步: {}", file_path);
-                            let mut new_record = build_sync_eligible_file_record(
-                                &record.id, file_path, &md5_str, sort,
-                            );
-                            new_record.content = Value::String(original_filename.to_string());
-                            new_record.sync_flag = Some(SKIP_SYNC);
-                            new_record.local_file_path = Some(file_path.to_string());
-
-                            if let Err(e) = ClipRecord::update_deleted_record_as_new(
-                                rb,
-                                &record.id,
-                                &new_record,
-                            )
-                            .await
-                            {
-                                log::error!("更新已删除小文件记录失败: {}", e);
-                                return Err(e);
-                            }
-
-                            log::info!("更新已删除的小文件记录为新数据: {}, 不支持同步", record.id);
+                            log::error!("更新已删除文件记录失败: {}", e);
+                            return Err(e);
                         }
 
-                        // 更新搜索索引
-                        let record_id_copy = record.id.clone();
-                        let filename_copy = original_filename.to_string();
-                        tokio::spawn(async move {
-                            if let Err(e) =
-                                add_content_to_index(&record_id_copy, &filename_copy).await
-                            {
-                                log::error!("搜索索引更新失败: {}", e);
-                            }
-                        });
-
-                        // 返回更新后的记录
-                        let updated_record =
-                            build_sync_eligible_file_record(&record.id, file_path, &md5_str, sort);
-                        return Ok(Some(updated_record));
+                        log::info!("更新已删除的文件记录为新数据: {}, 不支持同步", record.id);
                     }
+
+                    // 更新搜索索引
+                    let record_id_copy = record.id.clone();
+                    let filename_copy = original_filename.to_string();
+                    tokio::spawn(async move {
+                        if let Err(e) =
+                            add_content_to_index(&record_id_copy, &filename_copy).await
+                        {
+                            log::error!("搜索索引更新失败: {}", e);
+                        }
+                    });
+
+                    // 返回更新后的记录
+                    let updated_record =
+                        build_sync_eligible_file_record(&record.id, file_path, &md5_str, sort);
+                    return Ok(Some(updated_record));
                 } else {
                     // 活跃记录，只更新排序
                     if let Err(e) = ClipRecord::update_sort(rb, &record.id, sort).await {
@@ -710,18 +612,7 @@ async fn handle_file(
                 }
             }
 
-            // 检查文件大小
-            if metadata.len() > max_file_size {
-                log::warn!(
-                    "单文件大小 {} 字节超过限制 {} 字节，设置为不支持同步: {}",
-                    metadata.len(),
-                    max_file_size,
-                    file_path
-                );
-                return handle_oversized_single_file(rb, file_path, &md5_str, sort).await;
-            }
-
-            // 小文件：复制到resources目录并支持云同步
+            // 单文件：复制到resources目录并支持云同步
             return handle_sync_eligible_file(rb, file_path, &md5_str, sort).await;
         }
     }
@@ -847,61 +738,7 @@ async fn handle_multiple_files(
     }
 }
 
-/// 处理超过大小限制的单文件（不支持云同步）
-async fn handle_oversized_single_file(
-    rb: &RBatis,
-    file_path: &str,
-    md5_str: &str,
-    sort: i32,
-) -> Result<Option<ClipRecord>, AppError> {
-    let record_id = Uuid::new_v4().to_string();
-
-    // content存储原文件名（显示用）
-    let filename = std::path::Path::new(file_path)
-        .file_name()
-        .and_then(|name| name.to_str())
-        .unwrap_or(file_path);
-
-    let mut record = build_clip_record(
-        record_id.clone(),
-        ClipType::File.to_string(),
-        Value::String(filename.to_string()),
-        md5_str.to_string(),
-        sort,
-    );
-
-    // 超过大小限制，不支持云同步
-    record.sync_flag = Some(SKIP_SYNC);
-    record.local_file_path = Some(file_path.to_string());
-
-    match ClipRecord::insert(rb, &record).await {
-        Ok(_) => {
-            let record_id_copy = record_id.clone();
-            let filename_copy = filename.to_string();
-            tokio::spawn(async move {
-                if let Err(e) =
-                    add_content_to_index(record_id_copy.as_str(), filename_copy.as_str()).await
-                {
-                    log::error!("搜索索引更新失败: {}", e);
-                }
-            });
-
-            log::info!(
-                "保存超大单文件记录成功（不支持同步），记录ID: {}, 文件路径: {}, 文件名: {}",
-                record.id,
-                file_path,
-                filename
-            );
-            Ok(Some(record))
-        }
-        Err(e) => {
-            log::error!("插入超大单文件记录失败: {}", e);
-            Err(AppError::Database(e))
-        }
-    }
-}
-
-/// 处理符合云同步条件的单文件（复制到resources目录）
+/// 处理单文件（复制到resources目录）
 async fn handle_sync_eligible_file(
     rb: &RBatis,
     file_path: &str,

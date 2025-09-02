@@ -14,12 +14,10 @@ pub struct UserVipInfoResponse {
     pub user_id: u32,
     pub vip_flag: bool,
     pub vip_type: Option<VipType>,
-    pub expire_time: Option<u64>, // VIP过期时间戳
-    pub max_records: u32,         // 最大记录条数限制
-    pub max_sync_records: u32,    // 可云同步的最大记录数
-    pub max_file_size: u64,       // 最大文件大小限制(KB)
+    pub expire_time: Option<u64>,      // VIP过期时间戳
+    pub max_records: u32,              // 最大记录条数限制
+    pub max_file_size: u64,            // 最大文件大小限制(KB)
     pub features: Option<Vec<String>>, // VIP功能列表
-    pub current_sync_count: Option<u32>, // 当前已同步记录数
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -27,7 +25,6 @@ pub struct UserVipInfoResponse {
 pub struct ServerConfigResponse {
     pub max_file_size: u64,       // 用户文件大小限制
     pub record_limit: u32,        // 用户本地记录条数限制
-    pub sync_limit: u32,          // 用户云同步条数限制
     pub sync_check_interval: u32, // 同步检查间隔(秒)
 }
 
