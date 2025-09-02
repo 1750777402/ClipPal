@@ -3,7 +3,7 @@ use crate::{
     api::vip_api::{UserVipInfoResponse, user_vip_check},
     biz::{
         clip_record::ClipRecord,
-        system_setting::{load_settings, save_settings},
+        system_setting::{Settings, load_settings, save_settings, save_settings_to_file},
     },
     errors::{AppError, AppResult},
     utils::secure_store::{SECURE_STORE, VipInfo, VipType},
@@ -50,40 +50,6 @@ impl VipChecker {
                 }
             }
         }
-    }
-
-    /// 获取本地缓存的VIP状态（仅用于离线fallback）
-    pub fn get_cached_vip_status() -> AppResult<bool> {
-        if let Some(vip_info) = Self::get_local_vip_info()? {
-            Ok(vip_info.vip_flag)
-        } else {
-            Ok(false)
-        }
-    }
-
-    /// 检查云同步权限（需要传入RBatis实例）
-    pub async fn check_cloud_sync_permission_with_rb() -> AppResult<(bool, String)> {
-        // 首先检查是否登录
-        let has_token = {
-            let mut store = SECURE_STORE
-                .write()
-                .map_err(|_| AppError::Config("获取存储锁失败".to_string()))?;
-            let result = store.get_jwt_token()?.is_some();
-            drop(store);
-            result
-        };
-
-        if !has_token {
-            return Ok((false, "需要登录后才能使用云同步功能".to_string()));
-        }
-
-        // 检查VIP状态（调用服务端验证）
-        if Self::is_vip_user().await? {
-            return Ok((true, "VIP用户，享受完整云同步功能".to_string()));
-        }
-
-        // 免费用户也可以使用云同步，不再限制条数
-        Ok((true, "云同步功能已启用".to_string()))
     }
 
     /// 检查云同步权限（兼容性方法，不需要数据库）
@@ -142,59 +108,6 @@ impl VipChecker {
             }
             Ok(300) // 免费用户默认限制300条
         }
-    }
-
-    /// 验证设置的记录条数是否合法
-    pub async fn validate_max_records(max_records: u32) -> AppResult<()> {
-        let limit = Self::get_max_records_limit().await?;
-
-        if max_records < 50 || max_records > limit {
-            return Err(AppError::Config(format!(
-                "最大记录条数必须在50-{}之间",
-                limit
-            )));
-        }
-
-        Ok(())
-    }
-
-    /// 重置为免费用户状态
-    pub async fn reset_to_free_user() -> AppResult<()> {
-        log::info!("重置用户状态为免费用户");
-
-        // 清除VIP信息
-        let mut store = SECURE_STORE
-            .write()
-            .map_err(|_| AppError::Config("获取存储锁失败".to_string()))?;
-        store.clear_vip_info()?;
-        drop(store);
-
-        // 获取免费用户的记录限制（从服务器配置或默认值）
-        let free_limit = if let Ok(Some(server_config)) = crate::api::vip_api::get_server_config().await {
-            if let Some(free_config) = server_config.get(&VipType::Free) {
-                free_config.record_limit
-            } else {
-                300 // 服务器配置中没有免费用户配置时的默认值
-            }
-        } else {
-            300 // 无法获取服务器配置时的默认值
-        };
-
-        // 更新系统设置
-        let mut settings = load_settings();
-        settings.cloud_sync = 0; // 关闭云同步
-
-        // 如果当前记录数超过免费限制，调整为服务器返回的限制
-        if settings.max_records > free_limit {
-            settings.max_records = free_limit;
-            log::info!("调整记录数限制为免费用户限制: {}", free_limit);
-        }
-
-        save_settings(settings)
-            .await
-            .map_err(|e| AppError::Config(e))?;
-
-        Ok(())
     }
 
     /// 从服务器刷新VIP状态 - 调用现有的user_vip_check方法
@@ -282,7 +195,6 @@ impl VipChecker {
 
     /// 强制执行本地记录条数限制（仅更新本地设置，避免递归）
     async fn enforce_local_records_limit(vip_response: &UserVipInfoResponse) -> AppResult<()> {
-        use crate::biz::system_setting::{Settings, load_settings};
         use std::sync::Arc;
 
         let mut settings = load_settings();
@@ -312,7 +224,6 @@ impl VipChecker {
             }
 
             // 持久化到磁盘
-            use crate::biz::system_setting::save_settings_to_file;
             if let Err(e) = save_settings_to_file(&settings) {
                 log::error!("持久化设置到磁盘失败: {}", e);
                 // 不返回错误，因为内存已经更新成功
@@ -393,8 +304,6 @@ impl VipChecker {
 
     /// 检查并强制执行本地记录条数限制
     pub async fn enforce_local_records_limit_from_db() -> AppResult<()> {
-        use crate::biz::system_setting::{load_settings, save_settings};
-
         // 获取当前VIP状态和限制
         let max_allowed = Self::get_max_records_limit().await?;
         let mut settings = load_settings();
