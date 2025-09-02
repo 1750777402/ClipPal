@@ -42,12 +42,13 @@
                   {{ pressedKeys.length > 0 ? pressedKeys.join('+') : '请按下快捷键组合...' }}
                 </span>
               </template>
-                              <template v-else>
-                  <span>{{ displayShortcut || '点击设置' }}</span>
-                  <span v-if="shortcutError" class="error-icon">⚠️</span>
-                </template>
+              <template v-else-if="shortcutError">
+                <span class="error-text">{{ shortcutErrorText }}</span>
+              </template>
+              <template v-else>
+                <span>{{ displayShortcut || '点击设置' }}</span>
+              </template>
             </div>
-            <div v-if="shortcutError" class="error-message">{{ shortcutError }}</div>
           </div>
 
           <div class="settings-item">
@@ -170,6 +171,18 @@ const displayShortcut = computed(() => {
     displayKey = displayKey.replace(/\bMeta\b/g, 'Cmd');
   }
   return displayKey;
+});
+
+// 简化的错误提示文本
+const shortcutErrorText = computed(() => {
+  if (!shortcutError.value) return '';
+  
+  // 根据输入框宽度动态调整文本
+  // 如果是较短的错误信息，使用简化版本
+  if (shortcutError.value.includes('不可用') || shortcutError.value.includes('验证失败')) {
+    return '不可用';
+  }
+  return '快捷键不可用';
 });
 
 // 将显示格式转换为存储格式
@@ -749,7 +762,13 @@ input:checked+.slider:before {
 
 .shortcut-input.error {
   border-color: var(--error-color, #e53e3e);
-  background: var(--error-bg, #fed7d7);
+  background: var(--error-bg, #fff5f5);
+}
+
+.shortcut-input.error .error-text {
+  color: var(--error-color, #e53e3e);
+  font-weight: 600;
+  animation: fadeIn 0.2s ease;
 }
 
 .recording-text {
@@ -757,19 +776,13 @@ input:checked+.slider:before {
   animation: pulse 1.5s infinite;
 }
 
-.error-icon {
-  margin-left: calc(8px + (var(--settings-font-scale) - 1) * 2px);
-  font-size: calc(var(--text-base) * var(--settings-font-scale));
-}
-
-.error-message {
-  font-size: calc(var(--text-sm) * var(--settings-font-scale) * 0.9);
-  color: var(--error-color, #e53e3e);
-  margin-top: calc(4px + (var(--settings-font-scale) - 1) * 1px);
-  width: 100%;
-  line-height: 1.3;
-  font-weight: 500;
-  font-feature-settings: 'kern' 1;
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 @keyframes pulse {
@@ -1000,8 +1013,8 @@ input:checked+.slider:before {
     --button-bg: #2d2d2d;
     --input-bg: #2d2d2d;
     --hover-bg: rgba(255, 255, 255, 0.1);
-    --error-color: #fc8181;
-    --error-bg: #742a2a;
+    --error-color: #f87171;
+    --error-bg: #3a1a1a;
     --disabled-bg: #4a5568;
     --warning-bg: #2d2416;
     --warning-border: #d69e2e;

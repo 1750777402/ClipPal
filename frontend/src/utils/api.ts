@@ -167,7 +167,7 @@ export const settingsApi = {
 
   // 验证快捷键
   async validateShortcut(shortcut: string) {
-    return apiInvoke<boolean>('validate_shortcut', shortcut);
+    return apiInvoke<boolean>('validate_shortcut', { shortcut });
   }
 };
 
@@ -268,11 +268,11 @@ export function isSuccess<T>(response: ApiResponse<T>): response is ApiResponse<
 export function getFriendlyErrorMessage(error: string, command: string): string {
   // 首先清理错误信息
   const cleanedError = cleanupErrorMessage(error);
-  
+
   // 对于所有带服务器API的操作（登录、注册、验证码等），如果是业务错误信息，直接使用
   const apiCommands = ['login', 'user_register', 'send_email_code', 'logout'];
   const isNetworkError = cleanedError && (cleanedError.includes('连接') || cleanedError.includes('网络') || cleanedError.includes('超时') || cleanedError.includes('DNS') || cleanedError.includes('服务器'));
-  
+
   if (apiCommands.includes(command) && cleanedError && !isNetworkError) {
     // 对于服务器API调用的业务错误，直接显示服务器返回的错误信息
     return cleanedError;
@@ -284,11 +284,11 @@ export function getFriendlyErrorMessage(error: string, command: string): string 
     'load_settings': '载入设置失败',
     'save_settings': '设置保存失败，请检查配置',
     'validate_shortcut': '快捷键校验失败',
-    
+
     // 剪贴板记录查询
     'get_clip_records': '获取剪贴板记录失败',
     'get_image_base64': '获取图片数据失败',
-    
+
     // 剪贴板记录操作
     'copy_clip_record': '复制失败',
     'copy_clip_record_no_paste': '复制失败',
@@ -296,7 +296,7 @@ export function getFriendlyErrorMessage(error: string, command: string): string 
     'set_pinned': '置顶操作失败',
     'del_record': '删除失败，请重试',
     'image_save_as': '图片保存失败',
-    
+
     // 用户认证相关（网络错误时的备选提示）
     'login': '登录失败，请检查网络或账号密码',
     'user_register': '注册失败，请检查网络或输入信息',

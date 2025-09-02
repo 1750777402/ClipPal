@@ -261,7 +261,6 @@ fn is_valid_shortcut_format(shortcut: &str) -> bool {
 // 更新全局快捷键
 async fn update_global_shortcut(shortcut: &str) -> AppResult<()> {
     let app_handle = CONTEXT.get::<AppHandle>();
-    log::info!("更新全局快捷键:{}", shortcut);
 
     // 先取消注册所有快捷键
     let _ = app_handle.global_shortcut().unregister_all();
