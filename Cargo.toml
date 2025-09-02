@@ -65,7 +65,7 @@ rbs = {version = "=4.5"}           # RBatis 底层结构支持
 # =========================
 # Tauri 核心 & 插件
 # =========================
-tauri = {version = "2", features = ["tray-icon", "image-png"]}
+tauri = {version = "2.7.0", features = ["tray-icon", "image-png"]}
 # Tauri 主框架，tray-icon 系统托盘，image-png 图标支持
 
 tauri-plugin-dialog = "2"          # 对话框（文件选择、提示）
@@ -73,7 +73,7 @@ tauri-plugin-http = { version = "2", features = ["multipart"] }
 # HTTP 客户端，支持 multipart 上传
 
 tauri-plugin-opener = "2"          # 打开系统文件/URL
-tauri-plugin-single-instance = "2" # 保证单实例运行
+tauri-plugin-single-instance = "2.3.2" # 保证单实例运行
 tauri-plugin-autostart = "2"       # 开机自启
 tauri-plugin-global-shortcut = "2" # 全局快捷键
 tauri-plugin-window-state = "2"    # 记忆窗口大小/位置

@@ -11,16 +11,16 @@ use crate::{
             image_save_as, set_pinned,
         },
         download_cloud_file::start_cloud_file_download_timer,
-        query_clip_record::{get_clip_records, get_image_base64, get_full_text_content},
+        query_clip_record::{get_clip_records, get_full_text_content, get_image_base64},
         system_setting::{init_settings, load_settings, save_settings, validate_shortcut},
         upload_cloud_timer::start_upload_cloud_timer,
         user_auth::{
-            check_login_status, get_user_info, login, logout, send_email_code, user_register,
-            validate_token, check_username,
+            check_login_status, check_username, get_user_info, login, logout, send_email_code,
+            user_register, validate_token,
         },
         vip_management::{
-            get_vip_status, check_vip_permission, get_vip_limits, open_vip_purchase_page,
-            refresh_vip_status, simulate_vip_upgrade, get_server_config,
+            check_vip_permission, get_server_config, get_vip_limits, get_vip_status,
+            open_vip_purchase_page, refresh_vip_status, simulate_vip_upgrade,
         },
     },
     log_config::init_logging,
@@ -40,7 +40,6 @@ mod clip_board_listener;
 mod errors;
 mod global_shortcut;
 mod log_config;
-mod single_instance;
 mod sqlite_storage;
 mod tray;
 mod utils;
@@ -105,6 +104,16 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
         ))
         // http请求插件
         .plugin(tauri_plugin_http::init())
+        // 单实例插件确保 Tauri 应用程序在同一时间只运行单个实例
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            // 当用户尝试第二次启动程序时，会触发这个回调
+            use tauri::Manager;
+            if let Some(window) = app.get_webview_window("main") {
+                // 显示并聚焦已有主窗口
+                let _ = window.show();
+                let _ = window.set_focus();
+            }
+        }))
         .setup(move |app| {
             CONTEXT.set(app.handle().clone());
 
@@ -116,9 +125,6 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
 
             // 注册全局快捷键
             let _ = global_shortcut::init_global_shortcut(&app);
-
-            // 使用单实例插件确保 Tauri 应用程序在同一时间只运行单个实例
-            let _ = single_instance::init_single_instance(&app);
 
             // 初始化剪贴板监听器
             let _ = clip_board_listener::init_clip_board_listener(&app, m1);
@@ -200,7 +206,10 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
                 let rb_for_vip = rb_for_run.clone();
                 tokio::spawn(async move {
                     CONTEXT.set(rb_for_vip);
-                    if let Err(e) = crate::biz::vip_checker::VipChecker::initialize_vip_and_enforce_limits().await {
+                    if let Err(e) =
+                        crate::biz::vip_checker::VipChecker::initialize_vip_and_enforce_limits()
+                            .await
+                    {
                         log::error!("VIP状态初始化失败: {}", e);
                     }
                 });
