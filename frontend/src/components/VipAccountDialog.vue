@@ -20,7 +20,9 @@
                 </div>
                 <div class="vip-details">
                   <div class="vip-type">{{ vipStore.vipTypeDisplay }}</div>
-                  
+                  <div v-if="vipStore.isVip && vipStore.expireTimeDisplay" class="vip-expire-time">
+                    {{ vipStore.vipFlagDisplay }}
+                  </div>
                   <div v-if="vipStore.isVip && vipStore.expireTimeDisplay" class="vip-expire-time">
                     到期时间: {{ vipStore.expireTimeDisplay }}
                   </div>

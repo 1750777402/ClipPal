@@ -74,6 +74,11 @@ export const vipStore = {
     return new Date(vipState.vipInfo.expire_time * 1000).toLocaleDateString('zh-CN')
   }),
 
+  // vip是否生效中显示
+  vipFlagDisplay: computed(() => {
+    return vipState.vipInfo?.vip_flag ? "生效中" : "已失效"
+  }),
+
   // 获取当前用户类型的服务器配置
   currentServerConfig: computed(() => {
     if (!vipState.serverConfig) return null
