@@ -69,6 +69,7 @@ impl ClipRecordParam {
             version: self.version,
             del_flag: self.del_flag,
             cloud_source: Some(0),
+            skip_type: None,
         }
     }
 }

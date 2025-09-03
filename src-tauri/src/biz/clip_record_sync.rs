@@ -15,6 +15,7 @@ use uuid::Uuid;
 use crate::{
     CONTEXT,
     biz::clip_record::{ClipRecord, NOT_SYNCHRONIZED, SKIP_SYNC},
+    biz::vip_checker::VipChecker,
     utils::{file_dir::get_resources_dir, file_ext::extract_full_extension},
 };
 use crate::{
@@ -281,6 +282,7 @@ fn build_multiple_files_record(
 
     // 多文件不支持云同步
     record.sync_flag = Some(SKIP_SYNC);
+    record.skip_type = Some(1); // 1: 不支持再次同步（多文件）
     record.local_file_path = Some(paths.join(":::"));
     record
 }
@@ -312,13 +314,27 @@ async fn handle_text(
             if let Some(record) = existing.first() {
                 if record.del_flag == Some(1) {
                     // 已删除的记录，更新为新记录的所有字段
-                    let new_record = build_clip_record(
+                    let mut new_record = build_clip_record(
                         record.id.clone(), // 保持原ID
                         ClipType::Text.to_string(),
-                        Value::String(encrypted),
+                        Value::String(encrypted.clone()),
                         md5_str,
                         sort,
                     );
+
+                    // 检查VIP文本大小限制（加密后的字节大小）
+                    let content_size = encrypted.as_bytes().len() as u64;
+                    let max_file_size = VipChecker::get_cached_max_file_size().unwrap_or(0);
+                    
+                    if max_file_size > 0 && content_size > max_file_size {
+                        // 超出VIP限制，设置为跳过同步
+                        new_record.sync_flag = Some(SKIP_SYNC);
+                        new_record.skip_type = Some(2);  // 2: VIP限制，可再次同步
+                        log::info!(
+                            "文本超出VIP限制，设置为跳过同步: 文本大小={}字节, 限制={}字节", 
+                            content_size, max_file_size
+                        );
+                    }
 
                     if let Err(e) =
                         ClipRecord::update_deleted_record_as_new(rb, &record.id, &new_record).await
@@ -349,13 +365,27 @@ async fn handle_text(
             }
 
             // 创建新记录
-            let record = build_clip_record(
+            let mut record = build_clip_record(
                 Uuid::new_v4().to_string(),
                 ClipType::Text.to_string(),
-                Value::String(encrypted),
+                Value::String(encrypted.clone()),
                 md5_str,
                 sort,
             );
+
+            // 检查VIP文本大小限制（加密后的字节大小）
+            let content_size = encrypted.as_bytes().len() as u64;
+            let max_file_size = VipChecker::get_cached_max_file_size().unwrap_or(0);
+            
+            if max_file_size > 0 && content_size > max_file_size {
+                // 超出VIP限制，设置为跳过同步
+                record.sync_flag = Some(SKIP_SYNC);
+                record.skip_type = Some(2);  // 2: VIP限制，可再次同步
+                log::info!(
+                    "文本超出VIP限制，设置为跳过同步: 文本大小={}字节, 限制={}字节", 
+                    content_size, max_file_size
+                );
+            }
 
             match ClipRecord::insert(rb, &record).await {
                 Ok(_res) => {
@@ -408,13 +438,27 @@ async fn handle_image(
                 // 先生成文件名，然后保存图片
                 let filename = generate_unique_filename("png");
                 if save_image_with_filename(&filename, data).await {
-                    let new_record = build_clip_record(
+                    let mut new_record = build_clip_record(
                         id.clone(),
                         ClipType::Image.to_string(),
                         Value::String(filename.clone()), // 直接设置为生成的文件名
                         md5_str,
                         sort,
                     );
+
+                    // 检查VIP图片大小限制
+                    let image_size = data.len() as u64;
+                    let max_file_size = VipChecker::get_cached_max_file_size().unwrap_or(0);
+                    
+                    if max_file_size == 0 || image_size > max_file_size {
+                        // 超出VIP限制，设置为跳过同步
+                        new_record.sync_flag = Some(SKIP_SYNC);
+                        new_record.skip_type = Some(2);  // 2: VIP限制，可再次同步
+                        log::info!(
+                            "图片超出VIP限制，设置为跳过同步: 图片大小={}, 限制={}", 
+                            image_size, max_file_size
+                        );
+                    }
 
                     if let Err(e) =
                         ClipRecord::update_deleted_record_as_new(rb, &id, &new_record).await
@@ -446,13 +490,27 @@ async fn handle_image(
         let filename = generate_unique_filename("png");
 
         if save_image_with_filename(&filename, data).await {
-            let record = build_clip_record(
+            let mut record = build_clip_record(
                 id.clone(),
                 ClipType::Image.to_string(),
                 Value::String(filename.clone()), // 直接设置为生成的文件名
                 md5_str,
                 sort,
             );
+
+            // 检查VIP图片大小限制
+            let image_size = data.len() as u64;
+            let max_file_size = VipChecker::get_cached_max_file_size().unwrap_or(0);
+            
+            if max_file_size == 0 || image_size > max_file_size {
+                // 超出VIP限制，设置为跳过同步
+                record.sync_flag = Some(SKIP_SYNC);
+                record.skip_type = Some(2);  // 2: VIP限制，可再次同步
+                log::info!(
+                    "图片超出VIP限制，设置为跳过同步: 图片大小={}, 限制={}", 
+                    image_size, max_file_size
+                );
+            }
 
             match ClipRecord::insert(rb, &record).await {
                 Ok(_) => {
@@ -524,6 +582,7 @@ async fn handle_file(
             )
             .await?;
 
+            // 判断同样的文件复制记录是否已存在
             if let Some(record) = existing.first() {
                 if record.del_flag == Some(1) {
                     // 已删除的记录，复制文件并更新记录
@@ -566,6 +625,7 @@ async fn handle_file(
                             build_sync_eligible_file_record(&record.id, file_path, &md5_str, sort);
                         new_record.content = Value::String(original_filename.to_string());
                         new_record.sync_flag = Some(SKIP_SYNC);
+                        new_record.skip_type = Some(1); // 1: 文件复制失败，不支持同步
                         new_record.local_file_path = Some(file_path.to_string());
 
                         if let Err(e) =
@@ -700,6 +760,7 @@ async fn handle_multiple_files(
 
     // 多文件不支持云同步
     record.sync_flag = Some(SKIP_SYNC);
+    record.skip_type = Some(1); // 1: 不支持再次同步（多文件）
     record.local_file_path = Some(paths.join(":::"));
 
     match ClipRecord::insert(rb, &record).await {
@@ -750,7 +811,7 @@ async fn handle_sync_eligible_file(
         copy_file_to_resources(&record_id, &file_path_buf).await
     {
         // 文件复制成功，创建支持云同步的记录
-        let record = build_clip_record(
+        let mut record = build_clip_record(
             record_id.clone(),
             ClipType::File.to_string(),
             Value::String(original_filename.to_string()), // 直接设置为原始文件名
@@ -759,8 +820,26 @@ async fn handle_sync_eligible_file(
         );
 
         // 设置本地文件路径为复制后的路径
-        let mut final_record = record;
-        final_record.local_file_path = Some(absolute_path.clone());
+        record.local_file_path = Some(absolute_path.clone());
+
+        // 检查VIP文件大小限制
+        if let Ok(metadata) = std::fs::metadata(&absolute_path) {
+            let file_size = metadata.len();
+            let max_file_size = VipChecker::get_cached_max_file_size().unwrap_or(0);
+
+            if max_file_size == 0 || file_size > max_file_size {
+                // 超出VIP限制，设置为跳过同步
+                record.sync_flag = Some(SKIP_SYNC);
+                record.skip_type = Some(2); // 2: VIP限制，可再次同步
+                log::info!(
+                    "文件超出VIP限制，设置为跳过同步: 文件大小={}, 限制={}",
+                    file_size,
+                    max_file_size
+                );
+            }
+        }
+
+        let final_record = record;
 
         match ClipRecord::insert(rb, &final_record).await {
             Ok(_) => {
@@ -804,6 +883,7 @@ async fn handle_sync_eligible_file(
 
         // 设置为不支持云同步，使用原始路径
         record.sync_flag = Some(SKIP_SYNC);
+        record.skip_type = Some(1); // 1: 文件复制失败，不支持同步
         record.local_file_path = Some(file_path.to_string());
 
         match ClipRecord::insert(rb, &record).await {

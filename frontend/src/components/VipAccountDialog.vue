@@ -9,22 +9,7 @@
       <div class="dialog-content">
         <!-- VIP状态和权益信息区域 -->
         <div class="vip-section" v-if="userStore.isLoggedIn()">
-          <div class="section-header">
-            <h3 class="section-title">
-              <span class="section-icon">👑</span>
-              会员状态与权益
-              <button 
-                v-if="!isRefreshing" 
-                class="refresh-btn" 
-                @click="refreshVipStatus" 
-                title="刷新VIP状态"
-                type="button"
-              >
-                🔄
-              </button>
-              <span v-else class="refreshing-indicator">🔄</span>
-            </h3>
-          </div>
+
           
           <!-- 合并的状态和权益卡片 -->
           <div class="vip-status-card" :class="vipStatusClass">
@@ -121,25 +106,6 @@ const userStore = useUserStore()
 const showVipDialog = ref(false)
 const isRefreshing = ref(false)
 
-// VIP状态显示逻辑：区分从未开过VIP、VIP过期、VIP有效三种情况
-// const vipStatus = computed(() => {
-//   const vipInfo = vipStore.vipInfo
-//   // 情况1：从未开过VIP（API返回None或无expire_time）
-//   if (!vipInfo || !vipInfo.expire_time) {
-//     return '普通用户'
-//   }
-  
-//   // 情况2和3：有expire_time，判断是否过期
-//   const now = Date.now() / 1000
-//   const isExpired = now > vipInfo.expire_time
-  
-//   if (isExpired) {
-//     return 'VIP已过期'  // VIP已过期，但用户身份仍显示为普通用户
-//   } else {
-//     return 'VIP会员'     // VIP有效
-//   }
-// })
-
 // 实时刷新VIP状态的功能
 const refreshVipStatus = async () => {
   if (isRefreshing.value) return
@@ -190,9 +156,9 @@ const vipStatusClass = computed(() => {
 const currentRecordLimit = computed(() => {
   try {
     const config = vipStore.currentServerConfig?.value
-    return config?.recordLimit || (vipStore.isVip?.value ? 1000 : 300)
+    return config?.recordLimit || (vipStore.isVip?.value ? 300 : 300)
   } catch {
-    return vipStore.isVip?.value ? 1000 : 300
+    return vipStore.isVip?.value ? 300 : 300
   }
 })
 
@@ -203,9 +169,9 @@ const currentFileSizeLimit = computed(() => {
     if (config?.maxFileSize) {
       return `${(config.maxFileSize / 1024).toFixed(0)}MB以下`
     }
-    return vipStore.isVip?.value ? '5MB以下' : '不支持'
+    return vipStore.isVip?.value ? '3MB以下' : '不支持'
   } catch {
-    return vipStore.isVip?.value ? '5MB以下' : '不支持'
+    return vipStore.isVip?.value ? '3MB以下' : '不支持'
   }
 })
 

@@ -307,44 +307,47 @@ impl CloudSyncTimer {
 
     async fn get_unsynced_records(&self) -> AppResult<Vec<ClipRecord>> {
         let all_records = ClipRecord::select_by_sync_flag(&self.rb, NOT_SYNCHRONIZED).await?;
-        
-        // 获取当前用户的文件大小限制（根据VIP等级）
+
+        // 获取当前用户的文件大小限制
         let max_file_size = VipChecker::get_cached_max_file_size().unwrap_or(0);
-        
-        // 如果max_file_size为0，说明用户不支持文件同步（免费用户）
-        if max_file_size == 0 {
-            // 过滤掉所有文件和图片类型
-            let mut filtered_records = Vec::new();
-            for record in &all_records {
-                if record.r#type == ClipType::Text.to_string() {
-                    filtered_records.push(record.clone());
-                } else {
-                    log::debug!(
-                        "用户不支持文件同步，跳过: ID={}, 类型={}",
-                        record.id, record.r#type
-                    );
-                }
-            }
-            
-            if filtered_records.len() != all_records.len() {
-                log::info!(
-                    "同步过滤（不支持文件）: 总记录={}, 符合条件={}",
-                    all_records.len(),
-                    filtered_records.len()
-                );
-            }
-            
-            return Ok(filtered_records);
-        }
-        
+
         // 有文件大小限制的用户（各级VIP），检查每个文件的大小
         let mut filtered_records = Vec::new();
-        
+
         for record in &all_records {
             match record.r#type.as_str() {
                 t if t == ClipType::Text.to_string() => {
-                    // 文本类型：所有用户都可以同步
-                    filtered_records.push(record.clone());
+                    // 文本类型：检查内容大小（加密后的字节大小）
+                    if let Some(content_str) = record.content.as_str() {
+                        // 获取加密后文本的实际字节大小
+                        let content_size = content_str.as_bytes().len() as u64;
+                        // 对于VIP用户，检查文本大小是否超限
+                        if content_size <= max_file_size {
+                            filtered_records.push(record.clone());
+                        } else {
+                            // 文本内容超过VIP限制，更新为跳过状态
+                            if let Err(e) = ClipRecord::update_sync_flag_and_skip_type(
+                                &self.rb,
+                                &record.id,
+                                SKIP_SYNC,
+                                Some(2),
+                            )
+                            .await
+                            {
+                                log::error!("更新文本记录为VIP限制跳过失败: {}", e);
+                            } else {
+                                log::info!(
+                                    "文本超限，设置为VIP限制跳过: ID={}, 大小={}字节, 限制={}字节",
+                                    record.id,
+                                    content_size,
+                                    max_file_size
+                                );
+                            }
+                        }
+                    } else {
+                        // 无内容的文本记录，直接跳过
+                        log::debug!("跳过无内容的文本记录: ID={}", record.id);
+                    }
                 }
                 t if t == ClipType::Image.to_string() => {
                     // 图片类型：检查文件大小
@@ -357,10 +360,24 @@ impl CloudSyncTimer {
                                     if metadata.len() <= max_file_size {
                                         filtered_records.push(record.clone());
                                     } else {
-                                        log::debug!(
-                                            "跳过超限图片同步: ID={}, 大小={}, 限制={}",
-                                            record.id, metadata.len(), max_file_size
-                                        );
+                                        // 图片超过VIP限制，更新为跳过状态
+                                        if let Err(e) = ClipRecord::update_sync_flag_and_skip_type(
+                                            &self.rb,
+                                            &record.id,
+                                            SKIP_SYNC,
+                                            Some(2),
+                                        )
+                                        .await
+                                        {
+                                            log::error!("更新图片记录为VIP限制跳过失败: {}", e);
+                                        } else {
+                                            log::info!(
+                                                "图片超限，设置为VIP限制跳过: ID={}, 大小={}, 限制={}",
+                                                record.id,
+                                                metadata.len(),
+                                                max_file_size
+                                            );
+                                        }
                                     }
                                 }
                             }
@@ -376,10 +393,24 @@ impl CloudSyncTimer {
                                 if metadata.len() <= max_file_size {
                                     filtered_records.push(record.clone());
                                 } else {
-                                    log::debug!(
-                                        "跳过超限文件同步: ID={}, 大小={}, 限制={}",
-                                        record.id, metadata.len(), max_file_size
-                                    );
+                                    // 文件超过VIP限制，更新为跳过状态
+                                    if let Err(e) = ClipRecord::update_sync_flag_and_skip_type(
+                                        &self.rb,
+                                        &record.id,
+                                        SKIP_SYNC,
+                                        Some(2),
+                                    )
+                                    .await
+                                    {
+                                        log::error!("更新文件记录为VIP限制跳过失败: {}", e);
+                                    } else {
+                                        log::info!(
+                                            "文件超限，设置为VIP限制跳过: ID={}, 大小={}, 限制={}",
+                                            record.id,
+                                            metadata.len(),
+                                            max_file_size
+                                        );
+                                    }
                                 }
                             }
                         }
@@ -391,7 +422,7 @@ impl CloudSyncTimer {
                 }
             }
         }
-        
+
         if filtered_records.len() != all_records.len() {
             log::info!(
                 "同步过滤（大小限制）: 总记录={}, 符合条件={}, 限制={}字节",
@@ -400,7 +431,7 @@ impl CloudSyncTimer {
                 max_file_size
             );
         }
-        
+
         Ok(filtered_records)
     }
 

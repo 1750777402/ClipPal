@@ -42,7 +42,7 @@ pub struct ClipRecord {
     pub del_flag: Option<i32>,
     // 是否是云端同步下来的数据
     pub cloud_source: Option<i32>,
-    // 跳过云同步的原因类型  跳过后是否可以再次尝试同步
+    // 跳过云同步的原因类型  跳过后是否可以再次尝试同步 （None：不是跳过的，1：不支持再次同步，2：vip限制，可再次同步）
     pub skip_type: Option<i32>,
 }
 
@@ -66,6 +66,8 @@ impl_select!(ClipRecord{select_by_sync_flag_limit(sync_flag: i32, cloud_source:i
 impl_select!(ClipRecord{select_order_by_created(created: u64) =>"`where created >= #{created} order by created desc limit 1`"});
 // 查询已经逻辑删除并且已同步的数据
 impl_select!(ClipRecord{select_invalid() =>"`where sync_flag = 2 and del_flag = 1`"});
+// 根据sync_flag和skip_type查询记录
+impl_select!(ClipRecord{select_by_sync_flag_and_skip_type(sync_flag: i32, skip_type: i32) =>"`where sync_flag = #{sync_flag} and skip_type = #{skip_type} and del_flag = 0`"});
 
 impl ClipRecord {
     pub async fn update_content(rb: &RBatis, id: &str, content: &str) -> AppResult<()> {
@@ -238,6 +240,26 @@ impl ClipRecord {
             to_value!(&new_record.cloud_source),
             to_value!(id),
         ];
+        let _ = tx.exec(sql, params).await?;
+        tx.commit()
+            .await
+            .map_err(|e| AppError::Database(rbatis::Error::from(e)))
+    }
+
+    /// 更新sync_flag和skip_type
+    pub async fn update_sync_flag_and_skip_type(rb: &RBatis, id: &str, sync_flag: i32, skip_type: Option<i32>) -> AppResult<()> {
+        let sql = if skip_type.is_some() {
+            "UPDATE clip_record SET sync_flag = ?, skip_type = ?, version = IFNULL(version, 0) + 1 WHERE id = ?"
+        } else {
+            "UPDATE clip_record SET sync_flag = ?, skip_type = NULL, version = IFNULL(version, 0) + 1 WHERE id = ?"
+        };
+        
+        let tx = rb.acquire_begin().await?;
+        let params = if let Some(st) = skip_type {
+            vec![to_value!(sync_flag), to_value!(st), to_value!(id)]
+        } else {
+            vec![to_value!(sync_flag), to_value!(id)]
+        };
         let _ = tx.exec(sql, params).await?;
         tx.commit()
             .await

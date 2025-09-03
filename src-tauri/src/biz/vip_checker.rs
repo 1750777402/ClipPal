@@ -2,7 +2,7 @@ use crate::{
     CONTEXT,
     api::vip_api::{UserVipInfoResponse, user_vip_check},
     biz::{
-        clip_record::ClipRecord,
+        clip_record::{ClipRecord, NOT_SYNCHRONIZED, SKIP_SYNC},
         system_setting::{Settings, load_settings, save_settings, save_settings_to_file},
     },
     errors::{AppError, AppResult},
@@ -19,18 +19,31 @@ impl VipChecker {
         // VIP状态必须通过服务端实时验证，不能依赖本地时间
         match user_vip_check().await {
             Ok(Some(vip_response)) => {
+                // 先获取旧的VIP信息用于比较
+                let old_vip_info = Self::get_local_vip_info()?;
+
                 // 更新本地缓存
-                let vip_info = Self::convert_api_response_to_vip_info(vip_response.clone())?;
+                let new_vip_info = Self::convert_api_response_to_vip_info(vip_response.clone())?;
+
+                // 检测VIP状态是否发生变化
+                let vip_changed = Self::detect_vip_change(&old_vip_info, &new_vip_info);
+
                 {
                     let mut store = SECURE_STORE
                         .write()
                         .map_err(|_| AppError::Config("获取存储锁失败".to_string()))?;
-                    store.set_vip_info(vip_info)?;
+                    store.set_vip_info(new_vip_info)?;
                     store.update_vip_check_time()?;
                 } // store在这里被drop
 
                 // 处理本地记录条数限制
                 Self::enforce_local_records_limit(&vip_response).await?;
+
+                // 如果VIP状态发生变化，更新跳过的记录
+                if vip_changed {
+                    log::info!("检测到VIP状态变化，处理跳过的记录");
+                    Self::update_skipped_records_after_vip_change(&vip_response).await?;
+                }
 
                 // 返回服务端的VIP状态
                 Ok(vip_response.vip_flag)
@@ -118,20 +131,32 @@ impl VipChecker {
         // 调用现有的user_vip_check API
         match user_vip_check().await {
             Ok(Some(vip_response)) => {
+                // 先获取旧的VIP信息用于比较
+                let old_vip_info = Self::get_local_vip_info()?;
+
                 // 转换API响应为本地VIP信息结构
-                let vip_info = Self::convert_api_response_to_vip_info(vip_response.clone())?;
+                let new_vip_info = Self::convert_api_response_to_vip_info(vip_response.clone())?;
+
+                // 检测VIP状态是否发生变化
+                let vip_changed = Self::detect_vip_change(&old_vip_info, &new_vip_info);
 
                 // 保存到加密存储
                 {
                     let mut store = SECURE_STORE
                         .write()
                         .map_err(|_| AppError::Config("获取存储锁失败".to_string()))?;
-                    store.set_vip_info(vip_info)?;
+                    store.set_vip_info(new_vip_info)?;
                     store.update_vip_check_time()?;
                 } // store在这里被drop
 
                 // 处理本地记录条数限制 - VIP状态变化时自动调整max_records设置
                 Self::enforce_local_records_limit(&vip_response).await?;
+
+                // 如果VIP状态发生变化，更新跳过的记录
+                if vip_changed {
+                    log::info!("检测到VIP状态变化，处理跳过的记录");
+                    Self::update_skipped_records_after_vip_change(&vip_response).await?;
+                }
 
                 log::info!("VIP状态已从服务器更新");
                 Ok(true)
@@ -154,6 +179,45 @@ impl VipChecker {
             .write()
             .map_err(|_| AppError::Config("获取存储锁失败".to_string()))?;
         store.get_vip_info()
+    }
+
+    /// 检测VIP状态是否发生变化
+    fn detect_vip_change(old_vip_info: &Option<VipInfo>, new_vip_info: &VipInfo) -> bool {
+        match old_vip_info {
+            None => {
+                // 之前没有VIP信息，现在有了，算变化
+                log::info!("VIP状态变化：从无到有");
+                true
+            }
+            Some(old_info) => {
+                // 比较关键字段是否发生变化
+                let vip_type_changed = old_info.vip_type != new_vip_info.vip_type;
+                let vip_flag_changed = old_info.vip_flag != new_vip_info.vip_flag;
+                let max_file_size_changed = old_info.max_file_size != new_vip_info.max_file_size;
+                let max_records_changed = old_info.max_records != new_vip_info.max_records;
+
+                if vip_type_changed
+                    || vip_flag_changed
+                    || max_file_size_changed
+                    || max_records_changed
+                {
+                    log::info!(
+                        "VIP状态变化：type:{}->{}, flag:{}->{}, file_size:{}KB->{}KB, records:{}->{}",
+                        format!("{:?}", old_info.vip_type),
+                        format!("{:?}", new_vip_info.vip_type),
+                        old_info.vip_flag,
+                        new_vip_info.vip_flag,
+                        old_info.max_file_size,
+                        new_vip_info.max_file_size,
+                        old_info.max_records,
+                        new_vip_info.max_records
+                    );
+                    true
+                } else {
+                    false
+                }
+            }
+        }
     }
 
     /// 获取最大文件大小限制（基于服务端返回的数据，转换为字节）
@@ -230,6 +294,107 @@ impl VipChecker {
             } else {
                 log::info!("VIP记录数限制已持久化到磁盘");
             }
+        }
+
+        // 处理因VIP变化需要更新的记录
+        Self::update_skipped_records_after_vip_change(vip_response).await?;
+
+        Ok(())
+    }
+
+    /// VIP状态变化后，更新跳过的记录
+    async fn update_skipped_records_after_vip_change(
+        vip_response: &UserVipInfoResponse,
+    ) -> AppResult<()> {
+        let rb: &RBatis = CONTEXT.get::<RBatis>();
+
+        // 获取新的文件大小限制（KB转字节）
+        let new_max_file_size = vip_response.max_file_size * 1024;
+
+        // 查询所有因VIP限制而跳过的记录（sync_flag=3, skip_type=2）
+        let records = ClipRecord::select_by_sync_flag_and_skip_type(rb, SKIP_SYNC, 2).await?;
+
+        if records.is_empty() {
+            return Ok(());
+        }
+
+        log::info!(
+            "发现{}条因VIP限制跳过的记录，检查是否可以恢复同步",
+            records.len()
+        );
+
+        let mut updated_count = 0;
+        for record in records {
+            let mut should_update = false;
+
+            match record.r#type.as_str() {
+                "text" => {
+                    // 文本类型：检查内容大小（加密后的字节大小）
+                    if let Some(content_str) = record.content.as_str() {
+                        // 获取加密后文本的实际字节大小
+                        let content_size = content_str.as_bytes().len() as u64;
+                        if new_max_file_size > 0 && content_size <= new_max_file_size {
+                            should_update = true;
+                        }
+                    }
+                }
+                "image" => {
+                    // 图片类型：检查文件大小
+                    if let Some(content_str) = record.content.as_str() {
+                        if let Some(resource_path) = crate::utils::file_dir::get_resources_dir() {
+                            let mut file_path = resource_path;
+                            file_path.push(content_str);
+                            if file_path.exists() {
+                                if let Ok(metadata) = std::fs::metadata(&file_path) {
+                                    let file_size = metadata.len();
+                                    if new_max_file_size > 0 && file_size <= new_max_file_size {
+                                        should_update = true;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                "file" => {
+                    // 文件类型：检查文件大小
+                    if let Some(file_path) = &record.local_file_path {
+                        if let Ok(metadata) = std::fs::metadata(file_path) {
+                            let file_size = metadata.len();
+                            if new_max_file_size > 0 && file_size <= new_max_file_size {
+                                should_update = true;
+                            }
+                        }
+                    }
+                }
+                _ => {
+                    log::warn!("未知记录类型: {}", record.r#type);
+                }
+            }
+
+            // 如果应该更新，则更新为待同步
+            if should_update {
+                if let Err(e) = ClipRecord::update_sync_flag_and_skip_type(
+                    rb,
+                    &record.id,
+                    NOT_SYNCHRONIZED,
+                    None,
+                )
+                .await
+                {
+                    log::error!("更新记录{}为待同步失败: {}", record.id, e);
+                } else {
+                    updated_count += 1;
+                    log::info!(
+                        "记录{}已更新为待同步状态 (类型: {})",
+                        record.id,
+                        record.r#type
+                    );
+                }
+            }
+        }
+
+        if updated_count > 0 {
+            log::info!("VIP状态变化后，已将{}条记录更新为待同步", updated_count);
         }
 
         Ok(())
