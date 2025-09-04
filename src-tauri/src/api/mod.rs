@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use crate::utils::config::get_cloud_sync_domain;
 use crate::utils::http_client::{ApiResponse, HttpClient, HttpError};
 use crate::utils::token_manager::{get_valid_access_token, refresh_access_token};
