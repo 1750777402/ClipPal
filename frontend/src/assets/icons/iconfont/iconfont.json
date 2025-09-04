@@ -6,6 +6,27 @@
   "description": "",
   "glyphs": [
     {
+      "icon_id": "33987167",
+      "name": "编辑",
+      "font_class": "bianji",
+      "unicode": "e623",
+      "unicode_decimal": 58915
+    },
+    {
+      "icon_id": "26615176",
+      "name": "对钩",
+      "font_class": "duigou",
+      "unicode": "e77c",
+      "unicode_decimal": 59260
+    },
+    {
+      "icon_id": "29657596",
+      "name": "叉",
+      "font_class": "cha",
+      "unicode": "e68b",
+      "unicode_decimal": 59019
+    },
+    {
       "icon_id": "851708",
       "name": "回到顶部",
       "font_class": "huidaodingbu",

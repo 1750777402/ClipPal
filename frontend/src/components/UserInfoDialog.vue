@@ -20,9 +20,54 @@
             <span>{{ userInfo?.account || '未设置' }}</span>
           </div>
           
-          <div class="detail-item">
+          <div class="detail-item nickname-item">
             <label>昵称</label>
-            <span>{{ userInfo?.nickname || '未设置' }}</span>
+            <div class="nickname-content">
+              <input 
+                v-if="isEditingNickname"
+                v-model="editNickname"
+                class="nickname-input"
+                type="text"
+                maxlength="20"
+                placeholder="请输入昵称"
+                @keyup.enter="saveNickname"
+                @keyup.escape="cancelEdit"
+                ref="nicknameInput"
+              />
+              <span v-else class="nickname-display">{{ userInfo?.nickname || '未设置' }}</span>
+              <div class="nickname-actions">
+                <button 
+                  v-if="!isEditingNickname"
+                  @click="startEditNickname"
+                  class="edit-btn"
+                  type="button"
+                  title="编辑昵称"
+                >
+                  <i class="iconfont icon-bianji"></i>
+                </button>
+                <template v-else>
+                  <button 
+                    @click="saveNickname"
+                    class="save-btn"
+                    type="button"
+                    title="保存"
+                    :disabled="isUpdating"
+                  >
+                    <i v-if="!isUpdating" class="iconfont icon-duigou"></i>
+                    <span v-else class="updating-spinner">⏳</span>
+                  </button>
+                  <button 
+                    @click="cancelEdit"
+                    class="cancel-btn"
+                    type="button"
+                    title="取消"
+                    :disabled="isUpdating"
+                  >
+                    <i class="iconfont icon-cha"></i>
+                  </button>
+                </template>
+              </div>
+            </div>
           </div>
           
           <div class="detail-item">
@@ -40,9 +85,6 @@
           <button class="action-btn secondary" @click="close" type="button">
             关闭
           </button>
-          <button class="action-btn primary" @click="handleEdit" type="button">
-            编辑信息
-          </button>
         </div>
       </div>
     </div>
@@ -50,7 +92,10 @@
 </template>
 
 <script setup lang="ts">
+import { ref, nextTick, inject } from 'vue'
+import { invoke } from '@tauri-apps/api/core'
 import type { UserInfo } from '../utils/userStore'
+import { useUserStore } from '../utils/userStore'
 
 interface Props {
   visible: boolean
@@ -59,23 +104,81 @@ interface Props {
 
 interface Emits {
   (e: 'update:visible', value: boolean): void
-  (e: 'edit'): void
+  (e: 'userUpdated'): void
 }
 
-defineProps<Props>()
+const props = defineProps<Props>()
 const emit = defineEmits<Emits>()
+
+const showMessageBar = inject('showMessageBar') as (message: string, type?: 'info' | 'warning' | 'error') => void
+const userStore = useUserStore()
+
+const isEditingNickname = ref(false)
+const editNickname = ref('')
+const isUpdating = ref(false)
+const nicknameInput = ref<HTMLInputElement>()
 
 const close = () => {
   emit('update:visible', false)
+  cancelEdit()
 }
 
 const handleOverlayClick = () => {
   close()
 }
 
-const handleEdit = () => {
-  emit('edit')
-  close()
+const startEditNickname = async () => {
+  editNickname.value = props.userInfo?.nickname || ''
+  isEditingNickname.value = true
+  
+  await nextTick()
+  nicknameInput.value?.focus()
+  nicknameInput.value?.select()
+}
+
+const cancelEdit = () => {
+  isEditingNickname.value = false
+  editNickname.value = ''
+}
+
+const saveNickname = async () => {
+  if (isUpdating.value) return
+  
+  const trimmedNickname = editNickname.value.trim()
+  if (!trimmedNickname) {
+    showMessageBar('昵称不能为空', 'error')
+    return
+  }
+  
+  if (trimmedNickname === props.userInfo?.nickname) {
+    cancelEdit()
+    return
+  }
+  
+  try {
+    isUpdating.value = true
+    
+    const result = await invoke('update_user_info', {
+      nickName: trimmedNickname
+    }) as boolean
+    
+    if (result) {
+      showMessageBar('昵称更新成功', 'info')
+      
+      // 刷新前端用户信息显示
+      await userStore.refreshUserInfo()
+      
+      emit('userUpdated')
+      cancelEdit()
+    } else {
+      showMessageBar('昵称更新失败', 'error')
+    }
+  } catch (error) {
+    console.error('更新昵称失败:', error)
+    showMessageBar(`更新失败: ${error}`, 'error')
+  } finally {
+    isUpdating.value = false
+  }
 }
 
 // 格式化日期 (暂未使用，预留功能)
@@ -219,6 +322,94 @@ const handleEdit = () => {
   color: var(--text-primary, #333);
   text-align: right;
   flex: 1;
+}
+
+.nickname-item {
+  align-items: flex-start;
+}
+
+.nickname-content {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  justify-content: flex-end;
+}
+
+.nickname-display {
+  flex: 1;
+  text-align: right;
+}
+
+.nickname-input {
+  flex: 1;
+  border: 1px solid var(--border-color, #e2e8f0);
+  border-radius: var(--radius-sm, 4px);
+  padding: 6px 8px;
+  font-size: 14px;
+  color: var(--text-primary, #333);
+  background: var(--card-bg, #ffffff);
+  outline: none;
+  text-align: right;
+}
+
+.nickname-input:focus {
+  border-color: var(--header-bg, #2c7a7b);
+  box-shadow: 0 0 0 2px rgba(44, 122, 123, 0.1);
+}
+
+.nickname-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.edit-btn,
+.save-btn,
+.cancel-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+  font-size: 14px;
+  transition: all 0.2s ease;
+  min-width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-secondary, #666);
+}
+
+.edit-btn .iconfont,
+.save-btn .iconfont,
+.cancel-btn .iconfont {
+  font-size: 14px;
+}
+
+.updating-spinner {
+  font-size: 12px;
+}
+
+.edit-btn:hover {
+  background: var(--bg-hover, #f5f5f5);
+  transform: scale(1.1);
+}
+
+.save-btn:hover:not(:disabled) {
+  background: rgba(34, 197, 94, 0.1);
+  transform: scale(1.1);
+}
+
+.cancel-btn:hover:not(:disabled) {
+  background: rgba(239, 68, 68, 0.1);
+  transform: scale(1.1);
+}
+
+.save-btn:disabled,
+.cancel-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .dialog-actions {

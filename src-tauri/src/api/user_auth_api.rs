@@ -107,3 +107,15 @@ pub async fn check_username(
     );
     api_get_public(&path).await
 }
+
+// ----------------------------------------------更新用户信息----------------------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateUserInfoParam {
+    pub nick_name: String,
+}
+
+pub async fn update_user_info(request: &UpdateUserInfoParam) -> Result<Option<bool>, HttpError> {
+    api_post("clipPal-sync/user/updateInfo", Some(request)).await
+}

@@ -16,7 +16,7 @@ use crate::{
         upload_cloud_timer::start_upload_cloud_timer,
         user_auth::{
             check_login_status, check_username, get_user_info, login, logout, send_email_code,
-            user_register, validate_token,
+            update_user_info, user_register, validate_token,
         },
         vip_management::{
             check_vip_permission, get_server_config, get_vip_limits, get_vip_status,
@@ -164,6 +164,7 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
             get_user_info,
             check_login_status,
             check_username,
+            update_user_info,
             // VIP相关命令
             get_vip_status,
             check_vip_permission,
