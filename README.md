@@ -68,7 +68,7 @@ Clip-Pal 是一个跨平台的剪贴板管理工具，支持文本、图片、�
 
 ### 提示
 - 如果你想自己开发自己打包，项目中的config.json你可以自己修改，建议使用"git update-index --skip-worktree src-tauri/config.json" 忽略掉对这个配置文件的修改，因为这个文件中配置了加密秘钥，自然不能公开
-- 如果你只需了忽略又想把它恢复回去那就执行："git update-index --no-skip-worktree src-tauri/config.json"
+- 如果你之前忽略又想把它恢复回去那就执行："git update-index --no-skip-worktree src-tauri/config.json"
 - 这个提示好像更多是告诉我自己的...
 
 ## 依赖
