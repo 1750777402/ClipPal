@@ -27,3 +27,5 @@ clip_record.db-wal
 /resources/*
 
 src-tauri/logs
+
+src-tauri/config.json
