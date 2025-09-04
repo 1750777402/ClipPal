@@ -35,7 +35,7 @@ pub struct UserInfo {
 
 /// 用户登录接口（公共接口，不需要认证）
 pub async fn user_login(request: &LoginRequestParam) -> Result<Option<AuthResponse>, HttpError> {
-    api_post_public("cliPal-sync/auth/login", Some(request)).await
+    api_post_public("clipPal-sync/auth/login", Some(request)).await
 }
 
 /// -----------------------------------------------注册api--------------------------------------------------------------------
@@ -53,7 +53,7 @@ pub struct RegisterRequestParam {
 
 /// 用户注册接口（公共接口，不需要认证）
 pub async fn user_register(request: &RegisterRequestParam) -> Result<Option<UserInfo>, HttpError> {
-    api_post_public("cliPal-sync/auth/register", Some(request)).await
+    api_post_public("clipPal-sync/auth/register", Some(request)).await
 }
 
 /// -----------------------------------------------发送验证码--------------------------------------------------------------------
@@ -65,7 +65,7 @@ pub struct EmailCodeRequestParam {
 
 /// 发送验证码（公共接口，不需要认证）
 pub async fn send_email_code(request: &EmailCodeRequestParam) -> Result<Option<bool>, HttpError> {
-    api_post_public("cliPal-sync/auth/sendEmailCode", Some(request)).await
+    api_post_public("clipPal-sync/auth/sendEmailCode", Some(request)).await
 }
 
 /// ---------------------------------------------刷新身份令牌-------------------------------------------------------------------
@@ -79,14 +79,14 @@ pub struct RefreshTokenRequestParam {
 pub async fn refresh_token(
     request: &RefreshTokenRequestParam,
 ) -> Result<Option<AuthResponse>, HttpError> {
-    api_post_public("cliPal-sync/auth/refresh", Some(request)).await
+    api_post_public("clipPal-sync/auth/refresh", Some(request)).await
 }
 
 /// ---------------------------------------------退出登录-------------------------------------------------------------------
 
 /// 用户退出登录（需要认证）
 pub async fn user_logout() -> Result<Option<String>, HttpError> {
-    api_post("cliPal-sync/auth/logout", Some(&String::new())).await
+    api_post("clipPal-sync/auth/logout", Some(&String::new())).await
 }
 
 // -----------------------------------------------用户名是否可用检查API----------------------------------------------------------------------
@@ -102,7 +102,7 @@ pub async fn check_username(
     request: &CheckUsernameRequestParam,
 ) -> Result<Option<bool>, HttpError> {
     let path = format!(
-        "cliPal-sync/auth/checkUsername?username={}",
+        "clipPal-sync/auth/checkUsername?username={}",
         request.username
     );
     api_get_public(&path).await

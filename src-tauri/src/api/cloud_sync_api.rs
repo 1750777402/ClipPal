@@ -106,13 +106,13 @@ pub struct CloudSyncRequest {
 pub async fn sync_clipboard(
     request: &CloudSyncRequest,
 ) -> Result<Option<CloudSyncResponse>, HttpError> {
-    api_post("cliPal-sync/sync/complete", Some(request)).await
+    api_post("clipPal-sync/sync/complete", Some(request)).await
 }
 
 // -------------------------------------------获取服务器时间--------------------------------------------------------------
 
 pub async fn sync_server_time() -> Result<Option<u64>, HttpError> {
-    api_get("cliPal-sync/public/now").await
+    api_get("clipPal-sync/public/now").await
 }
 
 // -------------------------------------------处理单个记录的新增或者删除--------------------------------------------------
@@ -131,7 +131,7 @@ pub struct SingleCloudSyncParam {
 pub async fn sync_single_clip_record(
     record: &SingleCloudSyncParam,
 ) -> Result<Option<SingleCloudSyncResponse>, HttpError> {
-    api_post("cliPal-sync/sync/single", Some(record)).await
+    api_post("clipPal-sync/sync/single", Some(record)).await
 }
 
 // ------------------------------------------获取上传链接--------------------------------------------------------
@@ -150,7 +150,7 @@ pub async fn get_upload_file_url(
     form_data.insert("md5Str".to_string(), record.md5_str.clone());
     form_data.insert("type".to_string(), record.r#type.clone());
 
-    api_post("cliPal-sync/sync/getUploadUrl", Some(record)).await
+    api_post("clipPal-sync/sync/getUploadUrl", Some(record)).await
 }
 
 // ------------------------------------------通知服务端上传完成--------------------------------------------------------
@@ -160,7 +160,7 @@ pub async fn sync_upload_success(record: &FileCloudSyncParam) -> Result<Option<b
     form_data.insert("md5Str".to_string(), record.md5_str.clone());
     form_data.insert("type".to_string(), record.r#type.clone());
 
-    api_post("cliPal-sync/sync/uploadSuccess", Some(record)).await
+    api_post("clipPal-sync/sync/uploadSuccess", Some(record)).await
 }
 
 // ----------------------------------------------获取下载链接------------------------------------------------------------------------
@@ -189,5 +189,5 @@ pub async fn get_dowload_url(
     form_data.insert("md5Str".to_string(), record.md5_str.clone());
     form_data.insert("type".to_string(), record.r#type.clone());
 
-    api_post("cliPal-sync/sync/getDownloadUrl", Some(record)).await
+    api_post("clipPal-sync/sync/getDownloadUrl", Some(record)).await
 }

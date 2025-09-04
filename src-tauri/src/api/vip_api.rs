@@ -30,11 +30,11 @@ pub struct ServerConfigResponse {
 
 /// 用户VIP信息检查获取
 pub async fn user_vip_check() -> Result<Option<UserVipInfoResponse>, HttpError> {
-    api_post("cliPal-sync/vip/check", Some(&serde_json::json!({}))).await
+    api_post("clipPal-sync/vip/check", Some(&serde_json::json!({}))).await
 }
 
 /// 获取服务端配置信息
 pub async fn get_server_config() -> Result<Option<HashMap<VipType, ServerConfigResponse>>, HttpError>
 {
-    api_get_public("cliPal-sync/public/syncConfig").await
+    api_get_public("clipPal-sync/public/syncConfig").await
 }
