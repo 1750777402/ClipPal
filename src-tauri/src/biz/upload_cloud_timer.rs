@@ -6,16 +6,24 @@ use tokio::task;
 use tokio::time::{Duration, sleep};
 
 use crate::CONTEXT;
-use crate::api::cloud_sync_api::{FileCloudSyncParam, upload_file_clip_record};
+use crate::api::cloud_sync_api::{FileCloudSyncParam, get_upload_file_url, sync_upload_success};
 use crate::biz::clip_record::{ClipRecord, SKIP_SYNC, SYNCHRONIZED, SYNCHRONIZING};
 use crate::biz::system_setting::check_cloud_sync_enabled;
-use crate::errors::{AppError, AppResult};
 use crate::biz::vip_checker::VipChecker;
+use crate::errors::{AppError, AppResult};
 use crate::utils::file_dir::get_resources_dir;
 use crate::utils::retry_helper::{RetryConfig, retry_with_config};
 use crate::utils::token_manager::has_valid_auth;
 
 /// 这个定时任务是云同步上传记录时，文件类型的内容上传到云端的任务
+
+/// 内部文件上传参数（包含文件路径）
+#[derive(Debug, Clone)]
+struct InternalFileUploadParam {
+    pub md5_str: String,
+    pub r#type: String,
+    pub file: PathBuf,
+}
 
 /// 启动文件同步定时任务
 pub fn start_upload_cloud_timer() {
@@ -76,7 +84,7 @@ async fn process_one_file_sync() -> AppResult<()> {
             // 其他类型不需要文件同步，直接标记为已同步
             let ids = vec![record.id.clone()];
             let current_time = current_timestamp();
-            ClipRecord::update_sync_flag(rb, &ids, SKIP_SYNC, current_time).await?;
+            ClipRecord::update_sync_flag(rb, &ids, SYNCHRONIZED, current_time).await?;
             log::info!("非文件类型记录直接标记为已同步: {}", record.id);
             Ok(())
         }
@@ -118,8 +126,9 @@ async fn process_image_sync(record: &ClipRecord) -> AppResult<()> {
         return mark_as_skip_sync(&record.id, &e).await;
     }
 
-    // 上传文件
-    let upload_param = FileCloudSyncParam {
+    // 上传文件 - 注意：upload_file_with_retry 内部已经处理了上传成功后的状态更新
+    // 这里只需要调用上传函数，状态更新在 upload_file_and_update_status 中处理
+    let upload_param = InternalFileUploadParam {
         md5_str: record.md5_str.clone(),
         r#type: ClipType::Image.to_string(),
         file: file_path,
@@ -173,35 +182,62 @@ async fn process_file_sync(record: &ClipRecord) -> AppResult<()> {
             }
         }
 
-        // 逐个上传有效文件
+        // 逐个上传有效文件，确保所有文件都成功后才更新状态
+        let mut uploaded_files = Vec::new();
+        let mut upload_success = true;
+
         for file_path in valid_files {
-            let upload_param = FileCloudSyncParam {
+            let upload_param = InternalFileUploadParam {
                 md5_str: record.md5_str.clone(),
                 r#type: ClipType::File.to_string(),
                 file: file_path.clone(),
             };
 
-            if let Err(e) = upload_file_with_retry(&record.id, upload_param).await {
-                log::error!(
-                    "文件上传失败: {:?}, 记录ID: {}, 错误: {}",
-                    file_path,
-                    record.id,
-                    e
-                );
-                // 上传失败后，将记录标记为跳过同步，避免死循环
-                return mark_as_skip_sync(&record.id, &format!("文件上传失败: {}", e)).await;
+            match upload_file_with_retry(&record.id, upload_param).await {
+                Ok(_) => {
+                    uploaded_files.push(file_path.clone());
+                    log::info!("文件上传成功: {:?}, 记录ID: {}", file_path, record.id);
+                }
+                Err(e) => {
+                    log::error!(
+                        "文件上传失败: {:?}, 记录ID: {}, 错误: {}",
+                        file_path,
+                        record.id,
+                        e
+                    );
+                    upload_success = false;
+                    break; // 任何一个文件上传失败都中止整个上传过程
+                }
             }
-
-            log::info!("文件上传成功: {:?}, 记录ID: {}", file_path, record.id);
         }
 
-        // 所有文件上传完成，标记为已同步
-        let rb: &RBatis = CONTEXT.get::<RBatis>();
-        let ids = vec![record.id.clone()];
-        let current_time = current_timestamp();
-        ClipRecord::update_sync_flag(rb, &ids, SYNCHRONIZED, current_time).await?;
-        notify_frontend_sync_status(vec![record.id.clone()], SYNCHRONIZED).await;
-        log::info!("所有文件上传完成，记录标记为已同步: {}", record.id);
+        // 只有所有文件都上传成功后，才更新记录状态为已同步
+        if upload_success && !uploaded_files.is_empty() {
+            let rb: &RBatis = CONTEXT.get::<RBatis>();
+            let ids = vec![record.id.clone()];
+            let current_time = current_timestamp();
+
+            match ClipRecord::update_sync_flag(rb, &ids, SYNCHRONIZED, current_time).await {
+                Ok(_) => {
+                    notify_frontend_sync_status(vec![record.id.clone()], SYNCHRONIZED).await;
+                    log::info!("所有文件上传完成，记录标记为已同步: {}", record.id);
+                }
+                Err(e) => {
+                    log::error!(
+                        "所有文件上传成功但状态更新失败，记录ID: {}, 错误: {}",
+                        record.id,
+                        e
+                    );
+                    // 虽然状态更新失败，但文件已上传成功，不返回错误避免重复上传
+                    // 这个问题会在下次全量同步时得到修复
+                }
+            }
+        } else if !upload_success {
+            // 有文件上传失败，将整个记录标记为跳过同步
+            return mark_as_skip_sync(&record.id, "部分文件上传失败").await;
+        } else {
+            log::warn!("没有有效文件可上传，记录ID: {}", record.id);
+        }
 
         Ok(())
     } else {
@@ -231,7 +267,7 @@ async fn check_file_size(file_path: &PathBuf) -> Result<(), String> {
                         Err(message)
                     }
                 }
-                Err(e) => Err(format!("检查VIP文件权限失败: {}", e))
+                Err(e) => Err(format!("检查VIP文件权限失败: {}", e)),
             }
         }
         Err(e) => Err(format!("读取文件元数据失败: {}", e)),
@@ -261,7 +297,7 @@ fn should_retry_upload_error(error: &AppError) -> bool {
 /// 带重试的文件上传 - 使用 backon
 async fn upload_file_with_retry(
     record_id: &str,
-    upload_param: FileCloudSyncParam,
+    upload_param: InternalFileUploadParam,
 ) -> AppResult<()> {
     log::info!("开始上传文件（带重试），记录ID: {}", record_id);
 
@@ -296,50 +332,117 @@ async fn upload_file_with_retry(
     }
 }
 
-/// 核心上传逻辑（被重试机制调用）
+/// 核心上传逻辑（被重试机制调用）- 使用预签名URL上传
 async fn upload_file_and_update_status(
     record_id: &str,
-    upload_param: FileCloudSyncParam,
+    upload_param: InternalFileUploadParam,
 ) -> AppResult<()> {
     log::debug!(
-        "执行文件上传，记录ID: {}, 文件: {:?}",
+        "执行预签名URL文件上传，记录ID: {}, 文件: {:?}",
         record_id,
         upload_param.file
     );
 
-    let res = upload_file_clip_record(&upload_param).await;
+    // 步骤1: 获取预签名上传URL
+    let sync_param = FileCloudSyncParam {
+        md5_str: upload_param.md5_str.clone(),
+        r#type: upload_param.r#type.clone(),
+    };
 
-    match res {
-        Ok(response) => {
-            if let Some(success) = response {
-                let rb: &RBatis = CONTEXT.get::<RBatis>();
-                let ids = vec![record_id.to_string()];
-                let update_res =
-                    ClipRecord::update_sync_flag(rb, &ids, SYNCHRONIZED, success.timestamp).await;
+    let upload_url_response = match get_upload_file_url(&sync_param).await {
+        Ok(Some(response)) => response,
+        Ok(None) => {
+            log::warn!("获取上传URL失败：服务端返回空响应，记录ID: {}", record_id);
+            return Err(AppError::General("获取上传URL响应为空".to_string()));
+        }
+        Err(e) => {
+            log::warn!("获取上传URL失败，记录ID: {}, 错误: {}", record_id, e);
+            return Err(AppError::General(format!("获取上传URL失败: {}", e)));
+        }
+    };
 
-                match update_res {
+    // 步骤2: 直接上传文件到OSS
+    if let Err(e) = upload_file_to_oss(&upload_url_response.url, &upload_param.file).await {
+        log::error!("上传文件到OSS失败，记录ID: {}, 错误: {}", record_id, e);
+        return Err(AppError::General(format!("上传文件到OSS失败: {}", e)));
+    }
+
+    log::info!("文件上传到OSS成功，记录ID: {}", record_id);
+
+    // 步骤3: 通知服务端上传完成
+    match sync_upload_success(&sync_param).await {
+        Ok(Some(true)) => {
+            log::info!("通知服务端上传完成成功，记录ID: {}", record_id);
+        }
+        Ok(Some(false)) | Ok(None) => {
+            log::warn!("通知服务端上传完成失败，记录ID: {}", record_id);
+            return Err(AppError::General("通知服务端上传完成失败".to_string()));
+        }
+        Err(e) => {
+            log::error!(
+                "通知服务端上传完成请求失败，记录ID: {}, 错误: {}",
+                record_id,
+                e
+            );
+            return Err(AppError::General(format!("通知服务端上传完成失败: {}", e)));
+        }
+    }
+
+    // 步骤4: 只有所有步骤都成功后，才更新本地状态
+    let rb: &RBatis = CONTEXT.get::<RBatis>();
+    let ids = vec![record_id.to_string()];
+    let current_time = current_timestamp();
+
+    match ClipRecord::update_sync_flag(rb, &ids, SYNCHRONIZED, current_time).await {
+        Ok(_) => {
+            notify_frontend_sync_status(vec![record_id.to_string()], SYNCHRONIZED).await;
+            log::info!("预签名URL上传完整流程成功，记录ID: {}", record_id);
+            Ok(())
+        }
+        Err(e) => {
+            log::error!(
+                "严重错误：文件已上传并通知服务端成功，但本地状态更新失败，记录ID: {}, 错误: {}. 
+                文件已在云端，但本地状态不一致！",
+                record_id,
+                e
+            );
+
+            // 尝试重新更新状态，最多重试2次
+            let mut retry_count = 0;
+            let max_retries = 2;
+
+            while retry_count < max_retries {
+                retry_count += 1;
+                log::warn!(
+                    "尝试重新更新本地状态，第{}次重试，记录ID: {}",
+                    retry_count,
+                    record_id
+                );
+
+                tokio::time::sleep(tokio::time::Duration::from_millis(1000 * retry_count)).await;
+
+                match ClipRecord::update_sync_flag(rb, &ids, SYNCHRONIZED, current_time).await {
                     Ok(_) => {
                         notify_frontend_sync_status(vec![record_id.to_string()], SYNCHRONIZED)
                             .await;
-                        log::info!("文件上传成功并更新本地同步状态，记录ID: {}", record_id);
-                        Ok(())
+                        log::info!("状态更新重试成功，记录ID: {}", record_id);
+                        return Ok(());
                     }
-                    Err(e) => {
-                        log::error!(
-                            "文件上传成功但更新本地同步状态失败，记录ID: {}, 错误: {}",
-                            record_id,
-                            e
-                        );
-                        Err(AppError::General("文件上传后更新状态失败".to_string()))
+                    Err(retry_e) => {
+                        log::warn!("状态更新重试失败，记录ID: {}, 错误: {}", record_id, retry_e);
                     }
                 }
-            } else {
-                Err(AppError::General("文件上传响应为空".to_string()))
             }
-        }
-        Err(e) => {
-            log::warn!("文件上传请求失败，记录ID: {}, 错误: {}", record_id, e);
-            Err(AppError::General(format!("文件上传请求失败: {}", e)))
+
+            // 所有重试都失败了，但上传已经成功，避免重复上传
+            log::error!(
+                "文件上传成功但本地状态更新多次重试失败，记录ID: {}. 
+                建议检查数据库连接或在下次全量同步时修复状态",
+                record_id
+            );
+
+            // 虽然状态不一致，但不阻塞其他记录的处理
+            Ok(())
         }
     }
 }
@@ -371,6 +474,51 @@ async fn notify_frontend_sync_status(ids: Vec<String>, sync_flag: i32) {
     let _ = app_handle
         .emit("sync_status_update_batch", payload)
         .map_err(|e| AppError::General(format!("批量通知前端文件同步状态失败: {}", e)));
+}
+
+/// 直接上传文件到OSS（使用预签名URL）
+async fn upload_file_to_oss(upload_url: &str, file_path: &PathBuf) -> AppResult<()> {
+    // 检查文件是否存在
+    if !file_path.exists() {
+        return Err(AppError::General(format!("文件不存在: {:?}", file_path)));
+    }
+
+    // 使用现有的http_client进行上传，但采用PUT方法
+    use tauri_plugin_http::reqwest;
+
+    let file_content = std::fs::read(file_path).map_err(|e| AppError::Io(e))?;
+
+    // 使用tauri内置的reqwest客户端直接上传到OSS
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(600)) // 5分钟超时
+        .user_agent("ClipPal-OSS/1.0")
+        .build()
+        .map_err(|e| AppError::General(format!("创建OSS客户端失败: {}", e)))?;
+
+    let response = client
+        .put(upload_url)
+        .body(file_content)
+        .send()
+        .await
+        .map_err(|e| AppError::General(format!("OSS上传请求失败: {}", e)))?;
+
+    let status = response.status();
+
+    if status.is_success() {
+        log::info!("文件上传到OSS成功: {:?}, 状态码: {}", file_path, status);
+        Ok(())
+    } else {
+        let error_text = response
+            .text()
+            .await
+            .unwrap_or_else(|_| "无法读取错误响应".to_string());
+
+        log::error!("OSS详细错误响应: {}", error_text);
+
+        let error_message = format!("OSS上传失败，状态码: {} - {}", status, error_text);
+
+        Err(AppError::General(error_message))
+    }
 }
 
 /// 获取当前时间戳

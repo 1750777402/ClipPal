@@ -1,7 +1,5 @@
-use std::path::PathBuf;
-
 use crate::{
-    api::{api_get, api_post, api_post_file},
+    api::{api_get, api_post},
     biz::clip_record::ClipRecord,
     utils::http_client::HttpError,
 };
@@ -136,35 +134,36 @@ pub async fn sync_single_clip_record(
     api_post("cliPal-sync/sync/single", Some(record)).await
 }
 
-// ------------------------------------------上传粘贴记录的文件内容--------------------------------------------------------
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct FileCloudSyncResponse {
-    pub timestamp: u64,
-}
-
+// ------------------------------------------获取上传链接--------------------------------------------------------
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FileCloudSyncParam {
     pub md5_str: String,
     pub r#type: String,
-    #[serde(skip)]
-    pub file: PathBuf,
 }
 
-pub async fn upload_file_clip_record(
+pub async fn get_upload_file_url(
     record: &FileCloudSyncParam,
-) -> Result<Option<FileCloudSyncResponse>, HttpError> {
+) -> Result<Option<DownloadCloudFileResponse>, HttpError> {
     // 准备form-data参数
     let mut form_data = HashMap::new();
     form_data.insert("md5Str".to_string(), record.md5_str.clone());
     form_data.insert("type".to_string(), record.r#type.clone());
 
-    api_post_file("cliPal-sync/sync/upload", &record.file, &form_data).await
+    api_post("cliPal-sync/sync/getUploadUrl", Some(record)).await
 }
 
-// ----------------------------------------------------------------------------------------------------------------------
+// ------------------------------------------通知服务端上传完成--------------------------------------------------------
+pub async fn sync_upload_success(record: &FileCloudSyncParam) -> Result<Option<bool>, HttpError> {
+    // 准备form-data参数
+    let mut form_data = HashMap::new();
+    form_data.insert("md5Str".to_string(), record.md5_str.clone());
+    form_data.insert("type".to_string(), record.r#type.clone());
+
+    api_post("cliPal-sync/sync/uploadSuccess", Some(record)).await
+}
+
+// ----------------------------------------------获取下载链接------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
