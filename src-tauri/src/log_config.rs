@@ -31,7 +31,8 @@ pub fn init_logging(level: LevelFilter) {
         }
     };
 
-    // 创建控制台输出器
+    // 只在debug模式下创建控制台输出器，release模式避免控制台窗口闪现
+    #[cfg(debug_assertions)]
     let stdout = ConsoleAppender::builder()
         .encoder(Box::new(PatternEncoder::new(
             "[{d(%Y-%m-%d %H:%M:%S)}] [{h({l})}] {m}{n}",
@@ -71,13 +72,12 @@ pub fn init_logging(level: LevelFilter) {
         Ok(appender) => appender,
         Err(e) => {
             eprintln!("创建滚动日志文件失败: {}, 路径: {:?}", e, log_file_path);
-            // 使用env_logger作为后备
-            env_logger::init();
             return;
         }
     };
 
     // 构建log4rs配置
+    #[cfg(debug_assertions)]
     let config = match Config::builder()
         .appender(Appender::builder().build("stdout", Box::new(stdout)))
         .appender(Appender::builder().build("logfile", Box::new(logfile)))
@@ -90,7 +90,19 @@ pub fn init_logging(level: LevelFilter) {
         Ok(config) => config,
         Err(e) => {
             eprintln!("构建日志配置失败: {}", e);
-            env_logger::init();
+            return;
+        }
+    };
+
+    // 在release构建中只使用文件日志，避免控制台窗口闪现（适用于所有平台）
+    #[cfg(not(debug_assertions))]
+    let config = match Config::builder()
+        .appender(Appender::builder().build("logfile", Box::new(logfile)))
+        .build(Root::builder().appender("logfile").build(level))
+    {
+        Ok(config) => config,
+        Err(e) => {
+            eprintln!("构建日志配置失败: {}", e);
             return;
         }
     };
@@ -98,7 +110,6 @@ pub fn init_logging(level: LevelFilter) {
     // 初始化log4rs
     if let Err(e) = log4rs::init_config(config) {
         eprintln!("日志系统初始化失败: {}", e);
-        env_logger::init();
     } else {
         log::info!("日志系统初始化成功，日志文件: {:?}", log_file_path);
     }

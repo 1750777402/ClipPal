@@ -70,6 +70,7 @@ windows = { workspace = true, features = [
     "Win32_System_Threading"
 ] }
 
+
 # macOS API for auto-paste functionality
 [target.'cfg(target_os = "macos")'.dependencies]
 cocoa = { workspace = true }

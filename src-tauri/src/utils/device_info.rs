@@ -35,10 +35,16 @@ pub fn get_os_type_str() -> &'static str {
 pub fn get_device_id() -> String {
     #[cfg(target_os = "windows")]
     {
-        use std::process::Command;
-        // 尝试获取主板序列号
+        use std::process::{Command, Stdio};
+        use std::os::windows::process::CommandExt;
+        
+        // 尝试获取主板序列号 - 隐藏CMD窗口
         if let Ok(output) = Command::new("wmic")
             .args(["baseboard", "get", "serialnumber"])
+            .creation_flags(0x08000000) // CREATE_NO_WINDOW
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
             .output()
         {
             let out = String::from_utf8_lossy(&output.stdout);
@@ -53,9 +59,13 @@ pub fn get_device_id() -> String {
     }
     #[cfg(target_os = "macos")]
     {
-        use std::process::Command;
+        use std::process::{Command, Stdio};
+        // 在macOS上隐藏终端窗口
         if let Ok(output) = Command::new("ioreg")
             .args(["-rd1", "-c", "IOPlatformExpertDevice"])
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
             .output()
         {
             let out = String::from_utf8_lossy(&output.stdout);

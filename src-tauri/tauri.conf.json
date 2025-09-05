@@ -55,6 +55,10 @@
       },
       "wix": {
         "language": "zh-CN"
+      },
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper",
+        "silent": true
       }
     }
   }
