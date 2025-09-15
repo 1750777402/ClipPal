@@ -119,8 +119,8 @@ const vipPlans = computed(() => {
       {
         type: 'Monthly',
         title: '月度会员',
-        price: 6,
-        period: '月',
+        price: benefits.Monthly?.price || 6,
+        period: benefits.Monthly?.periodText || '月',
         features: benefits.Monthly?.features || ['300条记录存储', '3MB文件上传', '多设备同步'],
         buttonText: '开通月度会员',
         recommended: false
@@ -128,8 +128,8 @@ const vipPlans = computed(() => {
       {
         type: 'Quarterly', 
         title: '季度会员',
-        price: 15,
-        period: '3个月',
+        price: benefits.Quarterly?.price || 15,
+        period: benefits.Quarterly?.periodText || '3个月',
         features: benefits.Quarterly?.features || ['500条记录存储', '4MB文件上传', '多设备同步', '季度优惠价'],
         buttonText: '开通季度会员',
         recommended: true
@@ -137,8 +137,8 @@ const vipPlans = computed(() => {
       {
         type: 'Yearly',
         title: '年度会员',
-        price: 60,
-        period: '12个月',
+        price: benefits.Yearly?.price || 60,
+        period: benefits.Yearly?.periodText || '12个月',
         features: benefits.Yearly?.features || ['1000条记录存储', '5MB文件上传', '多设备同步', '年度超值价'],
         buttonText: '开通年度会员',
         recommended: false
@@ -146,6 +146,7 @@ const vipPlans = computed(() => {
     ]
   } catch (error) {
     console.error('生成VIP方案配置失败:', error)
+    // 发生错误时使用备用配置
     return [
       {
         type: 'Monthly',
@@ -161,7 +162,7 @@ const vipPlans = computed(() => {
         title: '季度会员',
         price: 15,
         period: '3个月',
-        features: ['400条记录存储', '4MB文件上传', '多设备同步', '季度优惠价'],
+        features: ['500条记录存储', '4MB文件上传', '多设备同步', '季度优惠价'],
         buttonText: '开通季度会员',
         recommended: true
       },

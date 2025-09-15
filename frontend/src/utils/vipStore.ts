@@ -20,9 +20,11 @@ export interface VipLimits {
 }
 
 export interface ServerConfigResponse {
-  maxFileSize: number
-  recordLimit: number
-  syncCheckInterval: number
+  price: number             // 价格(元)
+  period: number            // 时效(天)
+  maxFileSize: number       // 文件大小限制
+  recordLimit: number       // 记录条数限制
+  syncCheckInterval: number // 同步检查间隔
 }
 
 export interface VipStatusChangedPayload {
@@ -103,9 +105,25 @@ export const vipStore = {
   getVipBenefits: computed(() => {
     if (!vipState.serverConfig) return {}
 
+    // 天数转换为显示文本的辅助函数
+    const formatPeriod = (days: number): string => {
+      if (days <= 31) {
+        return `${days}天`
+      } else if (days <= 93) { // 约3个月
+        const months = Math.round(days / 30)
+        return `${months}个月`
+      } else {
+        const months = Math.round(days / 30)
+        return months >= 12 ? `${Math.round(months / 12)}年` : `${months}个月`
+      }
+    }
+
     return {
       Free: {
         name: '免费用户',
+        price: 0,
+        period: 0,
+        periodText: '永久',
         features: [
           `${vipState.serverConfig.Free?.recordLimit || 300}条本地记录`,
           '基础功能使用',
@@ -114,6 +132,9 @@ export const vipStore = {
       },
       Monthly: {
         name: '月度会员',
+        price: vipState.serverConfig.Monthly?.price || 6,
+        period: vipState.serverConfig.Monthly?.period || 30,
+        periodText: formatPeriod(vipState.serverConfig.Monthly?.period || 30),
         features: [
           `${vipState.serverConfig.Monthly?.recordLimit || 300}条本地记录`,
           `${((vipState.serverConfig.Monthly?.maxFileSize || 3072) / 1024).toFixed(0)}MB文件上传`,
@@ -123,6 +144,9 @@ export const vipStore = {
       },
       Quarterly: {
         name: '季度会员',
+        price: vipState.serverConfig.Quarterly?.price || 15,
+        period: vipState.serverConfig.Quarterly?.period || 90,
+        periodText: formatPeriod(vipState.serverConfig.Quarterly?.period || 90),
         features: [
           `${vipState.serverConfig.Quarterly?.recordLimit || 500}条本地记录`,
           `${((vipState.serverConfig.Quarterly?.maxFileSize || 4096) / 1024).toFixed(0)}MB文件上传`,
@@ -133,6 +157,9 @@ export const vipStore = {
       },
       Yearly: {
         name: '年度会员',
+        price: vipState.serverConfig.Yearly?.price || 60,
+        period: vipState.serverConfig.Yearly?.period || 365,
+        periodText: formatPeriod(vipState.serverConfig.Yearly?.period || 365),
         features: [
           `${vipState.serverConfig.Yearly?.recordLimit || 1000}条本地记录`,
           `${((vipState.serverConfig.Yearly?.maxFileSize || 5120) / 1024).toFixed(0)}MB文件上传`,
