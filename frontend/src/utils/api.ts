@@ -44,6 +44,7 @@ const ERROR_SEVERITY_MAP: Record<string, ErrorSeverity> = {
   'get_vip_limits': ErrorSeverity.SILENT,
   'open_vip_purchase_page': ErrorSeverity.WARNING,
   'refresh_vip_status': ErrorSeverity.INFO,
+  'get_pay_url': ErrorSeverity.CRITICAL,
 };
 
 // API响应类型
@@ -255,6 +256,14 @@ export const userApi = {
   // 检查用户名是否可用
   async checkUsername(params: { username: string }) {
     return apiInvoke<boolean>('check_username', { param: params });
+  }
+};
+
+// VIP相关API
+export const vipApi = {
+  // 获取支付URL
+  async getPayUrl(params: { vipType: string; payType: string }) {
+    return apiInvoke<string>('get_pay_url', { param: params });
   }
 };
 

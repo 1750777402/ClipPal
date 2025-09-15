@@ -31,7 +31,7 @@
               </div>
             </div>
             
-            <button class="plan-button" @click="handlePurchase(plan.type)">
+            <button class="plan-button" @click="handlePurchase(plan)">
               {{ plan.buttonText }}
             </button>
           </div>
@@ -52,12 +52,36 @@
       </div>
     </div>
   </div>
+
+  <!-- 支付方式选择弹框 -->
+  <PaymentMethodDialog
+    v-model="showPaymentDialog"
+    :selected-plan="selectedPlan"
+    @confirm="handlePaymentConfirm"
+    @cancel="handlePaymentCancel"
+  />
+
+  <!-- 二维码支付弹框 -->
+  <QRCodeDialog
+    v-model="showQRCodeDialog"
+    :selected-plan="selectedPlan"
+    :payment-method="selectedPaymentMethod"
+    :qr-code-url="paymentUrl"
+    :loading="qrCodeLoading"
+    :error="qrCodeError"
+    @close="handleQRCodeClose"
+    @retry="handleRetryQRCode"
+    @refresh-status="handleRefreshStatus"
+  />
 </template>
 
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import { useVipStore } from '../utils/vipStore'
 import { useWindowAdaptive, generateResponsiveClasses } from '../utils/responsive'
+import { vipApi, isSuccess } from '../utils/api'
+import PaymentMethodDialog, { type PaymentMethodType, type PlanInfo } from './PaymentMethodDialog.vue'
+import QRCodeDialog from './QRCodeDialog.vue'
 
 // Props & Emits
 interface Props {
@@ -78,6 +102,13 @@ const vipStore = useVipStore()
 
 // State
 const showPurchaseGuide = ref(false)
+const showPaymentDialog = ref(false)
+const showQRCodeDialog = ref(false)
+const selectedPlan = ref<PlanInfo | null>(null)
+const selectedPaymentMethod = ref<PaymentMethodType | null>(null)
+const paymentUrl = ref<string | null>(null)
+const qrCodeLoading = ref(false)
+const qrCodeError = ref<string | null>(null)
 
 // VIP方案配置（基于服务器配置）
 const vipPlans = computed(() => {
@@ -151,14 +182,25 @@ const vipPlans = computed(() => {
 const handleClose = () => {
   emit('update:modelValue', false)
   showPurchaseGuide.value = false
+  showPaymentDialog.value = false
+  showQRCodeDialog.value = false
+  selectedPlan.value = null
+  selectedPaymentMethod.value = null
+  paymentUrl.value = null
+  qrCodeError.value = null
 }
 
-const handlePurchase = async (_planType: string) => {
+const handlePurchase = async (plan: any) => {
   try {
-    await vipStore.openPurchasePage()
-    showPurchaseGuide.value = true
+    selectedPlan.value = {
+      type: plan.type,
+      title: plan.title,
+      price: plan.price,
+      period: plan.period
+    }
+    showPaymentDialog.value = true
   } catch (error) {
-    console.error('打开购买页面失败:', error)
+    console.error('选择方案失败:', error)
   }
 }
 
@@ -171,6 +213,65 @@ const handleRefreshStatus = async () => {
   } catch (error) {
     console.error('刷新状态失败:', error)
   }
+}
+
+const handlePaymentConfirm = async (data: { planType: string; paymentMethod: PaymentMethodType }) => {
+  try {
+    console.log('选择的支付方式:', data)
+    
+    // 保存选择的支付方式
+    selectedPaymentMethod.value = data.paymentMethod
+    
+    // 关闭支付方式选择弹框，显示二维码弹框
+    showPaymentDialog.value = false
+    showQRCodeDialog.value = true
+    qrCodeLoading.value = true
+    qrCodeError.value = null
+    
+    // 调用后端API获取支付二维码URL
+    const response = await vipApi.getPayUrl({
+      vipType: data.planType,
+      payType: data.paymentMethod
+    })
+    
+    qrCodeLoading.value = false
+    
+    if (isSuccess(response) && response.data) {
+      // 获取支付URL成功
+      paymentUrl.value = response.data
+      console.log('获取支付URL成功:', response.data)
+    } else {
+      // 获取支付URL失败
+      qrCodeError.value = response.error || '获取支付链接失败，请重试'
+      console.error('获取支付URL失败:', response.error)
+    }
+  } catch (error) {
+    qrCodeLoading.value = false
+    qrCodeError.value = '网络错误，请检查网络连接后重试'
+    console.error('处理支付失败:', error)
+  }
+}
+
+const handlePaymentCancel = () => {
+  showPaymentDialog.value = false
+  selectedPlan.value = null
+}
+
+const handleQRCodeClose = () => {
+  showQRCodeDialog.value = false
+  selectedPaymentMethod.value = null
+  paymentUrl.value = null
+  qrCodeError.value = null
+}
+
+const handleRetryQRCode = async () => {
+  if (!selectedPlan.value || !selectedPaymentMethod.value) return
+  
+  // 重新获取二维码
+  await handlePaymentConfirm({
+    planType: selectedPlan.value.type,
+    paymentMethod: selectedPaymentMethod.value
+  })
 }
 </script>
 

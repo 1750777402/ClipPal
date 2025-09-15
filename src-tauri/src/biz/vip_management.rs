@@ -111,3 +111,10 @@ pub async fn get_server_config() -> Result<
         .await
         .map_err(|e| e.to_string())
 }
+
+#[tauri::command]
+pub async fn get_pay_url(param: vip_api::PayParam) -> Result<Option<String>, String> {
+    vip_api::get_pay_url(&param)
+        .await
+        .map_err(|e| e.to_string())
+}

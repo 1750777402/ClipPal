@@ -20,6 +20,12 @@ pub struct UserVipInfoResponse {
     pub features: Option<Vec<String>>, // VIP功能列表
 }
 
+/// 用户VIP信息检查获取
+pub async fn user_vip_check() -> Result<Option<UserVipInfoResponse>, HttpError> {
+    api_post("clipPal-sync/vip/check", Some(&serde_json::json!({}))).await
+}
+
+/// -------------------------------------------获取服务端的vip配置信息--------------------------------------------------------------
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ServerConfigResponse {
@@ -28,13 +34,21 @@ pub struct ServerConfigResponse {
     pub sync_check_interval: u32, // 同步检查间隔(秒)
 }
 
-/// 用户VIP信息检查获取
-pub async fn user_vip_check() -> Result<Option<UserVipInfoResponse>, HttpError> {
-    api_post("clipPal-sync/vip/check", Some(&serde_json::json!({}))).await
-}
-
 /// 获取服务端配置信息
 pub async fn get_server_config() -> Result<Option<HashMap<VipType, ServerConfigResponse>>, HttpError>
 {
     api_get_public("clipPal-sync/public/syncConfig").await
+}
+
+/// -------------------------------------------获取支付二维码--------------------------------------------------------------
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PayParam {
+    pub vip_type: String, // 选择的vip类型
+    pub pay_type: String, // 支付方式
+}
+
+/// 获取支付二维码
+pub async fn get_pay_url(request: &PayParam) -> Result<Option<String>, HttpError> {
+    api_post("clipPal-sync/pay/getUrl", Some(request)).await
 }

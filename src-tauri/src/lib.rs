@@ -19,7 +19,7 @@ use crate::{
             update_user_info, user_register, validate_token,
         },
         vip_management::{
-            check_vip_permission, get_server_config, get_vip_limits, get_vip_status,
+            check_vip_permission, get_pay_url, get_server_config, get_vip_limits, get_vip_status,
             open_vip_purchase_page, refresh_vip_status,
         },
     },
@@ -171,7 +171,8 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
             get_vip_limits,
             open_vip_purchase_page,
             refresh_vip_status,
-            get_server_config
+            get_server_config,
+            get_pay_url
         ])
         .build(tauri::generate_context!())
         .unwrap_or_else(|e| {
