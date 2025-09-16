@@ -11,7 +11,7 @@
         <div class="plan-summary">
           <h3>{{ selectedPlan?.title }}</h3>
           <div class="plan-price">
-            <span class="price">¥{{ selectedPlan?.price }}</span>
+            <span class="price">¥{{ selectedPlan?.price ? (selectedPlan.price / 100).toFixed(2) : '0.00' }}</span>
             <span class="period">/{{ selectedPlan?.period }}</span>
           </div>
         </div>

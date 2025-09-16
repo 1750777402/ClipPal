@@ -20,7 +20,7 @@ export interface VipLimits {
 }
 
 export interface ServerConfigResponse {
-  price: number             // 价格(元)
+  price: number             // 价格(分)
   period: number            // 时效(天)
   maxFileSize: number       // 文件大小限制
   recordLimit: number       // 记录条数限制
@@ -132,7 +132,7 @@ export const vipStore = {
       },
       Monthly: {
         name: '月度会员',
-        price: vipState.serverConfig.Monthly?.price || 6,
+        price: vipState.serverConfig.Monthly?.price || 600,
         period: vipState.serverConfig.Monthly?.period || 30,
         periodText: formatPeriod(vipState.serverConfig.Monthly?.period || 30),
         features: [
@@ -144,7 +144,7 @@ export const vipStore = {
       },
       Quarterly: {
         name: '季度会员',
-        price: vipState.serverConfig.Quarterly?.price || 15,
+        price: vipState.serverConfig.Quarterly?.price || 1500,
         period: vipState.serverConfig.Quarterly?.period || 90,
         periodText: formatPeriod(vipState.serverConfig.Quarterly?.period || 90),
         features: [
@@ -157,7 +157,7 @@ export const vipStore = {
       },
       Yearly: {
         name: '年度会员',
-        price: vipState.serverConfig.Yearly?.price || 60,
+        price: vipState.serverConfig.Yearly?.price || 6000,
         period: vipState.serverConfig.Yearly?.period || 365,
         periodText: formatPeriod(vipState.serverConfig.Yearly?.period || 365),
         features: [

@@ -29,7 +29,7 @@ pub async fn user_vip_check() -> Result<Option<UserVipInfoResponse>, HttpError> 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ServerConfigResponse {
-    pub price: i32,               // 价格 元
+    pub price: i32,               // 价格 分
     pub period: i32,              // 时效 天
     pub max_file_size: u64,       // 用户文件大小限制
     pub record_limit: u32,        // 用户本地记录条数限制

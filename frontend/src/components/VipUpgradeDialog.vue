@@ -19,7 +19,7 @@
             <div class="plan-header">
               <h4>{{ plan.title }}</h4>
               <div class="plan-price">
-                <span class="price">¥{{ plan.price }}</span>
+                <span class="price">¥{{ (plan.price / 100).toFixed(2) }}</span>
                 <span class="period">/{{ plan.period }}</span>
               </div>
             </div>
@@ -119,7 +119,7 @@ const vipPlans = computed(() => {
       {
         type: 'Monthly',
         title: '月度会员',
-        price: benefits.Monthly?.price || 6,
+        price: benefits.Monthly?.price || 600,
         period: benefits.Monthly?.periodText || '月',
         features: benefits.Monthly?.features || ['300条记录存储', '3MB文件上传', '多设备同步'],
         buttonText: '开通月度会员',
@@ -128,7 +128,7 @@ const vipPlans = computed(() => {
       {
         type: 'Quarterly', 
         title: '季度会员',
-        price: benefits.Quarterly?.price || 15,
+        price: benefits.Quarterly?.price || 1500,
         period: benefits.Quarterly?.periodText || '3个月',
         features: benefits.Quarterly?.features || ['500条记录存储', '4MB文件上传', '多设备同步', '季度优惠价'],
         buttonText: '开通季度会员',
@@ -137,7 +137,7 @@ const vipPlans = computed(() => {
       {
         type: 'Yearly',
         title: '年度会员',
-        price: benefits.Yearly?.price || 60,
+        price: benefits.Yearly?.price || 6000,
         period: benefits.Yearly?.periodText || '12个月',
         features: benefits.Yearly?.features || ['1000条记录存储', '5MB文件上传', '多设备同步', '年度超值价'],
         buttonText: '开通年度会员',
@@ -151,7 +151,7 @@ const vipPlans = computed(() => {
       {
         type: 'Monthly',
         title: '月度会员',
-        price: 6,
+        price: 600,
         period: '月',
         features: ['300条记录存储', '3MB文件上传', '多设备同步'],
         buttonText: '开通月度会员',
@@ -160,7 +160,7 @@ const vipPlans = computed(() => {
       {
         type: 'Quarterly', 
         title: '季度会员',
-        price: 15,
+        price: 1500,
         period: '3个月',
         features: ['500条记录存储', '4MB文件上传', '多设备同步', '季度优惠价'],
         buttonText: '开通季度会员',
@@ -169,7 +169,7 @@ const vipPlans = computed(() => {
       {
         type: 'Yearly',
         title: '年度会员',
-        price: 60,
+        price: 6000,
         period: '12个月',
         features: ['1000条记录存储', '5MB文件上传', '多设备同步', '年度超值价'],
         buttonText: '开通年度会员',
