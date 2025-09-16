@@ -62,7 +62,7 @@ import { ref, computed } from 'vue'
 import { useWindowAdaptive, generateResponsiveClasses } from '../utils/responsive'
 
 // 支付方式类型
-export type PaymentMethodType = 'wechat' | 'alipay'
+export type PaymentMethodType = 'wx' | 'ali'
 
 // 会员套餐信息接口
 export interface PlanInfo {
@@ -98,13 +98,13 @@ const loading = ref(false)
 // 支付方式配置
 const paymentMethods = [
   {
-    type: 'wechat' as PaymentMethodType,
+    type: 'wx' as PaymentMethodType,
     name: '微信支付',
     description: '使用微信扫码支付',
     iconClass: 'icon-weixinzhifu'
   },
   {
-    type: 'alipay' as PaymentMethodType,
+    type: 'ali' as PaymentMethodType,
     name: '支付宝',
     description: '使用支付宝扫码支付',
     iconClass: 'icon-zhifubaozhifu'

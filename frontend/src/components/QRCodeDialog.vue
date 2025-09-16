@@ -109,11 +109,11 @@ const qrCodeCanvas = ref<HTMLCanvasElement | null>(null)
 
 // 支付方式信息
 const paymentMethodInfo = {
-  wechat: {
+  wx: {
     name: '微信支付',
     iconClass: 'icon-weixinzhifu'
   },
-  alipay: {
+  ali: {
     name: '支付宝',
     iconClass: 'icon-zhifubaozhifu'
   }
