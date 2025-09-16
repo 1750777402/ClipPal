@@ -52,5 +52,5 @@ pub struct PayParam {
 
 /// 获取支付二维码
 pub async fn get_pay_url(request: &PayParam) -> Result<Option<String>, HttpError> {
-    api_post("clipPal-sync/pay/getUrl", Some(request)).await
+    api_post("clipPal-sync/pay/getPayCodeUrl", Some(request)).await
 }
