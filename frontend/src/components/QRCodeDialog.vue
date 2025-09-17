@@ -49,7 +49,7 @@
               <span class="tip-text">请使用{{ paymentMethodName }}扫描上方二维码完成支付</span>
             </div>
             <div class="tip-item">
-              <span class="tip-text">二维码有效期为15分钟，请及时支付</span>
+              <span class="tip-text">二维码有效期为2小时，请及时支付</span>
             </div>
           </div>
         </div>
