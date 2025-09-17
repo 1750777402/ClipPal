@@ -12,7 +12,7 @@
           <div class="plan-info">
             <h3>{{ selectedPlan?.title }}</h3>
             <div class="plan-price">
-              <span class="price">¥{{ selectedPlan?.price }}</span>
+              <span class="price">¥{{ selectedPlan?.price ? (selectedPlan.price / 100).toFixed(2) : '0.00' }}</span>
               <span class="period">/{{ selectedPlan?.period }}</span>
             </div>
           </div>
@@ -73,9 +73,10 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, nextTick } from 'vue'
+import { ref, computed, watch, nextTick, inject } from 'vue'
 import { useWindowAdaptive, generateResponsiveClasses } from '../utils/responsive'
 import { type PaymentMethodType, type PlanInfo } from './PaymentMethodDialog.vue'
+import { vipApi, isSuccess } from '../utils/api'
 import QRCode from 'qrcode'
 
 // Props & Emits
@@ -84,6 +85,7 @@ interface Props {
   selectedPlan: PlanInfo | null
   paymentMethod: PaymentMethodType | null
   qrCodeUrl?: string | null
+  orderNo?: number | null
   loading?: boolean
   error?: string | null
 }
@@ -93,6 +95,7 @@ interface Emits {
   (e: 'close'): void
   (e: 'retry'): void
   (e: 'refresh-status'): void
+  (e: 'payment-success'): void
 }
 
 const props = defineProps<Props>()
@@ -101,6 +104,7 @@ const emit = defineEmits<Emits>()
 // Composables
 const responsive = useWindowAdaptive()
 const responsiveClasses = computed(() => generateResponsiveClasses(responsive))
+const showMessageBar = inject('showMessageBar') as (message: string, type?: 'info' | 'warning' | 'error') => void
 
 // State
 const refreshing = ref(false)
@@ -137,9 +141,55 @@ const handleClose = () => {
 }
 
 const handleRefreshStatus = async () => {
+  if (!props.orderNo) {
+    console.error('订单号不存在，无法查询支付结果')
+    return
+  }
+
   refreshing.value = true
   try {
-    emit('refresh-status')
+    // 调用后端API查询支付结果
+    const response = await vipApi.getPayResult({ orderNo: props.orderNo })
+
+    if (isSuccess(response) && response.data) {
+      const orderStatus = response.data.orderStatus
+      console.log('支付状态查询结果:', orderStatus)
+
+      switch (orderStatus) {
+        case 'paid':
+          // 支付成功：刷新VIP状态，关闭所有对话框，返回账户页面
+          showMessageBar('支付成功！正在更新VIP状态...', 'info')
+          emit('refresh-status')
+          emit('payment-success')
+          break
+
+        case 'unpaid':
+          // 未支付：提示用户稍后重试
+          showMessageBar('订单尚未支付，请完成支付后重试', 'warning')
+          break
+
+        case 'refunding':
+          // 退款中：提示用户订单正在退款
+          showMessageBar('订单正在退款中，请联系客服', 'info')
+          break
+
+        case 'refunded':
+          // 已退款：提示用户订单已退款
+          showMessageBar('订单已退款，如有疑问请联系客服', 'info')
+          break
+
+        default:
+          // 未知状态：提示用户稍后重试
+          showMessageBar('订单状态异常，请稍后重试', 'error')
+          break
+      }
+    } else {
+      console.error('查询支付结果失败:', response.error)
+      showMessageBar('查询支付状态失败，请检查网络连接', 'error')
+    }
+  } catch (error) {
+    console.error('查询支付结果出错:', error)
+    showMessageBar('网络错误，请检查网络连接后重试', 'error')
   } finally {
     // 延迟重置状态，给用户反馈
     setTimeout(() => {

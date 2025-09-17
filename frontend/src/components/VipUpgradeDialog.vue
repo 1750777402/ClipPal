@@ -67,11 +67,13 @@
     :selected-plan="selectedPlan"
     :payment-method="selectedPaymentMethod"
     :qr-code-url="paymentUrl"
+    :order-no="currentOrderNo"
     :loading="qrCodeLoading"
     :error="qrCodeError"
     @close="handleQRCodeClose"
     @retry="handleRetryQRCode"
     @refresh-status="handleRefreshStatus"
+    @payment-success="handlePaymentSuccess"
   />
 </template>
 
@@ -107,6 +109,7 @@ const showQRCodeDialog = ref(false)
 const selectedPlan = ref<PlanInfo | null>(null)
 const selectedPaymentMethod = ref<PaymentMethodType | null>(null)
 const paymentUrl = ref<string | null>(null)
+const currentOrderNo = ref<number | null>(null)
 const qrCodeLoading = ref(false)
 const qrCodeError = ref<string | null>(null)
 
@@ -188,6 +191,7 @@ const handleClose = () => {
   selectedPlan.value = null
   selectedPaymentMethod.value = null
   paymentUrl.value = null
+  currentOrderNo.value = null
   qrCodeError.value = null
 }
 
@@ -238,9 +242,10 @@ const handlePaymentConfirm = async (data: { planType: string; paymentMethod: Pay
     qrCodeLoading.value = false
     
     if (isSuccess(response) && response.data) {
-      // 获取支付URL成功
-      paymentUrl.value = response.data
-      console.log('获取支付URL成功:', response.data)
+      // 获取支付URL和订单号成功
+      paymentUrl.value = response.data.codeUrl
+      currentOrderNo.value = response.data.orderNo
+      console.log('获取支付URL成功:', response.data.codeUrl, '订单号:', response.data.orderNo)
     } else {
       // 获取支付URL失败
       qrCodeError.value = response.error || '获取支付链接失败，请重试'
@@ -262,17 +267,29 @@ const handleQRCodeClose = () => {
   showQRCodeDialog.value = false
   selectedPaymentMethod.value = null
   paymentUrl.value = null
+  currentOrderNo.value = null
   qrCodeError.value = null
 }
 
 const handleRetryQRCode = async () => {
   if (!selectedPlan.value || !selectedPaymentMethod.value) return
-  
+
   // 重新获取二维码
   await handlePaymentConfirm({
     planType: selectedPlan.value.type,
     paymentMethod: selectedPaymentMethod.value
   })
+}
+
+const handlePaymentSuccess = async () => {
+  // 支付成功后关闭所有对话框并返回VIP账户页面
+  console.log('支付成功，关闭升级对话框')
+
+  // 关闭当前升级对话框
+  handleClose()
+
+  // 可以在这里添加成功提示
+  console.log('VIP升级成功！')
 }
 </script>
 

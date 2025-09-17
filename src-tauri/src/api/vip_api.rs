@@ -50,7 +50,34 @@ pub struct PayParam {
     pub pay_type: String, // 支付方式
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PayCodrUrlResponse {
+    pub code_url: String, // 二维码code url
+    pub order_no: u64,    // 业务订单号
+}
+
 /// 获取支付二维码
-pub async fn get_pay_url(request: &PayParam) -> Result<Option<String>, HttpError> {
+pub async fn get_pay_url(request: &PayParam) -> Result<Option<PayCodrUrlResponse>, HttpError> {
     api_post("clipPal-sync/pay/getPayCodeUrl", Some(request)).await
+}
+
+/// -------------------------------------------查询支付结果--------------------------------------------------------------
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QueryPayParam {
+    pub order_no: u64, // 业务订单号
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QueryPayResponse {
+    pub order_status: String, // 支付状态
+}
+
+/// 查询支付结果
+pub async fn get_pay_result(
+    request: &QueryPayParam,
+) -> Result<Option<QueryPayResponse>, HttpError> {
+    api_post("clipPal-sync/pay/queryPayResult", Some(request)).await
 }

@@ -263,7 +263,12 @@ export const userApi = {
 export const vipApi = {
   // 获取支付URL
   async getPayUrl(params: { vipType: string; payType: string }) {
-    return apiInvoke<string>('get_pay_url', { param: params });
+    return apiInvoke<{ codeUrl: string; orderNo: number }>('get_pay_url', { param: params });
+  },
+
+  // 查询支付结果
+  async getPayResult(params: { orderNo: number }) {
+    return apiInvoke<{ orderStatus: string }>('get_pay_result', { param: params });
   }
 };
 
