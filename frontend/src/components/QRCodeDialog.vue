@@ -73,7 +73,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, nextTick, inject } from 'vue'
+import { ref, computed, watch, nextTick, inject, onUnmounted } from 'vue'
 import { useWindowAdaptive, generateResponsiveClasses } from '../utils/responsive'
 import { type PaymentMethodType, type PlanInfo } from './PaymentMethodDialog.vue'
 import { vipApi, isSuccess } from '../utils/api'
@@ -110,6 +110,8 @@ const showMessageBar = inject('showMessageBar') as (message: string, type?: 'inf
 const refreshing = ref(false)
 const qrCodeGenerated = ref(false)
 const qrCodeCanvas = ref<HTMLCanvasElement | null>(null)
+const autoRefreshTimer = ref<NodeJS.Timeout | null>(null)
+const autoRefreshStartTimer = ref<NodeJS.Timeout | null>(null)
 
 // 支付方式信息
 const paymentMethodInfo = {
@@ -136,6 +138,7 @@ const paymentMethodIconClass = computed(() => {
 
 // Methods
 const handleClose = () => {
+  clearAutoRefreshTimers()
   emit('update:modelValue', false)
   emit('close')
 }
@@ -157,7 +160,8 @@ const handleRefreshStatus = async () => {
 
       switch (orderStatus) {
         case 'paid':
-          // 支付成功：刷新VIP状态，关闭所有对话框，返回账户页面
+          // 支付成功：停止自动查询，刷新VIP状态，关闭所有对话框
+          clearAutoRefreshTimers()
           showMessageBar('支付成功！正在更新VIP状态...', 'info')
           emit('refresh-status')
           emit('payment-success')
@@ -232,6 +236,38 @@ const generateQRCode = async (url: string) => {
   }
 }
 
+// 清除所有定时器
+const clearAutoRefreshTimers = () => {
+  if (autoRefreshTimer.value) {
+    clearInterval(autoRefreshTimer.value)
+    autoRefreshTimer.value = null
+  }
+  if (autoRefreshStartTimer.value) {
+    clearTimeout(autoRefreshStartTimer.value)
+    autoRefreshStartTimer.value = null
+  }
+}
+
+// 开始自动查询支付结果
+const startAutoRefresh = () => {
+  // 清除之前的定时器
+  clearAutoRefreshTimers()
+
+  // 5秒后开始自动查询
+  autoRefreshStartTimer.value = setTimeout(() => {
+    // 每2秒查询一次支付结果
+    autoRefreshTimer.value = setInterval(async () => {
+      // 如果正在手动刷新，跳过自动刷新
+      if (refreshing.value) {
+        return
+      }
+
+      console.log('自动查询支付结果...')
+      await handleRefreshStatus()
+    }, 2000)
+  }, 5000)
+}
+
 // Watch for QR code URL changes to generate new QR code
 watch(() => props.qrCodeUrl, async (newUrl) => {
   if (newUrl) {
@@ -240,6 +276,26 @@ watch(() => props.qrCodeUrl, async (newUrl) => {
     qrCodeGenerated.value = false
   }
 }, { immediate: true })
+
+// Watch for QR code generation completion to start auto refresh
+watch(() => qrCodeGenerated.value, (generated) => {
+  if (generated && props.orderNo) {
+    console.log('二维码生成完成，5秒后开始自动查询支付结果')
+    startAutoRefresh()
+  }
+})
+
+// Watch for dialog visibility to clear timers when closing
+watch(() => props.modelValue, (visible) => {
+  if (!visible) {
+    clearAutoRefreshTimers()
+  }
+})
+
+// 组件销毁时清理定时器
+onUnmounted(() => {
+  clearAutoRefreshTimers()
+})
 </script>
 
 <style scoped>
