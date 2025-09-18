@@ -5,7 +5,7 @@ import { apiInvoke, isSuccess } from './api'
 export interface VipInfo {
   vip_flag: boolean
   vip_type: 'Free' | 'Monthly' | 'Quarterly' | 'Yearly'
-  expire_time?: number
+  expire_time?: number // 毫秒级时间戳
   max_records: number
   max_sync_records?: number // 保留字段但标记为可选，后续可以完全移除
   max_file_size: number // 服务端返回的KB单位
@@ -30,7 +30,7 @@ export interface ServerConfigResponse {
 export interface VipStatusChangedPayload {
   is_vip: boolean
   vip_type?: 'Free' | 'Monthly' | 'Quarterly' | 'Yearly'
-  expire_time?: number
+  expire_time?: number // 毫秒级时间戳
   max_records: number
 }
 
@@ -73,7 +73,7 @@ export const vipStore = {
   // 过期时间显示
   expireTimeDisplay: computed(() => {
     if (!vipState.vipInfo?.expire_time) return null
-    return new Date(vipState.vipInfo.expire_time * 1000).toLocaleDateString('zh-CN')
+    return new Date(vipState.vipInfo.expire_time).toLocaleDateString('zh-CN')
   }),
 
   // vip是否生效中显示
@@ -338,18 +338,18 @@ export const vipStore = {
   // 检查是否接近过期（7天内）
   isExpiringSoon: computed(() => {
     if (!vipState.vipInfo?.expire_time) return false
-    const now = Date.now() / 1000
+    const now = Date.now()
     const expireTime = vipState.vipInfo.expire_time
-    const sevenDaysInSeconds = 7 * 24 * 3600
-    return (expireTime - now) <= sevenDaysInSeconds && (expireTime - now) > 0
+    const sevenDaysInMilliseconds = 7 * 24 * 3600 * 1000
+    return (expireTime - now) <= sevenDaysInMilliseconds && (expireTime - now) > 0
   }),
 
   // 获取剩余天数
   remainingDays: computed(() => {
     if (!vipState.vipInfo?.expire_time) return 0
-    const now = Date.now() / 1000
+    const now = Date.now()
     const remaining = vipState.vipInfo.expire_time - now
-    return Math.max(0, Math.ceil(remaining / (24 * 3600)))
+    return Math.max(0, Math.ceil(remaining / (24 * 3600 * 1000)))
   }),
 
   // 检查是否已过期（基于剩余天数，更可靠）
@@ -360,9 +360,9 @@ export const vipStore = {
       return false
     }
     // 直接使用剩余天数判断，避免时间戳精度问题
-    const now = Date.now() / 1000
+    const now = Date.now()
     const remaining = vipState.vipInfo.expire_time - now
-    const days = Math.max(0, Math.ceil(remaining / (24 * 3600)))
+    const days = Math.max(0, Math.ceil(remaining / (24 * 3600 * 1000)))
     console.log("剩余天数:", days, "是否过期:", days <= 0)
     return days <= 0
   }),

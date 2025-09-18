@@ -14,7 +14,7 @@ pub struct UserVipInfoResponse {
     pub user_id: u32,
     pub vip_flag: bool,
     pub vip_type: Option<VipType>,
-    pub expire_time: Option<u64>,      // VIP过期时间戳
+    pub expire_time: Option<u64>,      // VIP过期时间戳(毫秒)
     pub max_records: u32,              // 最大记录条数限制
     pub max_file_size: u64,            // 最大文件大小限制(KB)
     pub features: Option<Vec<String>>, // VIP功能列表
