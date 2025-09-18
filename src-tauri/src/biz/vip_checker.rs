@@ -436,6 +436,41 @@ impl VipChecker {
         }
     }
 
+    /// 获取文件复制大小限制（基于同步文件限制）
+    /// 优先检查本地VIP缓存，无缓存时尝试获取服务器配置，最后使用5MB硬编码限制
+    pub async fn get_file_copy_size_limit() -> u64 {
+        // 首先检查本地是否有VIP信息缓存
+        if let Ok(Some(vip_info)) = Self::get_local_vip_info() {
+            if vip_info.max_file_size > 0 {
+                log::debug!(
+                    "从本地VIP缓存获取文件复制限制: {}KB",
+                    vip_info.max_file_size
+                );
+                return vip_info.max_file_size * 1024; // 转换为字节
+            }
+        }
+
+        // 本地无VIP缓存或缓存限制为0，尝试获取服务器配置中所有VIP类型的最大文件限制
+        match crate::api::vip_api::get_server_config().await {
+            Ok(Some(server_configs)) => {
+                // 找到所有VIP类型中最大的文件大小限制
+                let max_file_size = server_configs
+                    .values()
+                    .map(|config| config.max_file_size)
+                    .max()
+                    .unwrap_or(5120); // 默认5MB (KB)
+
+                log::debug!("从服务器配置获取文件复制限制: {}KB", max_file_size);
+                max_file_size * 1024 // 转换为字节
+            }
+            Ok(None) | Err(_) => {
+                // 无网络或获取失败时，使用硬编码的10MB限制
+                log::debug!("无法获取服务器配置，使用硬编码5MB文件复制限制");
+                10 * 1024 * 1024 // 5MB
+            }
+        }
+    }
+
     // /// 获取云同步记录限制（基于服务端缓存的数据）- 不再需要条数限制
     // pub async fn get_sync_records_limit() -> AppResult<u32> {
     //     if let Some(vip_info) = Self::get_local_vip_info()? {

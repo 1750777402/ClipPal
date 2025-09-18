@@ -919,6 +919,24 @@ async fn copy_file_to_resources(
     _record_id: &str,
     file_path: &std::path::PathBuf,
 ) -> Option<(String, String)> {
+    // 检查文件大小是否超过复制限制
+    if let Ok(metadata) = std::fs::metadata(file_path) {
+        let file_size = metadata.len();
+        let copy_size_limit = VipChecker::get_file_copy_size_limit().await;
+
+        if file_size > copy_size_limit {
+            log::info!(
+                "文件大小{}字节超过复制限制{}字节，跳过复制: {:?}",
+                file_size,
+                copy_size_limit,
+                file_path
+            );
+            return None;
+        }
+    } else {
+        log::error!("无法获取文件元数据，跳过复制: {:?}", file_path);
+        return None;
+    }
     if let Some(resources_dir) = get_resources_dir() {
         let files_dir = resources_dir.join("files");
 
