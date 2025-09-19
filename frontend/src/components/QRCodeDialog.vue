@@ -156,7 +156,7 @@ const handleRefreshStatus = async () => {
 
     if (isSuccess(response) && response.data) {
       const orderStatus = response.data.orderStatus
-      console.log('支付状态查询结果:', orderStatus)
+      console.log('手动支付状态查询结果:', orderStatus)
 
       switch (orderStatus) {
         case 'paid':
@@ -199,6 +199,51 @@ const handleRefreshStatus = async () => {
     setTimeout(() => {
       refreshing.value = false
     }, 1000)
+  }
+}
+
+// 自动检测支付状态（无用户感知）
+const autoCheckPaymentStatus = async () => {
+  if (!props.orderNo) {
+    console.error('订单号不存在，无法查询支付结果')
+    return
+  }
+
+  try {
+    // 调用后端API查询支付结果
+    const response = await vipApi.getPayResult({ orderNo: props.orderNo })
+
+    if (isSuccess(response) && response.data) {
+      const orderStatus = response.data.orderStatus
+      console.log('自动支付状态查询结果:', orderStatus)
+
+      switch (orderStatus) {
+        case 'paid':
+          // 支付成功：停止自动查询，刷新VIP状态，关闭所有对话框（无额外提示）
+          clearAutoRefreshTimers()
+          emit('refresh-status')
+          emit('payment-success')
+          break
+
+        case 'unpaid':
+          // 未支付：静默跳过，继续下次自动检测
+          break
+
+        case 'refunding':
+        case 'refunded':
+          // 退款状态：停止自动检测
+          clearAutoRefreshTimers()
+          break
+
+        default:
+          // 未知状态：继续下次自动检测
+          break
+      }
+    } else {
+      console.error('自动查询支付结果失败:', response.error)
+    }
+  } catch (error) {
+    console.error('自动查询支付结果出错:', error)
   }
 }
 
@@ -255,16 +300,14 @@ const startAutoRefresh = () => {
 
   // 5秒后开始自动查询
   autoRefreshStartTimer.value = setTimeout(() => {
-    // 每2秒查询一次支付结果
+    // 每3秒查询一次支付结果
     autoRefreshTimer.value = setInterval(async () => {
       // 如果正在手动刷新，跳过自动刷新
       if (refreshing.value) {
         return
       }
-
-      console.log('自动查询支付结果...')
-      await handleRefreshStatus()
-    }, 2000)
+      await autoCheckPaymentStatus()
+    }, 3000)
   }, 5000)
 }
 
