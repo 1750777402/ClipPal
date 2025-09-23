@@ -1,6 +1,6 @@
 <template>
-    <div class="clip-card" :class="{'clip-card-hover': !isMobile, 'is-pinned': record.pinned_flag}"
-        @dblclick="handleCardDoubleClick">
+    <div class="clip-card" :class="{'is-pinned': record.pinned_flag}"
+        :data-type="record.type" @dblclick="handleCardDoubleClick">
         <div class="card-header">
             <div class="card-left">
                 <div class="card-type">
@@ -27,6 +27,10 @@
                 <span class="time-text">{{ formatTime(record.created) }}</span>
             </div>
             <div class="card-actions" @click.stop @dblclick.stop>
+                <!-- 图片预览按钮 - 排在最前面 -->
+                <button v-if="record.type === 'Image'" class="action-btn preview-btn" @click.stop="handleImagePreview" title="预览图片">
+                    <i class="iconfont icon-yulan"></i>
+                </button>
                 <button class="action-btn pin-btn" :class="{ 'is-pinned': record.pinned_flag }"
                     @click.stop="handlePin" :title="record.pinned_flag ? '取消置顶' : '置顶'">
                     <i class="iconfont" :class="record.pinned_flag ? 'icon-dingzhu' : 'icon-weizhiding'"></i>
@@ -61,8 +65,7 @@
             <template v-else-if="record.type === 'Image'">
                 <div class="image-container" ref="imageContainer">
                     <!-- 已加载的图片 -->
-                    <img v-if="imageBase64Data && !imageError" :src="imageBase64Data" class="image-preview" 
-                        @click.stop="showImagePreview = true" />
+                    <img v-if="imageBase64Data && !imageError" :src="imageBase64Data" class="image-preview" />
                     
                     <!-- 加载中状态 -->
                     <div v-else-if="!isDownloadingFromCloud && (isLoadingImage || (!shouldLoadImage && !imageError))" class="image-placeholder" @click="triggerImageLoad">
@@ -534,6 +537,18 @@ const handleSaveAs = async () => {
     await clipApi.imageSaveAs(props.record.id);
 };
 
+// 处理图片预览
+const handleImagePreview = () => {
+    // 只有在图片已加载的情况下才能预览
+    if (imageBase64Data.value && !imageError.value) {
+        showImagePreview.value = true;
+    } else if (!isLoadingImage.value && !shouldLoadImage.value) {
+        // 如果图片还没加载，先触发加载
+        triggerImageLoad();
+        // 可以选择等待加载完成后自动预览，或者提示用户
+    }
+};
+
 const handleDelete = async () => {
     showConfirm.value = true;
 };
@@ -603,30 +618,28 @@ const memoryManager = useMemoryManager();
 // Image对象引用，用于清理
 let imageInstance: HTMLImageElement | null = null;
 
-// 使用 Intersection Observer 实现可见时自动加载
+// 简化图片懒加载 - 减少Observer数量
 onMounted(() => {
     if (props.record.type === 'Image' && imageContainer.value) {
         const observer = memoryManager.addObserver(new IntersectionObserver(
             (entries) => {
-                entries.forEach((entry) => {
-                    if (entry.isIntersecting && !shouldLoadImage.value && !isDownloadingFromCloud.value) {
-                        // 如果是云端数据且已下载完成，或者是本地数据，则加载图片
-                        const isCloudCompleted = props.record.sync_flag === 2 && props.record.cloud_source === 1;
-                        const isLocal = props.record.cloud_source === 0 || props.record.cloud_source === undefined;
-                        
-                        if (isCloudCompleted || isLocal) {
-                            triggerImageLoad();
-                            observer.unobserve(entry.target);
-                        }
+                const entry = entries[0]; // 每个Observer只观察一个元素
+                if (entry.isIntersecting && !shouldLoadImage.value && !isDownloadingFromCloud.value) {
+                    // 简化条件判断
+                    const canLoad = props.record.cloud_source !== 1 || props.record.sync_flag === 2;
+
+                    if (canLoad) {
+                        triggerImageLoad();
+                        observer.disconnect(); // 立即断开，不再观察
                     }
-                });
+                }
             },
             {
-                rootMargin: '50px', // 提前50px开始加载
-                threshold: 0.1
+                rootMargin: '100px', // 增加提前加载距离，减少观察频次
+                threshold: 0
             }
         ));
-        
+
         observer.observe(imageContainer.value);
     }
 });
@@ -636,19 +649,27 @@ onMounted(() => {
 .clip-card {
     background: var(--card-bg);
     border-radius: var(--radius-lg);
-    box-shadow: var(--shadow-md);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
     margin: 0 var(--spacing-xl) var(--card-margin) var(--spacing-xl);
     transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
     cursor: pointer;
-    border: var(--border-width) solid var(--border-color);
+    border: var(--border-width) solid var(--border-color, #e2e8f0);
     position: relative;
     overflow: hidden;
 }
 
-.clip-card-hover:hover {
-    box-shadow: var(--shadow-lg);
-    border-color: var(--border-hover-color);
-    transform: translateY(-3px);
+.clip-card:hover {
+    box-shadow: 0 8px 25px rgba(44, 122, 123, 0.15), 0 3px 10px rgba(0, 0, 0, 0.1);
+    border-color: rgba(44, 122, 123, 0.3);
+    transform: translateY(-4px);
+    background: #ffffff;
+}
+
+/* 置顶卡片的悬停效果 */
+.clip-card.is-pinned:hover {
+    box-shadow: 0 8px 25px rgba(44, 122, 123, 0.25), 0 3px 10px rgba(0, 0, 0, 0.15);
+    border-color: rgba(44, 122, 123, 0.5);
+    background: #fefefe;
 }
 
 .clip-card.is-pinned {
@@ -786,6 +807,8 @@ onMounted(() => {
     display: flex;
     align-items: center;
     gap: 6px;
+    flex-shrink: 0; /* 防止按钮被压缩 */
+    min-width: fit-content; /* 确保有足够空间 */
 }
 
 .action-btn {
@@ -817,6 +840,7 @@ onMounted(() => {
     color: var(--primary-color, #2c7a7b);
     background: rgba(44, 122, 123, 0.1);
 }
+
 
 .card-content {
     padding: 16px;
@@ -1050,7 +1074,7 @@ onMounted(() => {
     max-width: 100%;
     max-height: 100%;
     object-fit: contain;
-    cursor: zoom-in;
+    cursor: default;
     transition: transform 0.3s ease;
     border-radius: 4px;
 }
@@ -1700,10 +1724,45 @@ onMounted(() => {
 }
 
 /* 响应式设计 - 针对不同窗口尺寸优化 */
+
+/* 中等屏幕 - 平板竖屏 */
+@media (max-width: 768px) {
+  .card-header {
+    padding: 12px 14px;
+  }
+
+  .card-actions {
+    gap: 8px;
+  }
+
+  .action-btn {
+    width: 26px;
+    height: 26px;
+    font-size: 14px;
+  }
+
+  /* 图片类型卡片需要显示更多按钮，调整间距 */
+  .clip-card[data-type="Image"] .card-actions {
+    gap: 6px;
+  }
+
+  .clip-card[data-type="Image"] .action-btn {
+    width: 24px;
+    height: 24px;
+    font-size: 13px;
+  }
+}
+
+/* 小屏幕 - 手机横屏 */
 @media (max-width: 480px) {
   .clip-card {
     margin: 0 12px 12px 12px;
     border-radius: 8px;
+  }
+
+  /* 移动设备上减弱悬停效果的位移，避免布局跳动 */
+  .clip-card:hover {
+    transform: translateY(-2px);
   }
   
   .card-header {
@@ -1723,13 +1782,24 @@ onMounted(() => {
   }
   
   .card-actions {
-    gap: 6px;
+    gap: 4px;
   }
-  
+
   .action-btn {
     width: 20px;
     height: 20px;
     font-size: 12px;
+  }
+
+  /* 图片类型卡片在小屏幕上的特殊处理 */
+  .clip-card[data-type="Image"] .card-actions {
+    gap: 3px; /* 进一步减少间距 */
+  }
+
+  .clip-card[data-type="Image"] .action-btn {
+    width: 18px;
+    height: 18px;
+    font-size: 11px;
   }
   
   .card-content {
@@ -1802,13 +1872,25 @@ onMounted(() => {
   }
   
   .card-actions {
-    gap: 4px;
+    gap: 2px;
   }
-  
+
   .action-btn {
-    width: 18px;
-    height: 18px;
-    font-size: 11px;
+    width: 16px;
+    height: 16px;
+    font-size: 10px;
+    border-radius: 4px; /* 减小圆角适应更小尺寸 */
+  }
+
+  /* 图片类型卡片在超小屏幕上的处理 */
+  .clip-card[data-type="Image"] .card-actions {
+    gap: 1px; /* 最小间距 */
+  }
+
+  .clip-card[data-type="Image"] .action-btn {
+    width: 15px;
+    height: 15px;
+    font-size: 9px;
   }
   
   .card-content {
@@ -1847,19 +1929,40 @@ onMounted(() => {
   .clip-card {
     margin: 0 16px 14px 16px;
   }
-  
+
   .card-header {
     padding: 10px 14px;
   }
-  
+
   .card-left {
     gap: 12px;
   }
-  
+
+  .card-actions {
+    gap: 5px;
+  }
+
+  .action-btn {
+    width: 22px;
+    height: 22px;
+    font-size: 12px;
+  }
+
+  /* 图片类型的特殊处理 */
+  .clip-card[data-type="Image"] .card-actions {
+    gap: 4px;
+  }
+
+  .clip-card[data-type="Image"] .action-btn {
+    width: 20px;
+    height: 20px;
+    font-size: 11px;
+  }
+
   .card-type .type-text {
     font-size: 12px;
   }
-  
+
   .time-text {
     font-size: 11px;
   }
@@ -1873,7 +1976,7 @@ onMounted(() => {
     background: rgba(255, 255, 255, 0.9);
   }
   
-  .clip-card-hover:hover {
+  .clip-card:hover {
     backdrop-filter: blur(15px);
     background: rgba(255, 255, 255, 0.95);
   }
@@ -1881,6 +1984,19 @@ onMounted(() => {
 
 /* 暗色模式下的响应式优化 */
 @media (prefers-color-scheme: dark) {
+  /* 暗色模式下的悬停效果 */
+  .clip-card:hover {
+    box-shadow: 0 8px 25px rgba(78, 154, 154, 0.15), 0 3px 10px rgba(0, 0, 0, 0.4);
+    border-color: rgba(78, 154, 154, 0.4);
+    background: #333333;
+  }
+
+  .clip-card.is-pinned:hover {
+    box-shadow: 0 8px 25px rgba(78, 154, 154, 0.25), 0 3px 10px rgba(0, 0, 0, 0.5);
+    border-color: rgba(78, 154, 154, 0.6);
+    background: #383838;
+  }
+
   @media (max-width: 480px) {
     .clip-card {
       --card-bg: #2d2d2d;
@@ -1907,9 +2023,17 @@ onMounted(() => {
       background: rgba(45, 45, 45, 0.9);
     }
     
-    .clip-card-hover:hover {
+    .clip-card:hover {
       backdrop-filter: blur(15px);
       background: rgba(45, 45, 45, 0.95);
+      box-shadow: 0 8px 25px rgba(78, 154, 154, 0.2), 0 3px 10px rgba(0, 0, 0, 0.3);
+      border-color: rgba(78, 154, 154, 0.4);
+    }
+
+    .clip-card.is-pinned:hover {
+      box-shadow: 0 8px 25px rgba(78, 154, 154, 0.3), 0 3px 10px rgba(0, 0, 0, 0.4);
+      border-color: rgba(78, 154, 154, 0.6);
+      background: rgba(50, 50, 50, 0.98);
     }
   }
 }

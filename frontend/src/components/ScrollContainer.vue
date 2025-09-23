@@ -61,11 +61,21 @@
                 :cloud-sync-enabled="cloudSyncEnabled" @click="handleCardClick" @pin="handlePin" @delete="handleDel" />
 
 
+      <!-- 分页加载状态 -->
       <div v-if="isFetchingMore" class="bottom-loading">
         <div class="loading-spinner small"></div>
         <span>加载更多...</span>
       </div>
-      <div v-if="!hasMore && cards.length > 0" class="bottom-loading">没有更多了</div>
+
+      <!-- 分批渲染状态 -->
+      <div v-if="!isFetchingMore && hasMoreBatches" class="bottom-loading batch-loading" @click="loadNextBatch">
+        <div class="batch-info">
+          <span>显示 {{ visibleCards.length }} / {{ cards.length }} 条记录</span>
+          <button class="load-more-btn">点击加载更多</button>
+        </div>
+      </div>
+
+      <div v-if="!hasMore && !hasMoreBatches && cards.length > 0" class="bottom-loading">没有更多了</div>
     </div>
 
     <SettingsDialog v-model="showSettings" @save="handleSettingsSave" />
@@ -135,8 +145,25 @@ const page = ref(1);
 const pageSize = 20;
 const hasMore = ref(true);
 
+// 分批渲染优化 - 大数据集时分批渲染，避免一次性渲染太多DOM
+const BATCH_SIZE = 50; // 每批渲染50个卡片
+const currentBatch = ref(1);
+
 const visibleCards = computed(() => {
-  return cards.value;
+  const totalCards = cards.value;
+  // 如果数据量小于100，直接渲染全部
+  if (totalCards.length <= 100) {
+    return totalCards;
+  }
+
+  // 大数据集时分批渲染
+  const endIndex = Math.min(currentBatch.value * BATCH_SIZE, totalCards.length);
+  return totalCards.slice(0, endIndex);
+});
+
+// 是否还有更多数据可以渲染
+const hasMoreBatches = computed(() => {
+  return currentBatch.value * BATCH_SIZE < cards.value.length;
 });
 
 // 缓存机制
@@ -350,6 +377,8 @@ const silentRefresh = async () => {
 const resetAndFetch = () => {
   page.value = 1;
   hasMore.value = true;
+  // 重置分批渲染状态
+  currentBatch.value = 1;
   fetchClipRecords(true);
 };
 
@@ -396,39 +425,56 @@ const fetchClipRecords = async (isRefresh = false) => {
 };
 
 const handleScroll = () => {
-  if (!scrollContainer.value || isFetchingMore.value || !hasMore.value) return;
+  if (!scrollContainer.value) return;
 
   const { scrollTop, clientHeight, scrollHeight } = scrollContainer.value;
-  
+
   // 控制回到顶部按钮显示
-  // 根据页面高度动态计算显示阈值：窗口高度的0.8倍作为触发距离
-  const threshold = Math.max(clientHeight * 0.8, 300); // 最小300px，避免太敏感
+  const threshold = Math.max(clientHeight * 0.8, 300);
   showBackToTop.value = scrollTop > threshold;
-  
-  if (scrollTop + clientHeight >= scrollHeight - 200) {
+
+  // 原有的分页加载逻辑
+  if (!isFetchingMore.value && hasMore.value && scrollTop + clientHeight >= scrollHeight - 200) {
     fetchClipRecords();
+  }
+
+  // 新增：分批渲染逻辑 - 滚动到底部时加载下一批
+  if (hasMoreBatches.value && scrollTop + clientHeight >= scrollHeight - 100) {
+    // 使用setTimeout避免阻塞滚动
+    memoryManager.setTimeout(() => {
+      currentBatch.value++;
+    }, 50);
   }
 };
 
 // 回到顶部功能
 const scrollToTop = () => {
   if (!scrollContainer.value) return;
-  
+
   scrollContainer.value.scrollTo({
     top: 0,
     behavior: 'smooth'
   });
 };
 
+// 手动加载下一批数据
+const loadNextBatch = () => {
+  if (hasMoreBatches.value) {
+    currentBatch.value++;
+  }
+};
+
 // 使用内存安全的防抖函数
 const searchDebounced = createDebouncedFunction((newValue: string) => {
   // 如果搜索值没有实际变化，不触发请求
   if (newValue === lastSearchValue.value) return;
-  
+
   lastSearchValue.value = newValue;
   page.value = 1;
   hasMore.value = true;
-  
+  // 重置分批渲染状态
+  currentBatch.value = 1;
+
   // 搜索时的智能loading
   if (cards.value.length > 0 && newValue.trim()) {
     // 有数据且正在搜索时，使用渐进式更新
@@ -437,7 +483,7 @@ const searchDebounced = createDebouncedFunction((newValue: string) => {
     // 初始搜索或清空搜索时，正常加载
     fetchClipRecords(true);
   }
-}, 400); // 增加防抖时间，减少请求频率
+}, 500); // 增加防抖时间到500ms，进一步减少请求频率
 
 // 使用内存安全的防抖刷新
 const debouncedRefresh = createDebouncedFunction(() => {
@@ -869,6 +915,44 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: center;
   gap: 8px;
+}
+
+/* 分批加载样式 */
+.batch-loading {
+  cursor: pointer;
+  transition: all 0.2s ease;
+  border-radius: 8px;
+  background: var(--batch-bg, #f8fafc);
+  border: 1px solid var(--border-color, #e2e8f0);
+  margin: 8px 16px;
+}
+
+.batch-loading:hover {
+  background: var(--batch-hover-bg, #f1f5f9);
+  border-color: var(--border-hover-color, #cbd5e1);
+}
+
+.batch-info {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: center;
+}
+
+.load-more-btn {
+  background: var(--primary-color, #2c7a7b);
+  color: white;
+  border: none;
+  border-radius: 6px;
+  padding: 6px 16px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.load-more-btn:hover {
+  background: var(--primary-hover-color, #234e52);
+  transform: translateY(-1px);
 }
 
 .header-icons {

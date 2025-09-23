@@ -90,61 +90,58 @@ export class MemoryManager {
   }
 
   /**
-   * 清理所有管理的资源
+   * 清理所有管理的资源 - 性能优化版本
    */
   cleanup() {
-    // 清理定时器
-    this.timers.forEach(timer => {
-      try {
-        clearTimeout(timer)
-      } catch (error) {
-        console.warn('清理定时器失败:', error)
-      }
-    })
-    this.timers.clear()
+    // 批量清理定时器，减少异常处理开销
+    if (this.timers.size > 0) {
+      const timersArray = Array.from(this.timers);
+      this.timers.clear(); // 先清空，避免清理过程中新增
+      timersArray.forEach(timer => clearTimeout(timer));
+    }
 
-    // 清理间隔器
-    this.intervals.forEach(interval => {
-      try {
-        clearInterval(interval)
-      } catch (error) {
-        console.warn('清理间隔器失败:', error)
-      }
-    })
-    this.intervals.clear()
+    // 批量清理间隔器
+    if (this.intervals.size > 0) {
+      const intervalsArray = Array.from(this.intervals);
+      this.intervals.clear();
+      intervalsArray.forEach(interval => clearInterval(interval));
+    }
 
-    // 清理观察者
-    this.observers.forEach(observer => {
-      try {
-        observer.disconnect()
-      } catch (error) {
-        console.warn('清理观察者失败:', error)
-      }
-    })
-    this.observers.clear()
+    // 批量清理观察者
+    if (this.observers.size > 0) {
+      const observersArray = Array.from(this.observers);
+      this.observers.clear();
+      observersArray.forEach(observer => {
+        try {
+          observer.disconnect();
+        } catch {} // 静默处理异常
+      });
+    }
 
-    // 清理事件监听器
-    this.eventCleanups.forEach(cleanup => {
-      try {
-        cleanup()
-      } catch (error) {
-        console.warn('清理事件监听器失败:', error)
-      }
-    })
-    this.eventCleanups.clear()
+    // 批量清理事件监听器
+    if (this.eventCleanups.size > 0) {
+      const cleanupsArray = Array.from(this.eventCleanups);
+      this.eventCleanups.clear();
+      cleanupsArray.forEach(cleanup => {
+        try {
+          cleanup();
+        } catch {} // 静默处理异常
+      });
+    }
 
-    // 清理Image实例
-    this.imageInstances.forEach(img => {
-      try {
-        img.onload = null
-        img.onerror = null
-        img.onabort = null
-        img.src = ''
-      } catch (error) {
-        console.warn('清理Image实例失败:', error)
-      }
-    })
-    this.imageInstances.clear()
+    // 批量清理Image实例
+    if (this.imageInstances.size > 0) {
+      const imagesArray = Array.from(this.imageInstances);
+      this.imageInstances.clear();
+      imagesArray.forEach(img => {
+        try {
+          img.onload = null;
+          img.onerror = null;
+          img.onabort = null;
+          img.src = '';
+        } catch {} // 静默处理异常
+      });
+    }
   }
 
   /**

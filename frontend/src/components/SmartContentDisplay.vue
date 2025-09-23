@@ -173,20 +173,23 @@ const formattedContent = computed(() => {
   return formatContent(currentDisplayContent.value, detectedContent.value.type);
 });
 
-// 语法高亮
+// 简化的语法高亮 - 性能优先
 const highlightedContent = computed(() => {
   const content = formattedContent.value;
-  const type = detectedContent.value.type;
 
-  try {
-    const language = getHighlightLanguage(props.content, type);
-    const result = hljs.highlight(content, { language });
-    return result.value;
-  } catch (error) {
-    console.warn('语法高亮失败:', error);
+  // 内容太大时跳过高亮，避免性能问题
+  if (content.length > 50 * 1024) { // 50KB以上不高亮
+    return content;
   }
 
-  return content;
+  try {
+    // 使用 hljs 的自动检测，简单有效
+    const result = hljs.highlightAuto(content, ['javascript', 'json', 'html', 'css', 'sql']);
+    return result.value;
+  } catch (error) {
+    // 高亮失败就返回原内容，不影响功能
+    return content;
+  }
 });
 
 // Markdown 渲染（基于当前显示内容）
@@ -266,24 +269,28 @@ const isLoadingFullContent = ref(false);
 
 // 渐进式更新大内容，避免UI卡顿
 const updateContentProgressively = async (content: string) => {
-  if (content.length <= 500 * 1024) {
-    // 小于500KB直接更新
+  if (content.length <= 200 * 1024) {
+    // 小于200KB直接更新
     currentDisplayContent.value = content;
     return;
   }
-  
-  // 大内容分批更新
-  const chunkSize = 100 * 1024; // 100KB每块
+
+  // 大内容分批更新，使用requestAnimationFrame确保不阻塞渲染
+  const chunkSize = 50 * 1024; // 减少到50KB每块，更平滑
   let currentPos = 0;
-  
-  while (currentPos < content.length) {
+
+  const updateChunk = () => {
     const nextPos = Math.min(currentPos + chunkSize, content.length);
     currentDisplayContent.value = content.substring(0, nextPos);
     currentPos = nextPos;
-    
-    // 让出控制权给UI线程
-    await new Promise(resolve => setTimeout(resolve, 5));
-  }
+
+    if (currentPos < content.length) {
+      // 使用requestAnimationFrame而不是setTimeout，更好的性能
+      requestAnimationFrame(updateChunk);
+    }
+  };
+
+  requestAnimationFrame(updateChunk);
 };
 
 // 切换展开状态

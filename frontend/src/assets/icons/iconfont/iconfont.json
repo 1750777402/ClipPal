@@ -6,6 +6,13 @@
   "description": "",
   "glyphs": [
     {
+      "icon_id": "4288154",
+      "name": "预览",
+      "font_class": "yulan",
+      "unicode": "e637",
+      "unicode_decimal": 58935
+    },
+    {
       "icon_id": "1486848",
       "name": "支付宝支付",
       "font_class": "zhifubaozhifu",
