@@ -110,6 +110,13 @@ export const clipApi = {
     });
   },
 
+  // 获取图片文件路径（自定义协议）
+  async getImagePath(recordId: string) {
+    return apiInvoke<{ id: string; file_path: string; protocol_url: string }>('get_image_path', {
+      param: { record_id: recordId }
+    });
+  },
+
   // 复制记录
   async copyRecord(recordId: string) {
     return apiInvoke<string>('copy_clip_record', {

@@ -31,7 +31,7 @@ uuid = { workspace = true}
 rbs = { workspace = true }
 rbatis = { workspace = true }
 rbdc-sqlite = { workspace = true }
-tauri = {workspace = true , features = ["tray-icon", "image-png"] }
+tauri = {workspace = true , features = ["tray-icon", "image-png", "protocol-asset"] }
 tauri-plugin-http = { workspace = true }
 tauri-plugin-opener = { workspace = true }
 tauri-plugin-single-instance = { workspace = true }
@@ -60,6 +60,7 @@ bincode = { workspace = true }
 async-channel = { workspace = true }
 chrono = { workspace = true }
 backon = { workspace = true }
+urlencoding = { workspace = true }
 
 # Windows API for auto-paste functionality
 [target.'cfg(windows)'.dependencies]

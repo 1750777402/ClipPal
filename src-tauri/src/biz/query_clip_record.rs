@@ -72,11 +72,6 @@ pub struct GetImageParam {
     pub record_id: String,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct ImageBase64Response {
-    pub id: String,
-    pub base64_data: String,
-}
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct GetFullContentParam {
@@ -301,34 +296,62 @@ pub fn get_image_info(relative_path: &str) -> Option<ImageInfo> {
     })
 }
 
-// 按需获取图片base64数据
+// 新增：获取图片文件路径的API（用于自定义协议）
 #[tauri::command]
-pub async fn get_image_base64(param: GetImageParam) -> Result<ImageBase64Response, String> {
+pub async fn get_image_path(param: GetImageParam) -> Result<ImagePathInfo, String> {
     let rb: &RBatis = CONTEXT.get::<RBatis>();
 
-    // 从数据库获取记录
     let records = ClipRecord::select_by_id(rb, &param.record_id)
         .await
-        .map_err(|e| format!("查询记录失败: {}", e))?;
+        .map_err(|e| format!("数据库查询失败: {}", e))?;
 
-    let record = records.first().ok_or("记录不存在")?;
+    let clip_record = records.first().ok_or("记录不存在")?;
 
-    // 验证是否为图片类型
-    if record.r#type != ClipType::Image.to_string() {
-        return Err("记录类型不是图片".to_string());
+    // 检查是否是图片类型
+    if clip_record.r#type != "Image" {
+        return Err("记录不是图片类型".to_string());
     }
 
-    // 获取图片路径
-    let image_path = record.content.as_str().ok_or("图片路径无效")?;
+    // 首先检查 local_file_path 字段（用于云端下载的文件）
+    if let Some(cache_file_path) = &clip_record.local_file_path {
+        if std::path::Path::new(cache_file_path).exists() {
+            // 使用Tauri内置的asset协议
+            return Ok(ImagePathInfo {
+                id: clip_record.id.clone(),
+                file_path: cache_file_path.to_string(),
+                protocol_url: format!("asset://localhost/{}", cache_file_path.replace("\\", "/")),
+            });
+        }
+    }
 
-    // 转换为base64
-    let base64_data = ContentProcessor::process_image_content(image_path).ok_or("图片转换失败")?;
+    // 检查 content 字段中的图片文件名（本地图片的标准存储方式）
+    if let Some(filename) = clip_record.content.as_str() {
+        use crate::utils::file_dir::get_resources_dir;
 
-    Ok(ImageBase64Response {
-        id: param.record_id,
-        base64_data,
-    })
+        if let Some(resources_dir) = get_resources_dir() {
+            let image_path = resources_dir.join(filename);
+            if image_path.exists() {
+                let absolute_path = image_path.to_string_lossy().to_string();
+                // 使用Tauri内置的asset协议
+                return Ok(ImagePathInfo {
+                    id: clip_record.id.clone(),
+                    file_path: absolute_path.clone(),
+                    protocol_url: format!("asset://localhost/{}", absolute_path.replace("\\", "/")),
+                });
+            }
+        }
+    }
+
+    Err("图片文件不存在".to_string())
 }
+
+#[derive(Serialize)]
+pub struct ImagePathInfo {
+    pub id: String,
+    pub file_path: String,
+    pub protocol_url: String,
+}
+
 
 /// 截断大文本，返回 (截断后内容, 是否被截断, 原始长度)
 fn truncate_large_text(content: &str) -> (String, bool, Option<usize>) {
