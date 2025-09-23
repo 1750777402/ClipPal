@@ -116,7 +116,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onBeforeUnmount, nextTick, watch } from 'vue';
 import hljs from 'highlight.js/lib/core';
-import { detectContentType, formatContent, getHighlightLanguage, type DetectedContent } from '../utils/contentDetector';
+import { detectContentType, formatContent, type DetectedContent } from '../utils/contentDetector';
 import { marked } from 'marked';
 
 // 只引入必要的语言
