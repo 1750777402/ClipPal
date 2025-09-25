@@ -42,9 +42,17 @@
       
       <!-- 真实数据，透明度渐变 -->
       <div class="real-content" :class="{ 'content-updating': isRefreshing }">
-        <ClipCard v-for="item in visibleCards" :key="item.id" :record="item" :is-mobile="responsive.isMobile.value" 
-                  :cloud-sync-enabled="cloudSyncEnabled" @click="handleCardClick" @pin="handlePin" @delete="handleDel" />
-        
+        <ClipCard
+          v-for="item in visibleCards"
+          :key="item.id"
+          v-memo="[item.id, item.pinned_flag, item.sync_flag, item.content, item.created, cloudSyncEnabled]"
+          :record="item"
+          :is-mobile="responsive.isMobile.value"
+          :cloud-sync-enabled="cloudSyncEnabled"
+          @click="handleCardClick"
+          @pin="handlePin"
+          @delete="handleDel" />
+
       </div>
     </div>
 
@@ -56,9 +64,17 @@
         <div class="empty-subtitle">剪贴板记录为空</div>
       </div>
       
-      <!-- 数据列表 -->
-      <ClipCard v-for="item in visibleCards" :key="item.id" :record="item" :is-mobile="responsive.isMobile.value" 
-                :cloud-sync-enabled="cloudSyncEnabled" @click="handleCardClick" @pin="handlePin" @delete="handleDel" />
+      <!-- 数据列表 - 使用v-memo优化渲染性能 -->
+      <ClipCard
+        v-for="item in visibleCards"
+        :key="item.id"
+        v-memo="[item.id, item.pinned_flag, item.sync_flag, item.content, item.created, cloudSyncEnabled]"
+        :record="item"
+        :is-mobile="responsive.isMobile.value"
+        :cloud-sync-enabled="cloudSyncEnabled"
+        @click="handleCardClick"
+        @pin="handlePin"
+        @delete="handleDel" />
 
 
       <!-- 分页加载状态 -->
@@ -146,13 +162,14 @@ const pageSize = 20;
 const hasMore = ref(true);
 
 // 分批渲染优化 - 大数据集时分批渲染，避免一次性渲染太多DOM
-const BATCH_SIZE = 50; // 每批渲染50个卡片
+const BATCH_SIZE = 30; // 每批渲染30个卡片（从50降低到30）
+const INITIAL_RENDER_THRESHOLD = 50; // 初始直接渲染阈值（从100降低到50）
 const currentBatch = ref(1);
 
 const visibleCards = computed(() => {
   const totalCards = cards.value;
-  // 如果数据量小于100，直接渲染全部
-  if (totalCards.length <= 100) {
+  // 如果数据量小于50，直接渲染全部
+  if (totalCards.length <= INITIAL_RENDER_THRESHOLD) {
     return totalCards;
   }
 
@@ -445,6 +462,12 @@ const handleScroll = () => {
       currentBatch.value++;
     }, 50);
   }
+
+  // 内存清理优化：当数据量过多时，定期清理历史缓存
+  if (cards.value.length > 200) {
+    // 防抖清理，避免频繁执行
+    debouncedMemoryCleanup();
+  }
 };
 
 // 回到顶部功能
@@ -493,6 +516,26 @@ const debouncedRefresh = createDebouncedFunction(() => {
     resetAndFetch();
   }
 }, 500);
+
+// 防抖的内存清理函数
+const debouncedMemoryCleanup = createDebouncedFunction(() => {
+  // 当数据量超过300时，保留最近的200条，清理旧数据
+  if (cards.value.length > 300) {
+    console.log('执行内存清理，当前数据量:', cards.value.length);
+    const keepCount = 200;
+
+    // 保留置顶的和最近的数据
+    const pinnedCards = cards.value.filter(card => card.pinned_flag);
+    const unpinnedCards = cards.value.filter(card => !card.pinned_flag);
+    const recentCards = unpinnedCards.slice(0, keepCount - pinnedCards.length);
+
+    cards.value = [...pinnedCards, ...recentCards];
+
+    // 重置分批渲染状态
+    currentBatch.value = Math.ceil(cards.value.length / BATCH_SIZE);
+    console.log('内存清理完成，保留数据量:', cards.value.length);
+  }
+}, 1000); // 1秒防抖
 
 watch(search, (newValue) => {
   searchDebounced(newValue);
@@ -632,14 +675,15 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   // 响应式监听器在useWindowAdaptive中自动清理
-  
+
   // 清理防抖函数
   debouncedRefresh.cancel();
   searchDebounced.cancel();
-  
+  debouncedMemoryCleanup.cancel();
+
   // 清理Set中的所有项目，防止内存泄漏
   recentlyUpdatedRecords.clear();
-  
+
   // 清理云同步事件监听器
   if (cloudSyncDisabledListener) {
     try {

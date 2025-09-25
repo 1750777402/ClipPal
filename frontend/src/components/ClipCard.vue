@@ -71,7 +71,7 @@
                          @error="handleImageError" />
                     
                     <!-- 加载中状态 -->
-                    <div v-else-if="!isDownloadingFromCloud && (isLoadingImage || (!shouldLoadImage && !imageError))" class="image-placeholder" @click="loadImageBase64">
+                    <div v-else-if="!isDownloadingFromCloud && (isLoadingImage || (!shouldLoadImage && !imageError))" class="image-placeholder" @click="loadImage">
                         <div v-if="isLoadingImage" class="placeholder-spinner"></div>
                         <i v-else class="iconfont icon-image placeholder-icon"></i>
                         <span class="loading-text">{{ getImageLoadingText }}</span>
@@ -84,7 +84,7 @@
                     <div v-if="imageError && !isDownloadingFromCloud" class="image-error">
                         <i class="iconfont icon-tishi"></i>
                         <span class="error-text">图片加载失败</span>
-                        <button class="retry-btn" @click="loadImageBase64">重试</button>
+                        <button class="retry-btn" @click="loadImage">重试</button>
                     </div>
                     
                     <!-- 云端下载状态 -->
@@ -258,11 +258,24 @@ const currentTextContent = computed(() => {
 const imageProtocolUrl = ref<string>('');
 const isLoadingImage = ref(false);
 const shouldLoadImage = ref(false);
+const imageContainer = ref<HTMLElement | null>(null);
+const intersectionObserver = ref<IntersectionObserver | null>(null);
 
 // showMessageBar 现在通过全局错误处理器自动处理，不需要手动注入
 
+// 清理图片内存
+const clearImageMemory = () => {
+    if (imageProtocolUrl.value) {
+        // 清空图片URL，让浏览器释放内存
+        imageProtocolUrl.value = '';
+        isImageLoaded.value = false;
+        shouldLoadImage.value = false;
+        console.log('清理图片内存:', props.record.id);
+    }
+};
+
 // 懒加载图片（仅使用asset协议，专注性能）
-const loadImageBase64 = async () => {
+const loadImage = async () => {
     if (isLoadingImage.value || imageProtocolUrl.value || props.record.type !== 'Image') {
         return;
     }
@@ -296,7 +309,7 @@ const triggerImageLoad = () => {
     }
     if (!shouldLoadImage.value && props.record.type === 'Image') {
         shouldLoadImage.value = true;
-        loadImageBase64();
+        loadImage();
     }
 };
 
@@ -309,7 +322,7 @@ watch(() => props.record.sync_flag, (newFlag, oldFlag) => {
         setTimeout(() => {
             if (!shouldLoadImage.value && !imageProtocolUrl.value) {
                 shouldLoadImage.value = true;
-                loadImageBase64();
+                loadImage();
             }
         }, 100);
     }
@@ -514,7 +527,7 @@ const handleImagePreview = () => {
         showImagePreview.value = true;
     } else if (!isLoadingImage.value && !shouldLoadImage.value) {
         // 如果图片还没加载，先触发加载
-        loadImageBase64();
+        loadImage();
         // 可以选择等待加载完成后自动预览，或者提示用户
     }
 };
@@ -585,39 +598,56 @@ const getImageLoadingText = computed(() => {
     return isLoadingImage.value ? '加载中...' : '点击加载图片';
 });
 
-// 图片容器引用
-const imageContainer = ref<HTMLElement>();
 
 
-// 图片懒加载观察器
+// 图片懒加载和内存清理观察器
 onMounted(() => {
     if (props.record.type === 'Image' && imageContainer.value) {
-        const observer = new IntersectionObserver(
+        intersectionObserver.value = new IntersectionObserver(
             (entries) => {
                 const entry = entries[0];
-                if (entry.isIntersecting && !shouldLoadImage.value && !isDownloadingFromCloud.value) {
-                    // 检查是否可以加载（非云端下载或已下载完成）
-                    const canLoad = props.record.cloud_source !== 1 || props.record.sync_flag === 2;
 
-                    if (canLoad) {
-                        triggerImageLoad();
-                        observer.disconnect(); // 加载后断开观察
+                if (entry.isIntersecting) {
+                    // 进入视窗 - 加载图片
+                    if (!shouldLoadImage.value && !isDownloadingFromCloud.value) {
+                        // 检查是否可以加载（非云端下载或已下载完成）
+                        const canLoad = props.record.cloud_source !== 1 || props.record.sync_flag === 2;
+
+                        if (canLoad) {
+                            triggerImageLoad();
+                        }
+                    }
+                } else {
+                    // 离开视窗 - 清理内存（但保持观察器运行）
+                    if (imageProtocolUrl.value && !showImagePreview.value) {
+                        // 延迟清理，避免快速滚动时频繁加载
+                        setTimeout(() => {
+                            // 再次检查是否仍然不可见且未在预览
+                            if (!entry.isIntersecting && !showImagePreview.value) {
+                                clearImageMemory();
+                            }
+                        }, 2000); // 2秒延迟清理
                     }
                 }
             },
             {
-                rootMargin: '100px',
+                rootMargin: '200px', // 增加边距，提前加载
                 threshold: 0
             }
         );
 
-        observer.observe(imageContainer.value);
-
-        // 组件卸载时清理
-        onUnmounted(() => {
-            observer.disconnect();
-        });
+        intersectionObserver.value.observe(imageContainer.value);
     }
+});
+
+// 组件卸载时清理
+onUnmounted(() => {
+    if (intersectionObserver.value) {
+        intersectionObserver.value.disconnect();
+        intersectionObserver.value = null;
+    }
+    // 清理图片内存
+    clearImageMemory();
 });
 </script>
 
