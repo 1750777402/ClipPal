@@ -145,7 +145,7 @@ impl CloudSyncTimer {
             }
         }
 
-        // 尝试获取锁，执行同步任务
+        // 使用细粒度锁，只防止多个云同步任务同时执行，不阻塞用户操作
         if let Some(guard) = sync_lock.try_lock() {
             log::info!("开始{}云同步", source);
             let result = self.execute_sync_task_with_source(source).await;
@@ -155,8 +155,8 @@ impl CloudSyncTimer {
                 log::error!("{}云同步失败: {}", source, e);
             }
         } else {
-            // 获取不到锁，说明已有同步任务在执行
-            log::info!("{}云同步在执行中，跳过", source);
+            // 获取不到锁，说明已有同步任务在执行，跳过避免重复同步
+            log::info!("{}云同步在执行中，跳过本次同步", source);
         }
     }
 
@@ -221,6 +221,13 @@ impl CloudSyncTimer {
                     unsynced_record.len(),
                     clips.len()
                 );
+
+                // 分离新记录和删除记录，批量处理以提高性能
+                let mut new_records_to_insert = Vec::new();
+                let mut delete_operations = Vec::new();
+                let mut search_index_updates = Vec::new();
+
+                // 预处理所有记录，分类处理
                 for clip in clips {
                     // 遍历每一条记录  查看是不是在本地已经存在了
                     let check_res = ClipRecord::check_by_type_and_md5(
@@ -229,14 +236,21 @@ impl CloudSyncTimer {
                         &clip.md5_str.clone().unwrap_or_default(),
                     )
                     .await?;
+
                     if check_res.is_empty() && matches!(clip.del_flag, Some(0)) {
                         // 如果本地没有这条记录 并且这条记录不是已经删除的 那么就插入新记录
                         let new_id = Uuid::new_v4().to_string();
                         let content = clip.content.clone();
                         let mut obj = clip.to_clip_record();
-                        obj.sort = 0;
                         obj.id = new_id.clone();
                         obj.sync_flag = Some(SYNCHRONIZED); // 设置为已同步
+
+                        // 优先使用云端的sync_time，如果没有则使用当前服务器时间
+                        // 这样可以保证云端数据的时间顺序
+                        if obj.sync_time.is_none() {
+                            obj.sync_time = Some(server_time);
+                        }
+
                         if obj.r#type == ClipType::Image.to_string()
                             || obj.r#type == ClipType::File.to_string()
                         {
@@ -245,19 +259,10 @@ impl CloudSyncTimer {
                         }
                         obj.pinned_flag = 0; // 默认不置顶
                         obj.cloud_source = Some(1); // 云端同步下来的设置为1
-                        let _ = ClipRecord::insert_by_created_sort(&self.rb, obj.clone()).await?;
-                        log::debug!("新增云记录: {} ({})", new_id, obj.r#type);
-                        has_data_changed = true; // 标记数据已变化
 
-                        // 插入成功后，更新搜索索引
-                        tokio::spawn(async move {
-                            if let Err(e) =
-                                add_content_to_index(&new_id, content.as_str().unwrap_or_default())
-                                    .await
-                            {
-                                log::error!("搜索索引更新失败: {}", e);
-                            }
-                        });
+                        new_records_to_insert.push(obj);
+                        search_index_updates.push((new_id, content));
+                        has_data_changed = true;
                     } else {
                         // 如果本地有这条记录，那么查看是不是云端同步的是被删除的，如果是那么本地也逻辑删除  并且把同步状态设置为已同步
                         if clip.del_flag.unwrap_or_default() == 1 {
@@ -265,16 +270,44 @@ impl CloudSyncTimer {
                                 "云同步删除记录: {}",
                                 clip.md5_str.clone().unwrap_or_default()
                             );
-                            // 如果是删除操作，逻辑删除记录
-                            ClipRecord::sync_del_by_ids(
-                                &self.rb,
-                                &vec![clip.id.unwrap_or_default()],
-                                server_time,
-                            )
-                            .await?;
-                            has_data_changed = true; // 标记数据已变化
+                            delete_operations.push(clip.id.unwrap_or_default());
+                            has_data_changed = true;
                         }
                     }
+                }
+
+                // 批量合并插入新记录（按sync_time与本地数据正确合并）
+                if !new_records_to_insert.is_empty() {
+                    let (inserted_count, failed_count) =
+                        ClipRecord::insert_batch_merge_by_sync_time(
+                            &self.rb,
+                            new_records_to_insert,
+                        )
+                        .await?;
+                    log::info!(
+                        "批量时间合并云记录: 成功{}条, 失败{}条",
+                        inserted_count,
+                        failed_count
+                    );
+
+                    // 异步更新搜索索引
+                    for (record_id, content) in search_index_updates {
+                        let id = record_id.clone();
+                        tokio::spawn(async move {
+                            if let Err(e) =
+                                add_content_to_index(&id, content.as_str().unwrap_or_default())
+                                    .await
+                            {
+                                log::error!("搜索索引更新失败: {}", e);
+                            }
+                        });
+                    }
+                }
+
+                // 批量处理删除操作
+                if !delete_operations.is_empty() {
+                    ClipRecord::sync_del_by_ids(&self.rb, &delete_operations, server_time).await?;
+                    log::debug!("批量删除云记录: {}条", delete_operations.len());
                 }
             }
 

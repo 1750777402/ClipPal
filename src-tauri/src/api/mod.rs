@@ -28,6 +28,21 @@ where
     P: serde::Serialize + Sized,
     T: for<'de> serde::Deserialize<'de>,
 {
+    execute_api_request_with_timeout(method, path, payload, retry_on_401, 30).await
+}
+
+/// 带超时的执行API请求的内部实现
+async fn execute_api_request_with_timeout<P, T>(
+    method: &str,
+    path: &str,
+    payload: Option<&P>,
+    retry_on_401: bool,
+    timeout_secs: u64,
+) -> Result<Option<T>, HttpError>
+where
+    P: serde::Serialize + Sized,
+    T: for<'de> serde::Deserialize<'de>,
+{
     let api_domain = get_api_domain()?;
     let url = format!("{}/{}", api_domain, path.trim_start_matches('/'));
 
@@ -45,7 +60,7 @@ where
     };
 
     let headers = get_common_headers(&token);
-    let client = HttpClient::new();
+    let client = HttpClient::new().timeout(timeout_secs);
 
     let resp: ApiResponse<T> = match method {
         "GET" => {
@@ -72,7 +87,7 @@ where
             match refresh_access_token().await {
                 Ok(Some(_new_token)) => {
                     // 使用新令牌重试请求（不再重试401）
-                    Box::pin(execute_api_request(method, path, payload, false)).await
+                    Box::pin(execute_api_request_with_timeout(method, path, payload, false, timeout_secs)).await
                 }
                 Ok(None) | Err(_) => Err(HttpError::RequestFailed(
                     "用户认证已过期，需要重新登录".to_string(),
@@ -108,6 +123,19 @@ where
     T: for<'de> serde::Deserialize<'de>,
 {
     execute_api_request("POST", path, payload, true).await
+}
+
+/// 带超时的POST API请求方法（需要认证）
+pub async fn api_post_with_timeout<P, T>(
+    path: &str,
+    payload: Option<&P>,
+    timeout_secs: u64,
+) -> Result<Option<T>, HttpError>
+where
+    P: serde::Serialize + Sized,
+    T: for<'de> serde::Deserialize<'de>,
+{
+    execute_api_request_with_timeout("POST", path, payload, true, timeout_secs).await
 }
 
 /// 公共API POST请求方法（不需要认证，如登录、注册等）

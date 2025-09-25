@@ -355,7 +355,7 @@ pub struct ImagePathInfo {
 
 /// 截断大文本，返回 (截断后内容, 是否被截断, 原始长度)
 fn truncate_large_text(content: &str) -> (String, bool, Option<usize>) {
-    const MAX_PREVIEW_SIZE: usize = 128 * 1024; // 128KB
+    const MAX_PREVIEW_SIZE: usize = 8 * 1024; // 8KB - 约100-150行代码或2-3页文档
 
     if content.len() <= MAX_PREVIEW_SIZE {
         (content.to_string(), false, None)

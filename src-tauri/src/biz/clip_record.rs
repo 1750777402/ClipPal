@@ -247,13 +247,18 @@ impl ClipRecord {
     }
 
     /// 更新sync_flag和skip_type
-    pub async fn update_sync_flag_and_skip_type(rb: &RBatis, id: &str, sync_flag: i32, skip_type: Option<i32>) -> AppResult<()> {
+    pub async fn update_sync_flag_and_skip_type(
+        rb: &RBatis,
+        id: &str,
+        sync_flag: i32,
+        skip_type: Option<i32>,
+    ) -> AppResult<()> {
         let sql = if skip_type.is_some() {
             "UPDATE clip_record SET sync_flag = ?, skip_type = ?, version = IFNULL(version, 0) + 1 WHERE id = ?"
         } else {
             "UPDATE clip_record SET sync_flag = ?, skip_type = NULL, version = IFNULL(version, 0) + 1 WHERE id = ?"
         };
-        
+
         let tx = rb.acquire_begin().await?;
         let params = if let Some(st) = skip_type {
             vec![to_value!(sync_flag), to_value!(st), to_value!(id)]
@@ -351,6 +356,194 @@ impl ClipRecord {
         tx.commit()
             .await
             .map_err(|e| AppError::Database(rbatis::Error::from(e)))
+    }
+
+    /// 批量按同步时间合并插入记录（容错式时间合并）
+    /// records: 需要插入的记录列表，必须包含sync_time字段
+    /// 返回: (成功插入的记录数量, 失败的记录数量)
+    pub async fn insert_batch_merge_by_sync_time(
+        rb: &RBatis,
+        mut records: Vec<ClipRecord>,
+    ) -> AppResult<(usize, usize)> {
+        if records.is_empty() {
+            return Ok((0, 0));
+        }
+
+        // 按sync_time排序，从旧到新
+        records.sort_by(|a, b| {
+            let a_time = a.sync_time.unwrap_or(0);
+            let b_time = b.sync_time.unwrap_or(0);
+            a_time.cmp(&b_time)
+        });
+
+        log::debug!("开始批量时间合并，待合并记录数量: {}", records.len());
+
+        let mut inserted_count = 0;
+        let mut failed_count = 0;
+        const MAX_RETRIES: usize = 3;
+
+        // 逐条处理，失败的记录不影响后续记录
+        for (index, mut record) in records.into_iter().enumerate() {
+            let cloud_sync_time = record.sync_time.unwrap_or(0);
+            let record_id = record.id.clone();
+            let mut retry_count = 0;
+            let mut record_success = false;
+
+            // 重试机制处理并发冲突
+            while retry_count < MAX_RETRIES && !record_success {
+                let tx = rb.acquire_begin().await?;
+
+                match Self::insert_single_record_with_merge(&tx, &mut record, cloud_sync_time).await
+                {
+                    Ok(()) => {
+                        // 成功插入，提交事务
+                        match tx.commit().await {
+                            Ok(()) => {
+                                inserted_count += 1;
+                                record_success = true;
+
+                                log::debug!(
+                                    "成功插入记录 {}/{}: id={}, sort={}, sync_time={:?}",
+                                    index + 1,
+                                    inserted_count + failed_count,
+                                    record.id,
+                                    record.sort,
+                                    record.sync_time
+                                );
+                            }
+                            Err(e) => {
+                                log::warn!(
+                                    "记录 {} 提交事务失败，重试 {}/{}: {}",
+                                    record_id,
+                                    retry_count + 1,
+                                    MAX_RETRIES,
+                                    e
+                                );
+                                retry_count += 1;
+
+                                // 短暂等待后重试
+                                if retry_count < MAX_RETRIES {
+                                    tokio::time::sleep(tokio::time::Duration::from_millis(
+                                        10 * retry_count as u64,
+                                    ))
+                                    .await;
+                                }
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        // 回滚事务
+                        let _ = tx.rollback().await;
+                        retry_count += 1;
+
+                        log::warn!(
+                            "记录 {}, md5:{},type:{} 插入失败，重试 {}/{}: {}",
+                            record_id,
+                            record.md5_str,
+                            record.r#type,
+                            retry_count,
+                            MAX_RETRIES,
+                            e
+                        );
+
+                        // 短暂等待后重试
+                        if retry_count < MAX_RETRIES {
+                            tokio::time::sleep(tokio::time::Duration::from_millis(
+                                10 * retry_count as u64,
+                            ))
+                            .await;
+                        }
+                    }
+                }
+            }
+
+            // 如果重试后仍然失败，记录失败但继续处理下一条
+            if !record_success {
+                failed_count += 1;
+                log::error!(
+                    "记录 {} (sync_time: {}) 最终插入失败，跳过继续处理后续记录",
+                    record_id,
+                    cloud_sync_time
+                );
+            }
+        }
+
+        if failed_count > 0 {
+            log::warn!(
+                "批量时间合并完成，成功: {}条，失败: {}条",
+                inserted_count,
+                failed_count
+            );
+        } else {
+            log::info!("批量时间合并完成，全部成功插入{}条记录", inserted_count);
+        }
+
+        Ok((inserted_count, failed_count))
+    }
+
+    /// 插入单条记录并进行时间合并（在事务内执行）
+    async fn insert_single_record_with_merge(
+        tx: &rbatis::executor::RBatisTxExecutor,
+        record: &mut ClipRecord,
+        cloud_sync_time: u64,
+    ) -> AppResult<()> {
+        #[derive(serde::Deserialize)]
+        struct SortRecord {
+            sort: i32,
+            sync_time: Option<u64>,
+        }
+
+        // 查找插入位置
+        let target_records: Vec<SortRecord> = tx.query_decode(
+            "SELECT sort, sync_time FROM clip_record WHERE del_flag = 0 AND (sync_time >= ? OR sync_time IS NULL) ORDER BY sync_time ASC, sort ASC LIMIT 1",
+            vec![to_value!(cloud_sync_time)]
+        ).await.map_err(|e| AppError::Database(e))?;
+
+        if let Some(target_record) = target_records.first() {
+            // 插入到中间位置
+            let target_sort = target_record.sort;
+
+            log::debug!(
+                "找到插入位置，目标sort: {}, 云端sync_time: {}, 目标sync_time: {:?}",
+                target_sort,
+                cloud_sync_time,
+                target_record.sync_time
+            );
+
+            // 批量更新sort值，为新记录腾出空间
+            let update_sql =
+                "UPDATE clip_record SET sort = sort + 1 WHERE sort >= ? AND del_flag = 0";
+            tx.exec(update_sql, vec![to_value!(target_sort)])
+                .await
+                .map_err(|e| AppError::Database(e))?;
+
+            record.sort = target_sort;
+        } else {
+            // 插入到最前面
+            let max_sort_records: Vec<SortRecord> = tx
+                .query_decode(
+                    "SELECT sort FROM clip_record WHERE del_flag = 0 ORDER BY sort DESC LIMIT 1",
+                    vec![],
+                )
+                .await
+                .map_err(|e| AppError::Database(e))?;
+
+            let max_sort = max_sort_records.get(0).map(|r| r.sort).unwrap_or(-1);
+            record.sort = max_sort + 1;
+
+            log::debug!(
+                "插入到最前面, 新sort: {}, 云端sync_time: {}",
+                record.sort,
+                cloud_sync_time
+            );
+        }
+
+        // 插入记录
+        ClipRecord::insert(tx, record)
+            .await
+            .map_err(|e| AppError::Database(e))?;
+
+        Ok(())
     }
 
     // /// 获取已同步记录数量（用于VIP限制检查）- 不再需要条数限制
