@@ -1,5 +1,5 @@
 use crate::auto_paste;
-use crate::{CONTEXT, biz::system_setting::Settings};
+use crate::{biz::system_setting::Settings, CONTEXT};
 use std::sync::{Arc, RwLock};
 use tauri::{App, Manager};
 use tauri_plugin_global_shortcut::GlobalShortcutExt;

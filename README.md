@@ -73,6 +73,27 @@ VIP界面
    cd ..
    cargo tauri build
    ```
+   
+   如果你需要版本更新功能，你需要：
+   ```bash
+   cargo tauri signer generate -w ~/.tauri/myapp.key
+   ```
+   上面这一步是生成你自己的软件更新公私钥，全局只需要执行一次，公钥你需要写到tauri.conf.json中，私钥你需要保存好，打包时需要配置到环境变量中(具体在下面有介绍)
+   下面这个是在软件版本更新时的打包流程：
+   ```bash
+   cd ./frontend
+   npm run build
+   cd ..
+   $env:TAURI_SIGNING_PRIVATE_KEY="自己的更新的私钥"
+   $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD="私钥的密码(生成公私钥的时候输入的那个密码)"
+   cargo tauri build
+   ```
+6. 上传新包 和 更新latest.json
+   ```
+   windows下：
+   打包后的新包会在target\release\bundle下，分别是msi和nsis，根据自身选择exe或者msi和对应的exe.sig或者msi.sig签名文件，并且需要把exe.sig或者msi.sig文件中的内容更新到latest.json中的对应平台的signature字段中，然后上传/更新 你的latest.json文件
+   ```
+
 
 ### 提示
 - 如果你想自己开发自己打包，项目中的config.json你可以自己修改，建议使用"git update-index --skip-worktree src-tauri/config.json" 忽略掉对这个配置文件的修改，因为这个文件中配置了加密秘钥，自然不能公开
@@ -101,6 +122,7 @@ VIP界面
 | v1.0.3   | 2025-06-28   | 新增了自动粘贴功能；新增了新手引导；优化前端对内容卡片的展示样式；优化了部分代码                                                           |
 | v1.0.4   | 2025-07-03   | 优化了前端代码，增加自适应UI，图片加载方式优化；去除了对内容的分词处理(安装包体积大大降低、内存占用率也大大降低)和.bin文件存储，采用内存搜索和bloomfilter配合的方式处理模糊搜索  |
 | v1.0.5   | 2025-09-04   | 处理了很多bug；添加了云同步功能；添加了用户登录相关功能；添加了vip和支付相关功能  |
+| v1.0.6   | 2025-10-27   | 添加自动更新功能  |
 
 
 

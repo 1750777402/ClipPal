@@ -1,12 +1,12 @@
 use crate::{
-    CONTEXT,
-    api::vip_api::{UserVipInfoResponse, user_vip_check},
+    api::vip_api::{user_vip_check, UserVipInfoResponse},
     biz::{
         clip_record::{ClipRecord, NOT_SYNCHRONIZED, SKIP_SYNC},
-        system_setting::{Settings, load_settings, save_settings, save_settings_to_file},
+        system_setting::{load_settings, save_settings, save_settings_to_file, Settings},
     },
     errors::{AppError, AppResult},
-    utils::secure_store::{SECURE_STORE, VipInfo, VipType},
+    utils::secure_store::{VipInfo, VipType, SECURE_STORE},
+    CONTEXT,
 };
 use log;
 use rbatis::RBatis;

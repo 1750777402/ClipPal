@@ -13,10 +13,10 @@ use tauri::{AppHandle, Emitter};
 use uuid::Uuid;
 
 use crate::{
-    CONTEXT,
     biz::clip_record::{ClipRecord, NOT_SYNCHRONIZED, SKIP_SYNC},
     biz::vip_checker::VipChecker,
     utils::{file_dir::get_resources_dir, file_ext::extract_full_extension},
+    CONTEXT,
 };
 use crate::{
     biz::{
@@ -325,14 +325,15 @@ async fn handle_text(
                     // 检查VIP文本大小限制（加密后的字节大小）
                     let content_size = encrypted.as_bytes().len() as u64;
                     let max_file_size = VipChecker::get_cached_max_file_size().unwrap_or(0);
-                    
+
                     if max_file_size > 0 && content_size > max_file_size {
                         // 超出VIP限制，设置为跳过同步
                         new_record.sync_flag = Some(SKIP_SYNC);
-                        new_record.skip_type = Some(2);  // 2: VIP限制，可再次同步
+                        new_record.skip_type = Some(2); // 2: VIP限制，可再次同步
                         log::info!(
-                            "文本超出VIP限制，设置为跳过同步: 文本大小={}字节, 限制={}字节", 
-                            content_size, max_file_size
+                            "文本超出VIP限制，设置为跳过同步: 文本大小={}字节, 限制={}字节",
+                            content_size,
+                            max_file_size
                         );
                     }
 
@@ -376,14 +377,15 @@ async fn handle_text(
             // 检查VIP文本大小限制（加密后的字节大小）
             let content_size = encrypted.as_bytes().len() as u64;
             let max_file_size = VipChecker::get_cached_max_file_size().unwrap_or(0);
-            
+
             if max_file_size > 0 && content_size > max_file_size {
                 // 超出VIP限制，设置为跳过同步
                 record.sync_flag = Some(SKIP_SYNC);
-                record.skip_type = Some(2);  // 2: VIP限制，可再次同步
+                record.skip_type = Some(2); // 2: VIP限制，可再次同步
                 log::info!(
-                    "文本超出VIP限制，设置为跳过同步: 文本大小={}字节, 限制={}字节", 
-                    content_size, max_file_size
+                    "文本超出VIP限制，设置为跳过同步: 文本大小={}字节, 限制={}字节",
+                    content_size,
+                    max_file_size
                 );
             }
 
@@ -449,14 +451,15 @@ async fn handle_image(
                     // 检查VIP图片大小限制
                     let image_size = data.len() as u64;
                     let max_file_size = VipChecker::get_cached_max_file_size().unwrap_or(0);
-                    
+
                     if max_file_size == 0 || image_size > max_file_size {
                         // 超出VIP限制，设置为跳过同步
                         new_record.sync_flag = Some(SKIP_SYNC);
-                        new_record.skip_type = Some(2);  // 2: VIP限制，可再次同步
+                        new_record.skip_type = Some(2); // 2: VIP限制，可再次同步
                         log::info!(
-                            "图片超出VIP限制，设置为跳过同步: 图片大小={}, 限制={}", 
-                            image_size, max_file_size
+                            "图片超出VIP限制，设置为跳过同步: 图片大小={}, 限制={}",
+                            image_size,
+                            max_file_size
                         );
                     }
 
@@ -501,14 +504,15 @@ async fn handle_image(
             // 检查VIP图片大小限制
             let image_size = data.len() as u64;
             let max_file_size = VipChecker::get_cached_max_file_size().unwrap_or(0);
-            
+
             if max_file_size == 0 || image_size > max_file_size {
                 // 超出VIP限制，设置为跳过同步
                 record.sync_flag = Some(SKIP_SYNC);
-                record.skip_type = Some(2);  // 2: VIP限制，可再次同步
+                record.skip_type = Some(2); // 2: VIP限制，可再次同步
                 log::info!(
-                    "图片超出VIP限制，设置为跳过同步: 图片大小={}, 限制={}", 
-                    image_size, max_file_size
+                    "图片超出VIP限制，设置为跳过同步: 图片大小={}, 限制={}",
+                    image_size,
+                    max_file_size
                 );
             }
 

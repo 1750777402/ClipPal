@@ -8,13 +8,13 @@ use tauri_plugin_clipboard_pal::desktop::ClipboardPal;
 use tauri_plugin_dialog::DialogExt;
 
 use crate::{
-    CONTEXT, auto_paste,
+    auto_paste,
     biz::{
         clip_async_queue::AsyncQueue,
         clip_record::ClipRecord,
         content_processor::ContentProcessor,
         content_search::remove_ids_from_index,
-        system_setting::{Settings, check_cloud_sync_enabled},
+        system_setting::{check_cloud_sync_enabled, Settings},
     },
     utils::{
         aes_util::decrypt_content,
@@ -22,6 +22,7 @@ use crate::{
         path_utils::{generate_file_not_found_error, str_to_safe_string},
     },
     window::{WindowHideFlag, WindowHideGuard},
+    CONTEXT,
 };
 
 #[derive(Clone, Serialize, Deserialize, Debug)]

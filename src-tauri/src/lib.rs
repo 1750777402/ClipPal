@@ -19,8 +19,8 @@ use crate::{
             update_user_info, user_register, validate_token,
         },
         vip_management::{
-            check_vip_permission, get_pay_result, get_pay_url, get_server_config, get_vip_limits, get_vip_status,
-            open_vip_purchase_page, refresh_vip_status,
+            check_vip_permission, get_pay_result, get_pay_url, get_server_config, get_vip_limits,
+            get_vip_status, open_vip_purchase_page, refresh_vip_status,
         },
     },
     log_config::init_logging,
@@ -89,6 +89,8 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let rb_for_run = rb_res.clone();
 
     tauri::Builder::default()
+        // 软件自动更新
+        .plugin(tauri_plugin_updater::Builder::new().build())
         // 本机系统对话框，用于打开和保存文件，以及消息对话框
         .plugin(tauri_plugin_dialog::init())
         // 保存窗口位置和大小，并在应用程序重新打开时恢复它们

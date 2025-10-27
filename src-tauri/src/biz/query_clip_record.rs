@@ -5,11 +5,11 @@ use std::fs;
 use std::path::Path;
 
 use crate::{
-    CONTEXT,
     biz::{
         clip_record::ClipRecord, content_processor::ContentProcessor,
         content_search::search_ids_by_content,
     },
+    CONTEXT,
 };
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -71,7 +71,6 @@ pub struct ImageInfo {
 pub struct GetImageParam {
     pub record_id: String,
 }
-
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct GetFullContentParam {
@@ -351,7 +350,6 @@ pub struct ImagePathInfo {
     pub file_path: String,
     pub protocol_url: String,
 }
-
 
 /// 截断大文本，返回 (截断后内容, 是否被截断, 原始长度)
 fn truncate_large_text(content: &str) -> (String, bool, Option<usize>) {

@@ -1,19 +1,21 @@
 #![allow(dead_code)]
 
-use async_channel::{Receiver, Sender, TryRecvError, bounded};
+use async_channel::{bounded, Receiver, Sender, TryRecvError};
 use rbatis::RBatis;
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter};
 use tokio::task;
-use tokio::time::{Duration, sleep};
+use tokio::time::{sleep, Duration};
 
-use crate::CONTEXT;
-use crate::api::cloud_sync_api::{ClipRecordParam, SingleCloudSyncParam, sync_single_clip_record};
-use crate::biz::clip_record::{ClipRecord, NOT_SYNCHRONIZED, SKIP_SYNC, SYNCHRONIZED, SYNCHRONIZING};
-use crate::errors::{AppError, AppResult};
+use crate::api::cloud_sync_api::{sync_single_clip_record, ClipRecordParam, SingleCloudSyncParam};
+use crate::biz::clip_record::{
+    ClipRecord, NOT_SYNCHRONIZED, SKIP_SYNC, SYNCHRONIZED, SYNCHRONIZING,
+};
 use crate::biz::vip_checker::VipChecker;
+use crate::errors::{AppError, AppResult};
 use crate::utils::file_dir::get_resources_dir;
 use crate::utils::lock_utils::GlobalSyncLock;
+use crate::CONTEXT;
 use clipboard_listener::ClipType;
 use std::path::PathBuf;
 
@@ -160,27 +162,30 @@ async fn handle_sync_inner(param: SingleCloudSyncParam) -> AppResult<i32> {
         update_sync_status(rb, &record_id, SKIP_SYNC, 0).await?;
         return Ok(SKIP_SYNC);
     }
-    
+
     // 检查文件大小限制（所有用户都需要检查，根据VIP等级有不同限制）
     if record_type == "file" || record_type == "image" {
         // 获取文件大小
         let file_size = get_file_size_from_param(&param.clip).await;
         // 获取当前用户的文件大小限制（根据VIP等级）
         let max_file_size = VipChecker::get_cached_max_file_size().unwrap_or(0);
-        
+
         if max_file_size == 0 {
             log::info!(
                 "用户不支持文件同步，暂不同步: 记录ID={}, 类型={}",
-                record_id, record_type
+                record_id,
+                record_type
             );
             // 注意：不修改sync_flag，保持为0，等用户升级VIP后可以同步
             return Ok(NOT_SYNCHRONIZED);
         }
-        
+
         if file_size > max_file_size {
             log::info!(
                 "文件超过大小限制，暂不同步: 记录ID={}, 大小={}, 限制={}",
-                record_id, file_size, max_file_size
+                record_id,
+                file_size,
+                max_file_size
             );
             // 注意：不修改sync_flag，保持为0，等用户升级VIP后可以同步
             return Ok(NOT_SYNCHRONIZED);
@@ -244,7 +249,7 @@ async fn get_file_size_from_param(clip: &ClipRecordParam) -> u64 {
             }
         }
     }
-    
+
     // 如果是文件，从local_file_path获取
     if let Some(local_path) = &clip.local_file_path {
         let paths: Vec<&str> = local_path.split(":::").collect();
@@ -254,7 +259,7 @@ async fn get_file_size_from_param(clip: &ClipRecordParam) -> u64 {
             }
         }
     }
-    
+
     0
 }
 
@@ -379,7 +384,7 @@ async fn check_single_file_size(file_path: &PathBuf) -> Result<(), String> {
                         Err(message)
                     }
                 }
-                Err(e) => Err(format!("检查VIP文件权限失败: {}", e))
+                Err(e) => Err(format!("检查VIP文件权限失败: {}", e)),
             }
         }
         Err(e) => Err(format!("读取文件元数据失败: {}", e)),

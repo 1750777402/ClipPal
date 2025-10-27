@@ -1,16 +1,16 @@
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    CONTEXT,
     api::user_auth_api::{
-        AuthResponse, CheckUsernameRequestParam, EmailCodeRequestParam, LoginRequestParam,
-        RegisterRequestParam, UpdateUserInfoParam, UserInfo as ApiUserInfo, 
-        check_username as api_check_username, send_email_code as api_send_email_code, 
+        check_username as api_check_username, send_email_code as api_send_email_code,
         update_user_info as api_update_user_info, user_login, user_logout as api_user_logout,
-        user_register as api_user_register,
+        user_register as api_user_register, AuthResponse, CheckUsernameRequestParam,
+        EmailCodeRequestParam, LoginRequestParam, RegisterRequestParam, UpdateUserInfoParam,
+        UserInfo as ApiUserInfo,
     },
     utils::secure_store::SECURE_STORE,
     utils::token_manager::has_valid_auth,
+    CONTEXT,
 };
 use tauri::Emitter;
 
@@ -457,31 +457,31 @@ pub struct UpdateNicknameRequest {
 #[tauri::command]
 pub async fn update_user_info(nick_name: String) -> Result<bool, String> {
     log::info!("更新用户昵称请求: {}", nick_name);
-    
+
     let trimmed_nickname = nick_name.trim();
     if trimmed_nickname.is_empty() {
         return Err("昵称不能为空".to_string());
     }
-    
+
     if trimmed_nickname.len() > 20 {
         return Err("昵称长度不能超过20个字符".to_string());
     }
-    
+
     let update_param = UpdateUserInfoParam {
         nick_name: trimmed_nickname.to_string(),
     };
-    
+
     match api_update_user_info(&update_param).await {
         Ok(response) => {
             if let Some(success) = response {
                 if success {
                     log::info!("昵称更新成功");
-                    
+
                     // 更新本地存储的用户信息
                     if let Err(e) = update_local_user_nickname(trimmed_nickname).await {
                         log::warn!("更新本地用户信息失败: {}", e);
                     }
-                    
+
                     Ok(true)
                 } else {
                     log::warn!("昵称更新失败: 服务器返回false");
@@ -504,29 +504,29 @@ async fn update_local_user_nickname(new_nickname: &str) -> Result<(), String> {
     let mut store = SECURE_STORE
         .write()
         .map_err(|e| format!("获取存储写锁失败: {}", e))?;
-    
+
     // 获取现有用户信息
     let user_info_json = store
         .get_user_info()
         .map_err(|e| format!("获取用户信息失败: {}", e))?;
-    
+
     if let Some(json_str) = user_info_json {
-        let mut api_user_info: ApiUserInfo = serde_json::from_str(&json_str)
-            .map_err(|e| format!("用户信息反序列化失败: {}", e))?;
-        
+        let mut api_user_info: ApiUserInfo =
+            serde_json::from_str(&json_str).map_err(|e| format!("用户信息反序列化失败: {}", e))?;
+
         // 更新昵称
         api_user_info.nick_name = Some(new_nickname.to_string());
-        
+
         // 重新序列化并存储
         let updated_json = serde_json::to_string(&api_user_info)
             .map_err(|e| format!("序列化更新后的用户信息失败: {}", e))?;
-        
+
         store
             .set_user_info(updated_json)
             .map_err(|e| format!("存储更新后的用户信息失败: {}", e))?;
-        
+
         log::info!("本地用户信息昵称已更新");
     }
-    
+
     Ok(())
 }

@@ -4,7 +4,7 @@ use crate::biz::system_setting::{
 };
 use crate::errors::AppResult;
 use crate::utils::lock_utils::lock_utils::safe_read_lock;
-use crate::{CONTEXT, biz::system_setting::Settings};
+use crate::{biz::system_setting::Settings, CONTEXT};
 use bloomfilter::Bloom;
 use clipboard_listener::ClipType;
 use dashmap::DashMap;

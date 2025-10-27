@@ -1,9 +1,9 @@
 use crate::{
-    CONTEXT,
     api::user_auth_api::{
-        AuthResponse, RefreshTokenRequestParam, refresh_token as api_refresh_token,
+        refresh_token as api_refresh_token, AuthResponse, RefreshTokenRequestParam,
     },
     utils::secure_store::SECURE_STORE,
+    CONTEXT,
 };
 use serde_json;
 use std::sync::{Arc, OnceLock, RwLock};

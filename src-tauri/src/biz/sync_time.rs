@@ -1,5 +1,5 @@
 use crate::errors::{AppError, AppResult};
-use rbatis::{RBatis, crud, impl_select};
+use rbatis::{crud, impl_select, RBatis};
 use rbs::to_value;
 use serde::{Deserialize, Serialize};
 

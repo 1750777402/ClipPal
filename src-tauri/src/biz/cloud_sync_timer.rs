@@ -8,13 +8,13 @@ use tokio::time::Duration;
 use uuid::Uuid;
 
 use crate::api::cloud_sync_api::{
-    ClipRecordParam, CloudSyncRequest, sync_clipboard, sync_server_time,
+    sync_clipboard, sync_server_time, ClipRecordParam, CloudSyncRequest,
 };
 use crate::biz::clip_record::{NOT_SYNCHRONIZED, SKIP_SYNC, SYNCHRONIZED, SYNCHRONIZING};
 use crate::biz::clip_record_clean::try_clean_clip_record;
 use crate::biz::content_search::add_content_to_index;
 use crate::biz::sync_time::SyncTime;
-use crate::biz::system_setting::{SYNC_INTERVAL_SECONDS, check_cloud_sync_enabled};
+use crate::biz::system_setting::{check_cloud_sync_enabled, SYNC_INTERVAL_SECONDS};
 use crate::biz::vip_checker::VipChecker;
 use crate::errors::{AppError, AppResult};
 use crate::utils::config::get_max_file_size_bytes;
@@ -23,9 +23,9 @@ use crate::utils::file_dir::get_resources_dir;
 use crate::utils::lock_utils::lock_utils::safe_read_lock;
 use crate::utils::token_manager::has_valid_auth;
 use crate::{
-    CONTEXT,
     biz::{clip_record::ClipRecord, system_setting::Settings},
     utils::lock_utils::GlobalSyncLock,
+    CONTEXT,
 };
 use std::path::PathBuf;
 

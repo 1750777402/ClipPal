@@ -12,7 +12,6 @@ use tauri_plugin_autostart::ManagerExt;
 use tauri_plugin_global_shortcut::GlobalShortcutExt;
 
 use crate::{
-    CONTEXT,
     biz::cloud_sync_timer::trigger_immediate_sync,
     biz::vip_checker::VipChecker,
     errors::{AppError, AppResult},
@@ -21,6 +20,7 @@ use crate::{
         file_dir::get_config_dir,
         lock_utils::lock_utils::{safe_read_lock, safe_write_lock},
     },
+    CONTEXT,
 };
 
 // 默认超过这个大小的内容，使用布隆过滤器进行搜索   不会进行contains
@@ -232,7 +232,10 @@ async fn validate_settings(settings: &Settings) -> AppResult<()> {
     if settings.max_records > max_allowed {
         // 根据不同的限制给出更友好的提示
         let vip_hint = if max_allowed <= 300 {
-            format!("您当前为免费用户，最多支持{}条记录。升级VIP可获得更多存储空间", max_allowed)
+            format!(
+                "您当前为免费用户，最多支持{}条记录。升级VIP可获得更多存储空间",
+                max_allowed
+            )
         } else if max_allowed <= 1000 {
             format!("您当前VIP等级最多支持{}条记录", max_allowed)
         } else {

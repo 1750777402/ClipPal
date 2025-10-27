@@ -173,7 +173,11 @@ fn get_macos_work_area(screen_width: i32, window_width: i32, scale_factor: f64) 
         } else {
             // 如果API调用失败，回退到固定值
             log::warn!("无法获取macOS屏幕信息，使用默认菜单栏高度");
-            if scale_factor >= 2.0 { 28 } else { 24 }
+            if scale_factor >= 2.0 {
+                28
+            } else {
+                24
+            }
         }
     };
 

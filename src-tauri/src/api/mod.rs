@@ -87,7 +87,14 @@ where
             match refresh_access_token().await {
                 Ok(Some(_new_token)) => {
                     // 使用新令牌重试请求（不再重试401）
-                    Box::pin(execute_api_request_with_timeout(method, path, payload, false, timeout_secs)).await
+                    Box::pin(execute_api_request_with_timeout(
+                        method,
+                        path,
+                        payload,
+                        false,
+                        timeout_secs,
+                    ))
+                    .await
                 }
                 Ok(None) | Err(_) => Err(HttpError::RequestFailed(
                     "用户认证已过期，需要重新登录".to_string(),

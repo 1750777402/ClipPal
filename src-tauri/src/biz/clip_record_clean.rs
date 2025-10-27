@@ -1,10 +1,9 @@
 use std::sync::{
-    Arc, RwLock,
     atomic::{AtomicBool, Ordering},
+    Arc, RwLock,
 };
 
 use crate::{
-    CONTEXT,
     biz::{
         clip_record::ClipRecord, content_search::remove_ids_from_index, system_setting::Settings,
     },
@@ -12,6 +11,7 @@ use crate::{
         file_dir::get_resources_dir, lock_utils::lock_utils::safe_read_lock,
         path_utils::to_safe_string,
     },
+    CONTEXT,
 };
 use clipboard_listener::ClipType;
 use once_cell::sync::Lazy;

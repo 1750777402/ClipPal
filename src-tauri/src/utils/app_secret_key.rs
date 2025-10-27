@@ -1,6 +1,6 @@
 use crate::errors::{AppError, AppResult};
 use crate::utils::config::get_global_secret_key;
-use base64::{Engine as _, engine::general_purpose};
+use base64::{engine::general_purpose, Engine as _};
 use once_cell::sync::Lazy;
 use serde::Deserialize;
 

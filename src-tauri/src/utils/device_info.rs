@@ -35,9 +35,9 @@ pub fn get_os_type_str() -> &'static str {
 pub fn get_device_id() -> String {
     #[cfg(target_os = "windows")]
     {
-        use std::process::{Command, Stdio};
         use std::os::windows::process::CommandExt;
-        
+        use std::process::{Command, Stdio};
+
         // 尝试获取主板序列号 - 隐藏CMD窗口
         if let Ok(output) = Command::new("wmic")
             .args(["baseboard", "get", "serialnumber"])

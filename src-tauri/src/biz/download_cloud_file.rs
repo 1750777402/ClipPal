@@ -7,8 +7,7 @@ use tokio::time::Duration;
 use uuid::Uuid;
 
 use crate::{
-    CONTEXT,
-    api::cloud_sync_api::{DownloadCloudFileParam, get_dowload_url},
+    api::cloud_sync_api::{get_dowload_url, DownloadCloudFileParam},
     biz::clip_record::{ClipRecord, SKIP_SYNC, SYNCHRONIZING},
     biz::query_clip_record::get_file_info_with_paths,
     errors::{AppError, AppResult},
@@ -16,9 +15,10 @@ use crate::{
         file_dir::get_resources_dir,
         file_ext::extract_full_extension_from_str,
         http_client,
-        retry_helper::{RetryConfig, retry_with_config},
+        retry_helper::{retry_with_config, RetryConfig},
         token_manager::has_valid_auth,
     },
+    CONTEXT,
 };
 use rbatis::RBatis;
 

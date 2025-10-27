@@ -10,7 +10,7 @@ use windows::Win32::{
     System::Threading::GetCurrentProcessId,
     UI::{
         Input::KeyboardAndMouse::{
-            INPUT, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_KEYUP, SendInput, VK_CONTROL, VK_V,
+            SendInput, INPUT, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_KEYUP, VK_CONTROL, VK_V,
         },
         WindowsAndMessaging::{
             GetForegroundWindow, GetWindowTextW, GetWindowThreadProcessId, IsWindow,
@@ -22,14 +22,14 @@ use windows::Win32::{
 #[cfg(target_os = "macos")]
 use cocoa::{
     appkit::{NSApp, NSApplication, NSWindow, NSWorkspace},
-    base::{NO, YES, id, nil},
+    base::{id, nil, NO, YES},
     foundation::{NSArray, NSNumber, NSString},
 };
 #[cfg(target_os = "macos")]
 use core_graphics::{
     event::{CGEvent, CGEventFlags, CGEventType, CGKeyCode},
     event_source::{CGEventSource, CGEventSourceStateID},
-    window::{CGWindowListCopyWindowInfo, CGWindowListOption, kCGWindowNumber, kCGWindowOwnerPID},
+    window::{kCGWindowNumber, kCGWindowOwnerPID, CGWindowListCopyWindowInfo, CGWindowListOption},
 };
 #[cfg(target_os = "macos")]
 use objc::{msg_send, runtime::Object, sel, sel_impl};

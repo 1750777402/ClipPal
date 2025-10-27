@@ -462,11 +462,20 @@ impl HttpClient {
 
         // 读取响应体
         let response_text = response.text().await.map_err(|e| {
-            log::error!("读取HTTP Raw响应失败 - URL: {}, 状态码: {}, 错误: {}", url, status, e);
+            log::error!(
+                "读取HTTP Raw响应失败 - URL: {}, 状态码: {}, 错误: {}",
+                url,
+                status,
+                e
+            );
             HttpError::NetworkError(format!("读取响应失败: {}", e))
         })?;
 
-        log::debug!("响应数据长度: {} 字节, 状态码: {}", response_text.len(), status);
+        log::debug!(
+            "响应数据长度: {} 字节, 状态码: {}",
+            response_text.len(),
+            status
+        );
 
         let response_data: T = if response_text.is_empty() {
             serde_json::from_str("null").map_err(|e| {
@@ -479,7 +488,12 @@ impl HttpClient {
             })?
         } else {
             serde_json::from_str(&response_text).map_err(|e| {
-                log::error!("Raw响应反序列化失败 - URL: {}, 状态码: {}, 错误: {}", url, status, e);
+                log::error!(
+                    "Raw响应反序列化失败 - URL: {}, 状态码: {}, 错误: {}",
+                    url,
+                    status,
+                    e
+                );
                 log::error!("服务器返回原始数据: {}", response_text);
                 HttpError::DeserializationFailed(format!("反序列化响应失败: {}", e))
             })?
@@ -546,11 +560,20 @@ impl HttpClient {
 
         // 读取响应体
         let response_text = response.text().await.map_err(|e| {
-            log::error!("读取HTTP响应失败 - URL: {}, 状态码: {}, 错误: {}", url, status_code, e);
+            log::error!(
+                "读取HTTP响应失败 - URL: {}, 状态码: {}, 错误: {}",
+                url,
+                status_code,
+                e
+            );
             HttpError::NetworkError(format!("读取响应失败: {}", e))
         })?;
 
-        log::debug!("响应数据长度: {} 字节, 状态码: {}", response_text.len(), status_code);
+        log::debug!(
+            "响应数据长度: {} 字节, 状态码: {}",
+            response_text.len(),
+            status_code
+        );
 
         // 如果状态码不是成功状态，记录错误信息
         if !status_code.is_success() {

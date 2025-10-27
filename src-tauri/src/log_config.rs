@@ -1,17 +1,17 @@
 use log::LevelFilter;
 use log4rs::{
-    Config,
     append::{
         console::ConsoleAppender,
         rolling_file::{
-            RollingFileAppender,
             policy::compound::{
-                CompoundPolicy, roll::fixed_window::FixedWindowRoller, trigger::size::SizeTrigger,
+                roll::fixed_window::FixedWindowRoller, trigger::size::SizeTrigger, CompoundPolicy,
             },
+            RollingFileAppender,
         },
     },
     config::{Appender, Root},
     encode::pattern::PatternEncoder,
+    Config,
 };
 
 use crate::utils::file_dir::get_logs_dir;

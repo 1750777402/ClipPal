@@ -3,17 +3,17 @@ use rbatis::RBatis;
 use std::path::PathBuf;
 use tauri::{AppHandle, Emitter};
 use tokio::task;
-use tokio::time::{Duration, sleep};
+use tokio::time::{sleep, Duration};
 
-use crate::CONTEXT;
-use crate::api::cloud_sync_api::{FileCloudSyncParam, get_upload_file_url, sync_upload_success};
+use crate::api::cloud_sync_api::{get_upload_file_url, sync_upload_success, FileCloudSyncParam};
 use crate::biz::clip_record::{ClipRecord, SKIP_SYNC, SYNCHRONIZED, SYNCHRONIZING};
 use crate::biz::system_setting::check_cloud_sync_enabled;
 use crate::biz::vip_checker::VipChecker;
 use crate::errors::{AppError, AppResult};
 use crate::utils::file_dir::get_resources_dir;
-use crate::utils::retry_helper::{RetryConfig, retry_with_config};
+use crate::utils::retry_helper::{retry_with_config, RetryConfig};
 use crate::utils::token_manager::has_valid_auth;
+use crate::CONTEXT;
 
 /// 这个定时任务是云同步上传记录时，文件类型的内容上传到云端的任务
 

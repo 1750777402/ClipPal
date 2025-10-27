@@ -1,7 +1,7 @@
 use crate::errors::{AppError, AppResult};
 use crate::{
-    CONTEXT,
     utils::{file_dir::get_data_dir, path_utils::to_safe_string},
+    CONTEXT,
 };
 use rbatis::RBatis;
 use serde::{Deserialize, Serialize};

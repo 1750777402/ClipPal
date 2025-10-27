@@ -1,8 +1,8 @@
 use aes_gcm::aead::{Aead, KeyInit};
 use aes_gcm::{Aes256Gcm, Key, Nonce};
-use base64::{Engine as _, engine::general_purpose};
-use rand::TryRngCore;
+use base64::{engine::general_purpose, Engine as _};
 use rand::rngs::OsRng;
+use rand::TryRngCore;
 
 use crate::{
     errors::{AppError, AppResult},

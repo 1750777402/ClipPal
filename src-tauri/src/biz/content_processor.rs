@@ -21,13 +21,11 @@ impl ContentProcessor {
         Self::process_raw_content(content)
     }
 
-
     /// 处理文件内容，将文件路径字符串转换为 JSON 数组字符串
     pub fn process_file_content(content: &str) -> String {
         let restored: Vec<String> = content.split(":::").map(|s| s.to_string()).collect();
         serde_json::to_string(&restored).unwrap_or_default()
     }
-
 
     /// 根据剪贴板类型处理内容
     pub fn process_by_clip_type(clip_type: &str, content: Value) -> String {
