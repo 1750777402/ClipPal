@@ -24,6 +24,7 @@ use crate::{
         },
     },
     log_config::init_logging,
+    updater::update,
     utils::lock_utils::create_global_sync_lock,
 };
 
@@ -42,6 +43,7 @@ mod global_shortcut;
 mod log_config;
 mod sqlite_storage;
 mod tray;
+mod updater;
 mod utils;
 mod window;
 
@@ -143,6 +145,11 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
             tokio::spawn(async move {
                 start_cloud_file_download_timer(app_handle_download).await;
             });
+            let handle2 = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                update(handle2).await.unwrap();
+            });
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
