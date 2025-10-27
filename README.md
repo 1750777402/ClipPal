@@ -67,11 +67,11 @@ VIP界面
    # 或 npm run tauri dev
    ```
 5. 打包发布：
-   这一步是生成你自己的软件更新公私钥，全局只需要执行一次，公钥你需要写到tauri.conf.json中，私钥你需要保存好，打包时需要配置到环境变量中(具体在下面有介绍)
+   - 这一步是生成你自己的软件更新公私钥，全局只需要执行一次，公钥你需要写到tauri.conf.json中，私钥你需要保存好，打包时需要配置到环境变量中(具体在下面有介绍)
    ```bash
    cargo tauri signer generate -w ~/.tauri/myapp.key
    ```
-   下面这个是在软件版本更新时的打包流程：
+   - 下面这个是在软件版本更新时的打包流程：
    ```bash
    cd ./frontend
    npm run build
@@ -80,7 +80,7 @@ VIP界面
    $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD="私钥的密码(生成公私钥的时候输入的那个密码)"
    cargo tauri build
    ```
-   如果你不需要版本更新功能，首先修改tauri.conf.json中的plugins.updater.active为false，然后：
+   - 如果你不需要版本更新功能，首先修改tauri.conf.json中的plugins.updater.active为false，然后：
    ```bash
    cd ./frontend
    npm run build
