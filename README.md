@@ -67,18 +67,10 @@ VIP界面
    # 或 npm run tauri dev
    ```
 5. 打包发布：
-   ```bash
-   cd ./frontend
-   npm run build
-   cd ..
-   cargo tauri build
-   ```
-   
-   如果你需要版本更新功能，你需要：
+   这一步是生成你自己的软件更新公私钥，全局只需要执行一次，公钥你需要写到tauri.conf.json中，私钥你需要保存好，打包时需要配置到环境变量中(具体在下面有介绍)
    ```bash
    cargo tauri signer generate -w ~/.tauri/myapp.key
    ```
-   上面这一步是生成你自己的软件更新公私钥，全局只需要执行一次，公钥你需要写到tauri.conf.json中，私钥你需要保存好，打包时需要配置到环境变量中(具体在下面有介绍)
    下面这个是在软件版本更新时的打包流程：
    ```bash
    cd ./frontend
@@ -88,10 +80,18 @@ VIP界面
    $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD="私钥的密码(生成公私钥的时候输入的那个密码)"
    cargo tauri build
    ```
+   如果你不需要版本更新功能，首先修改tauri.conf.json中的plugins.updater.active为false，然后：
+   ```bash
+   cd ./frontend
+   npm run build
+   cd ..
+   cargo tauri build
+   ```
 6. 上传新包 和 更新latest.json
    ```
    windows下：
-   打包后的新包会在target\release\bundle下，分别是msi和nsis，根据自身选择exe或者msi和对应的exe.sig或者msi.sig签名文件，并且需要把exe.sig或者msi.sig文件中的内容更新到latest.json中的对应平台的signature字段中，然后上传/更新 你的latest.json文件
+   打包后的新包会在target\release\bundle下，分别是msi和nsis，根据自身选择exe或者msi作为你的安装包。
+   如果你需要自动更新功能，那么在target\release\bundle中的msi和nsis下有对应的exe.sig或者msi.sig签名文件，并且需要把exe.sig或者msi.sig文件中的内容更新到latest.json中的对应平台的signature字段中，然后上传/更新 你的latest.json文件
    ```
 
 
