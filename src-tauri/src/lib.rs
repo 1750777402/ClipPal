@@ -145,6 +145,8 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
             tokio::spawn(async move {
                 start_cloud_file_download_timer(app_handle_download).await;
             });
+
+            // 软件版本更新检测
             let handle2 = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 update(handle2).await.unwrap();
