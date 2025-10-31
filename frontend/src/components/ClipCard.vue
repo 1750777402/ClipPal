@@ -170,9 +170,15 @@
         </div>
     </div>
 
-    <!-- 图片预览组件 -->
-    <vue-easy-lightbox v-if="record.type === 'Image' && imageProtocolUrl" :visible="showImagePreview"
-        :imgs="[{ src: imageProtocolUrl }]" :index="0" @hide="showImagePreview = false" />
+    <!-- 图片预览模态框 -->
+    <div v-if="showImagePreview" class="image-preview-modal" @click.self="showImagePreview = false">
+        <div class="image-preview-container">
+            <button class="preview-close-btn" @click="showImagePreview = false" title="关闭">
+                <i class="iconfont icon-close"></i>
+            </button>
+            <img :src="imageProtocolUrl" class="preview-image" alt="预览图片" />
+        </div>
+    </div>
 
     <template v-if="showConfirm">
         <div class="confirm-mask" @click.self="cancelDelete">
@@ -218,7 +224,6 @@ import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import { formatDistanceToNow } from 'date-fns';
 import { zhCN } from 'date-fns/locale';
 import { invoke, convertFileSrc } from '@tauri-apps/api/core';
-import VueEasyLightbox from 'vue-easy-lightbox';
 import SmartContentDisplay from './SmartContentDisplay.vue';
 import { clipApi, settingsApi, isSuccess } from '../utils/api';
 
@@ -2118,6 +2123,66 @@ onUnmounted(() => {
 @keyframes spin {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
+}
+
+/* 图片预览模态框 */
+.image-preview-modal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.9);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10000;
+  animation: fadeIn 0.3s ease-in-out;
+}
+
+.image-preview-container {
+  position: relative;
+  max-width: 90vw;
+  max-height: 90vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.preview-image {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  border-radius: 8px;
+}
+
+.preview-close-btn {
+  position: absolute;
+  top: -40px;
+  right: 0;
+  background: none;
+  border: none;
+  color: white;
+  font-size: 24px;
+  cursor: pointer;
+  padding: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.2s;
+}
+
+.preview-close-btn:hover {
+  transform: scale(1.2);
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 </style>
