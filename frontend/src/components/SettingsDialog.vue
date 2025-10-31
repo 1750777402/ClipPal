@@ -89,15 +89,18 @@
       </div>
 
       <div class="settings-footer">
-        <button class="cancel-button" @click="handleClose">取消</button>
-        <button class="confirm-button" @click="handleConfirm" :disabled="isSaving || hasErrors">
-          {{ isSaving ? '保存中...' : '确认' }}
-        </button>
+        <div class="left-buttons">
+          <button class="update-button" @click="checkUpdate">检查更新</button>
+        </div>
+        <div class="right-buttons">
+          <button class="cancel-button" @click="handleClose">取消</button>
+          <button class="confirm-button" @click="handleConfirm" :disabled="isSaving || hasErrors">
+            {{ isSaving ? '保存中...' : '保存' }}
+          </button>
+        </div>
       </div>
     </div>
     
-    <!-- VIP升级对话框 -->
-    <VipUpgradeDialog v-model="showVipDialog" />
   </div>
 </template>
 
@@ -143,9 +146,6 @@ let cloudSyncDisabledListener: (() => void) | null = null;
 
 // 用户状态管理
 const userStore = useUserStore();
-
-// VIP状态管理
-const showVipDialog = ref(false);
 
 // 使用响应式工具
 const responsive = useWindowAdaptive();
@@ -465,6 +465,12 @@ const handleClickOutside = (e: MouseEvent) => {
       stopRecording();
     }
   }
+};
+
+const checkUpdate = async () => {
+  // 发送事件给父组件打开更新对话框
+  const event = new CustomEvent('check-update', { detail: {} });
+  window.dispatchEvent(event);
 };
 
 onMounted(async () => {
@@ -801,24 +807,34 @@ input:checked+.slider:before {
 }
 
 .settings-footer {
-  padding: var(--spacing-lg) var(--spacing-xl);
-  border-top: var(--border-width) solid var(--border-color);
   display: flex;
-  justify-content: flex-end;
+  justify-content: space-between; /* 左右分布 */
+  align-items: center;
+  padding: var(--spacing-md) var(--spacing-lg);
+  border-top: 1px solid var(--border-color, #d1d9e6);
+  flex-wrap: wrap; /* 小屏自动换行 */
+  gap: var(--spacing-md);
+  background: var(--footer-bg, #f9fafc);
+}
+
+/* 左右按钮组 */
+.left-buttons,
+.right-buttons {
+  display: flex;
+  align-items: center;
   gap: var(--spacing-md);
 }
 
+
+/* 右侧按钮样式一致 */
 .cancel-button,
 .confirm-button {
-  padding: var(--spacing-sm) var(--spacing-xl);
   border-radius: var(--radius-md);
+  padding: var(--spacing-sm) var(--spacing-xl);
   font-size: calc(var(--text-base) * var(--settings-font-scale));
   font-weight: 600;
   cursor: pointer;
   transition: all 0.2s ease;
-  letter-spacing: 0.2px;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
-  font-feature-settings: 'kern' 1;
 }
 
 .cancel-button {
@@ -947,6 +963,22 @@ input:checked+.slider:before {
   gap: var(--spacing-md);
 }
 
+.update-button {
+  background: var(--button-bg, #fff);
+  border: 1px solid var(--border-color, #d1d9e6);
+  color: var(--text-primary, #2d3748);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-sm) var(--spacing-xl);
+  font-size: calc(var(--text-base) * var(--settings-font-scale));
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.update-button:hover {
+  background: var(--hover-bg, rgba(0, 0, 0, 0.05));
+}
+
 /* Windows平台特殊优化 */
 @media (-ms-high-contrast: none), (-ms-high-contrast: active) {
   .settings-overlay {
@@ -969,6 +1001,17 @@ input:checked+.slider:before {
     .settings-dialog {
       backdrop-filter: blur(20px);
       background: rgba(245, 247, 250, 0.95);
+    }
+
+    .settings-footer {
+      flex-direction: column;
+      align-items: stretch; /* 左右都拉满 */
+    }
+
+    .left-buttons,
+    .right-buttons {
+      justify-content: space-between;
+      width: 100%;
     }
   }
 }

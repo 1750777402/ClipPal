@@ -13,6 +13,7 @@ use crate::{
         download_cloud_file::start_cloud_file_download_timer,
         query_clip_record::{get_clip_records, get_full_text_content, get_image_path},
         system_setting::{init_settings, load_settings, save_settings, validate_shortcut},
+        update_checker::check_update_on_startup,
         upload_cloud_timer::start_upload_cloud_timer,
         user_auth::{
             check_login_status, check_username, get_user_info, login, logout, send_email_code,
@@ -24,7 +25,7 @@ use crate::{
         },
     },
     log_config::init_logging,
-    updater::update,
+    updater::{check_soft_version, download_and_install_update},
     utils::lock_utils::create_global_sync_lock,
 };
 
@@ -146,10 +147,11 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
                 start_cloud_file_download_timer(app_handle_download).await;
             });
 
-            // 软件版本更新检测
-            let handle2 = app.handle().clone();
-            tauri::async_runtime::spawn(async move {
-                update(handle2).await.unwrap();
+            // 应用启动时检查一次更新（5 秒后在后台执行）
+            let app_handle_update = app.handle().clone();
+            tokio::spawn(async move {
+                tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+                check_update_on_startup(app_handle_update).await;
             });
 
             Ok(())
@@ -184,7 +186,10 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
             refresh_vip_status,
             get_server_config,
             get_pay_url,
-            get_pay_result
+            get_pay_result,
+            // 检查版本和更新
+            check_soft_version,
+            download_and_install_update,
         ])
         .build(tauri::generate_context!())
         .unwrap_or_else(|e| {

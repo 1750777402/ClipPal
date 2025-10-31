@@ -10,6 +10,7 @@ pub mod download_cloud_file;
 pub mod query_clip_record;
 pub mod sync_time;
 pub mod system_setting;
+pub mod update_checker;
 pub mod upload_cloud_timer;
 pub mod user_auth;
 pub mod vip_checker;

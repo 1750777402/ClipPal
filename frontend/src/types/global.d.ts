@@ -55,6 +55,23 @@ interface ApiResponse<T = any> {
   error?: string;
 }
 
+// 更新信息类型
+export interface UpdateInfo {
+  has_update: boolean;
+  current_version: string;
+  latest_version: string;
+  body?: string;
+  size?: number;
+  date?: string;
+}
+
+// 更新进度类型
+export interface UpdateProgress {
+  downloaded: number;
+  total: number;
+  percentage: number;
+}
+
 // 组件事件类型
 interface ComponentEvents {
   'update:modelValue': [value: boolean];
@@ -72,4 +89,4 @@ declare global {
   }
 }
 
-export {};
+export { };

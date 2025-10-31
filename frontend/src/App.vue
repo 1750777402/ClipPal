@@ -4,6 +4,7 @@
     <MessageBar v-if="messageBar.visible" :message="messageBar.message" :type="messageBar.type"
       @mouseenter="onMessageBarEnter" @mouseleave="onMessageBarLeave" />
     <TutorialGuide ref="tutorialGuideRef" />
+    <UpdateDialog v-model="showUpdateDialog" ref="updateDialogRef" />
   </div>
 </template>
 
@@ -13,12 +14,15 @@ import { listen } from '@tauri-apps/api/event';
 import MessageBar from './components/MessageBar.vue';
 import ScrollContainer from './components/ScrollContainer.vue';
 import TutorialGuide from './components/TutorialGuide.vue';
+import UpdateDialog from './components/UpdateDialog.vue';
 import { useBreakpoint, generateResponsiveClasses } from './utils/responsive';
 import { setErrorHandler, ErrorSeverity, getFriendlyErrorMessage } from './utils/api';
 import { useUserStore } from './utils/userStore';
 import { useVipStore } from './utils/vipStore';
 
 const messageBar = ref({ visible: false, message: '', type: 'info' as 'info' | 'warning' | 'error' });
+const showUpdateDialog = ref(false);
+const updateDialogRef = ref<InstanceType<typeof UpdateDialog> | null>(null);
 let closeTimer: ReturnType<typeof setTimeout> | null = null;
 let isHovering = false;
 
@@ -61,6 +65,7 @@ const vipStore = useVipStore();
 let authExpiredListener: (() => void) | null = null;
 let authClearedListener: (() => void) | null = null;
 let cloudSyncDisabledListener: (() => void) | null = null;
+let updateAvailableListener: (() => void) | null = null;
 
 // 设置全局错误处理器和事件监听
 onMounted(async () => {
@@ -108,7 +113,24 @@ onMounted(async () => {
     showMessageBar('云同步功能已关闭', 'info');
     // TODO: 更新前端云同步状态
   });
+
+  // 监听后端发送的更新可用事件
+  updateAvailableListener = await listen('update-available', (event: any) => {
+    console.log('发现新版本:', event.payload);
+    const { latest_version } = event.payload;
+    showMessageBar(`发现新版本 ${latest_version}，请在设置中更新`, 'info');
+  });
+
+  // 监听手动检查更新事件
+  window.addEventListener('check-update', () => {
+    showUpdateDialog.value = true;
+    if (updateDialogRef.value) {
+      updateDialogRef.value.checkUpdate();
+    }
+  });
 });
+
+
 
 // 清理事件监听器
 onUnmounted(() => {
@@ -117,14 +139,15 @@ onUnmounted(() => {
     clearTimeout(closeTimer);
     closeTimer = null;
   }
-  
+
   // 清理事件监听器，增强错误处理
   const listeners = [
     { listener: authExpiredListener, name: 'authExpired' },
     { listener: authClearedListener, name: 'authCleared' },
-    { listener: cloudSyncDisabledListener, name: 'cloudSyncDisabled' }
+    { listener: cloudSyncDisabledListener, name: 'cloudSyncDisabled' },
+    { listener: updateAvailableListener, name: 'updateAvailable' }
   ];
-  
+
   listeners.forEach(({ listener, name }) => {
     if (listener && typeof listener === 'function') {
       try {
@@ -134,11 +157,12 @@ onUnmounted(() => {
       }
     }
   });
-  
+
   // 重置引用防止内存泄漏
   authExpiredListener = null;
   authClearedListener = null;
   cloudSyncDisabledListener = null;
+  updateAvailableListener = null;
 });
 </script>
 
