@@ -105,6 +105,7 @@ const updateInfo = ref<UpdateInfo | null>(null)
 const downloadProgress = ref(0)
 const errorMessage = ref('')
 const currentVersion = ref('1.0.6')
+const isFromAutoCheck = ref(false) // 标记是否来自自动检查
 
 const formatChangelog = (body: string): string => {
   // 简单的 Markdown 转 HTML
@@ -147,6 +148,18 @@ const checkUpdate = async () => {
   }
 }
 
+// 直接设置更新信息（来自后端自动检查）
+const setUpdateInfo = (info: UpdateInfo) => {
+  updateInfo.value = info
+  isFromAutoCheck.value = true
+
+  if (info.has_update) {
+    updateState.value = 'has-update'
+  } else {
+    updateState.value = 'no-update'
+  }
+}
+
 const handleUpdate = async () => {
   updateState.value = 'downloading'
   downloadProgress.value = 0
@@ -185,7 +198,8 @@ const init = () => {
 
 defineExpose({
   init,
-  checkUpdate
+  checkUpdate,
+  setUpdateInfo
 })
 </script>
 

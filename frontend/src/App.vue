@@ -117,13 +117,13 @@ onMounted(async () => {
   // 监听后端发送的更新可用事件
   updateAvailableListener = await listen('update-available', (event: any) => {
     console.log('发现新版本:', event.payload);
-    // 直接打开更新对话框，让用户自行选择是否更新
+    // 直接打开更新对话框，使用后端发送的信息，不再检查一次
     showUpdateDialog.value = true;
     if (updateDialogRef.value) {
       // 延迟一帧确保对话框已挂载
       setTimeout(() => {
         if (updateDialogRef.value) {
-          updateDialogRef.value.checkUpdate();
+          updateDialogRef.value.setUpdateInfo(event.payload);
         }
       }, 0);
     }
