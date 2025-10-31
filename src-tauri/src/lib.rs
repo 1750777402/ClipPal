@@ -11,7 +11,9 @@ use crate::{
             image_save_as, set_pinned,
         },
         download_cloud_file::start_cloud_file_download_timer,
-        query_clip_record::{get_clip_records, get_full_text_content, get_image_path},
+        query_clip_record::{
+            get_clip_records, get_full_text_content, get_image_info_batch, get_image_path,
+        },
         system_setting::{init_settings, load_settings, save_settings, validate_shortcut},
         update_checker::check_update_on_startup,
         upload_cloud_timer::start_upload_cloud_timer,
@@ -159,6 +161,7 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
         .invoke_handler(tauri::generate_handler![
             get_clip_records,
             get_image_path,
+            get_image_info_batch,
             get_full_text_content,
             copy_clip_record,
             copy_clip_record_no_paste,

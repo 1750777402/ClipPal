@@ -5,11 +5,11 @@ use std::fs;
 use std::path::Path;
 
 use crate::{
+    CONTEXT,
     biz::{
         clip_record::ClipRecord, content_processor::ContentProcessor,
         content_search::search_ids_by_content,
     },
-    CONTEXT,
 };
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -44,6 +44,24 @@ pub struct ClipRecordDTO {
     pub content_truncated: bool,
     // 原始内容长度（字节）
     pub original_content_length: Option<usize>,
+}
+
+/// 轻量级 DTO - 用于列表查询，延迟加载图片信息
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ClipRecordLiteDTO {
+    pub id: String,
+    pub r#type: String,
+    pub content: String,
+    pub os_type: String,
+    pub created: u64,
+    pub pinned_flag: i32,
+    pub file_info: Vec<FileInfo>,
+    pub sync_flag: Option<i32>,
+    pub cloud_source: Option<i32>,
+    pub content_truncated: bool,
+    pub original_content_length: Option<usize>,
+    // 标记是否有图片（用于前端判断是否需要加载图片信息）
+    pub has_image: bool,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -84,8 +102,9 @@ pub struct FullContentResponse {
     pub content_length: usize,
 }
 
+/// 获取剪贴记录列表 - 使用轻量级 DTO，延迟加载图片信息
 #[tauri::command]
-pub async fn get_clip_records(param: QueryParam) -> Result<Vec<ClipRecordDTO>, String> {
+pub async fn get_clip_records(param: QueryParam) -> Result<Vec<ClipRecordLiteDTO>, String> {
     let offset = (param.page - 1) * param.size;
     let rb: &RBatis = CONTEXT.get::<RBatis>();
     // 执行数据库查询逻辑
@@ -119,7 +138,7 @@ pub async fn get_clip_records(param: QueryParam) -> Result<Vec<ClipRecordDTO>, S
                     .to_string();
                 let content =
                     ContentProcessor::process_by_clip_type(&item.r#type, item.content.clone());
-                return ClipRecordDTO {
+                return ClipRecordLiteDTO {
                     id: item.id.clone(),
                     r#type: item.r#type.clone(),
                     content,
@@ -127,29 +146,28 @@ pub async fn get_clip_records(param: QueryParam) -> Result<Vec<ClipRecordDTO>, S
                     created: item.created,
                     pinned_flag: item.pinned_flag,
                     file_info: get_file_info_with_paths(content_str, local_paths),
-                    image_info: None,
                     sync_flag: item.sync_flag,
                     cloud_source: item.cloud_source,
-                    content_truncated: false, // 文件类型不截断
+                    content_truncated: false,
                     original_content_length: None,
+                    has_image: false,
                 };
             } else if item.r#type == ClipType::Image.to_string() {
-                // 对于图片类型，不转换为base64，而是返回元数据
+                // 对于图片类型，不获取图片信息，只返回路径和标记
                 let image_path = item.content.as_str().unwrap_or_default();
-                let image_info = get_image_info(image_path);
-                return ClipRecordDTO {
+                return ClipRecordLiteDTO {
                     id: item.id.clone(),
                     r#type: item.r#type.clone(),
-                    content: image_path.to_string(), // 只返回路径
+                    content: image_path.to_string(),
                     os_type: item.os_type.clone(),
                     created: item.created,
                     pinned_flag: item.pinned_flag,
                     file_info: vec![],
-                    image_info,
                     sync_flag: item.sync_flag,
                     cloud_source: item.cloud_source,
-                    content_truncated: false, // 图片类型不截断
+                    content_truncated: false,
                     original_content_length: None,
+                    has_image: true, // 标记为图片，前端按需加载
                 };
             } else {
                 // 处理文本类型，如果内容过大则截断
@@ -158,7 +176,7 @@ pub async fn get_clip_records(param: QueryParam) -> Result<Vec<ClipRecordDTO>, S
                 let (truncated_content, is_truncated, original_length) =
                     truncate_large_text(&processed_content);
 
-                return ClipRecordDTO {
+                return ClipRecordLiteDTO {
                     id: item.id.clone(),
                     r#type: item.r#type.clone(),
                     content: truncated_content,
@@ -166,11 +184,11 @@ pub async fn get_clip_records(param: QueryParam) -> Result<Vec<ClipRecordDTO>, S
                     created: item.created,
                     pinned_flag: item.pinned_flag,
                     file_info: vec![],
-                    image_info: None,
                     sync_flag: item.sync_flag,
                     cloud_source: item.cloud_source,
                     content_truncated: is_truncated,
                     original_content_length: original_length,
+                    has_image: false,
                 };
             }
         })
@@ -378,6 +396,37 @@ fn truncate_large_text(content: &str) -> (String, bool, Option<usize>) {
         let truncated = content[..end_pos].to_string();
         (truncated, true, Some(content.len()))
     }
+}
+
+/// 批量获取图片信息 - 前端按需调用此接口加载图片元数据
+#[tauri::command]
+pub async fn get_image_info_batch(
+    record_ids: Vec<String>,
+) -> Result<std::collections::HashMap<String, ImageInfo>, String> {
+    use std::collections::HashMap;
+
+    let rb: &RBatis = CONTEXT.get::<RBatis>();
+    let mut result = HashMap::new();
+
+    for id in record_ids {
+        match ClipRecord::select_by_id(rb, &id).await {
+            Ok(records) => {
+                if let Some(record) = records.first() {
+                    if record.r#type == ClipType::Image.to_string() {
+                        let image_path = record.content.as_str().unwrap_or_default();
+                        if let Some(info) = get_image_info(image_path) {
+                            result.insert(id, info);
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                log::warn!("获取图片信息失败，记录ID: {}, 错误: {}", id, e);
+            }
+        }
+    }
+
+    Ok(result)
 }
 
 // 获取记录的完整文本内容

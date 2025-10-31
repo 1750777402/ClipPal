@@ -39,11 +39,11 @@
           <div class="skeleton-content"></div>
         </div>
       </div>
-      
-      <!-- 真实数据，透明度渐变 -->
+
+      <!-- 真实数据，透明度渐变 - 正常流式布局 -->
       <div class="real-content" :class="{ 'content-updating': isRefreshing }">
         <ClipCard
-          v-for="item in visibleCards"
+          v-for="item in cards"
           :key="item.id"
           v-memo="[item.id, item.pinned_flag, item.sync_flag, item.content, item.created, cloudSyncEnabled]"
           :record="item"
@@ -52,21 +52,20 @@
           @click="handleCardClick"
           @pin="handlePin"
           @delete="handleDel" />
-
       </div>
     </div>
 
-    <!-- 正常数据显示 -->
-    <div class="clip-list" v-else @scroll.passive="handleScroll" ref="scrollContainer">
+    <!-- 正常数据显示 - 流式布局 -->
+    <div class="clip-list" v-else ref="scrollContainer" @scroll.passive="handleScroll">
       <!-- 空状态显示 -->
       <div v-if="cards.length === 0 && !isInitialLoading && !isRefreshing" class="empty-state">
         <div class="empty-text">暂无数据</div>
         <div class="empty-subtitle">剪贴板记录为空</div>
       </div>
-      
-      <!-- 数据列表 - 使用v-memo优化渲染性能 -->
+
+      <!-- 卡片列表 -->
       <ClipCard
-        v-for="item in visibleCards"
+        v-for="item in cards"
         :key="item.id"
         v-memo="[item.id, item.pinned_flag, item.sync_flag, item.content, item.created, cloudSyncEnabled]"
         :record="item"
@@ -76,22 +75,14 @@
         @pin="handlePin"
         @delete="handleDel" />
 
-
       <!-- 分页加载状态 -->
       <div v-if="isFetchingMore" class="bottom-loading">
         <div class="loading-spinner small"></div>
         <span>加载更多...</span>
       </div>
 
-      <!-- 分批渲染状态 -->
-      <div v-if="!isFetchingMore && hasMoreBatches" class="bottom-loading batch-loading" @click="loadNextBatch">
-        <div class="batch-info">
-          <span>显示 {{ visibleCards.length }} / {{ cards.length }} 条记录</span>
-          <button class="load-more-btn">点击加载更多</button>
-        </div>
-      </div>
-
-      <div v-if="!hasMore && !hasMoreBatches && cards.length > 0" class="bottom-loading">没有更多了</div>
+      <!-- 没有更多数据提示 -->
+      <div v-if="!hasMore && cards.length > 0" class="bottom-loading">没有更多了</div>
     </div>
 
     <SettingsDialog v-model="showSettings" @save="handleSettingsSave" />
@@ -160,28 +151,6 @@ const cards = ref<ClipRecord[]>([]);
 const page = ref(1);
 const pageSize = 20;
 const hasMore = ref(true);
-
-// 分批渲染优化 - 大数据集时分批渲染，避免一次性渲染太多DOM
-const BATCH_SIZE = 30; // 每批渲染30个卡片（从50降低到30）
-const INITIAL_RENDER_THRESHOLD = 50; // 初始直接渲染阈值（从100降低到50）
-const currentBatch = ref(1);
-
-const visibleCards = computed(() => {
-  const totalCards = cards.value;
-  // 如果数据量小于50，直接渲染全部
-  if (totalCards.length <= INITIAL_RENDER_THRESHOLD) {
-    return totalCards;
-  }
-
-  // 大数据集时分批渲染
-  const endIndex = Math.min(currentBatch.value * BATCH_SIZE, totalCards.length);
-  return totalCards.slice(0, endIndex);
-});
-
-// 是否还有更多数据可以渲染
-const hasMoreBatches = computed(() => {
-  return currentBatch.value * BATCH_SIZE < cards.value.length;
-});
 
 // 缓存机制
 const lastFetchTime = ref(0);
@@ -394,8 +363,10 @@ const silentRefresh = async () => {
 const resetAndFetch = () => {
   page.value = 1;
   hasMore.value = true;
-  // 重置分批渲染状态
-  currentBatch.value = 1;
+  // 重置虚拟滚动位置
+  if (scrollContainer.value) {
+    scrollContainer.value.scrollTop = 0;
+  }
   fetchClipRecords(true);
 };
 
@@ -444,27 +415,19 @@ const fetchClipRecords = async (isRefresh = false) => {
 const handleScroll = () => {
   if (!scrollContainer.value) return;
 
-  const { scrollTop, clientHeight, scrollHeight } = scrollContainer.value;
+  const { scrollTop: newScrollTop, clientHeight, scrollHeight } = scrollContainer.value;
 
   // 控制回到顶部按钮显示
   const threshold = Math.max(clientHeight * 0.8, 300);
-  showBackToTop.value = scrollTop > threshold;
+  showBackToTop.value = newScrollTop > threshold;
 
-  // 原有的分页加载逻辑
-  if (!isFetchingMore.value && hasMore.value && scrollTop + clientHeight >= scrollHeight - 200) {
+  // 分页加载逻辑 - 滚动到底部时加载下一页
+  if (!isFetchingMore.value && hasMore.value && newScrollTop + clientHeight >= scrollHeight - 200) {
     fetchClipRecords();
   }
 
-  // 新增：分批渲染逻辑 - 滚动到底部时加载下一批
-  if (hasMoreBatches.value && scrollTop + clientHeight >= scrollHeight - 100) {
-    // 使用setTimeout避免阻塞滚动
-    memoryManager.setTimeout(() => {
-      currentBatch.value++;
-    }, 50);
-  }
-
   // 内存清理优化：当数据量过多时，定期清理历史缓存
-  if (cards.value.length > 200) {
+  if (cards.value.length > 300) {
     // 防抖清理，避免频繁执行
     debouncedMemoryCleanup();
   }
@@ -480,12 +443,7 @@ const scrollToTop = () => {
   });
 };
 
-// 手动加载下一批数据
-const loadNextBatch = () => {
-  if (hasMoreBatches.value) {
-    currentBatch.value++;
-  }
-};
+
 
 // 使用内存安全的防抖函数
 const searchDebounced = createDebouncedFunction((newValue: string) => {
@@ -495,8 +453,10 @@ const searchDebounced = createDebouncedFunction((newValue: string) => {
   lastSearchValue.value = newValue;
   page.value = 1;
   hasMore.value = true;
-  // 重置分批渲染状态
-  currentBatch.value = 1;
+  // 重置虚拟滚动位置
+  if (scrollContainer.value) {
+    scrollContainer.value.scrollTop = 0;
+  }
 
   // 搜索时的智能loading
   if (cards.value.length > 0 && newValue.trim()) {
@@ -531,8 +491,10 @@ const debouncedMemoryCleanup = createDebouncedFunction(() => {
 
     cards.value = [...pinnedCards, ...recentCards];
 
-    // 重置分批渲染状态
-    currentBatch.value = Math.ceil(cards.value.length / BATCH_SIZE);
+    // 重置虚拟滚动位置
+    if (scrollContainer.value) {
+      scrollContainer.value.scrollTop = 0;
+    }
     console.log('内存清理完成，保留数据量:', cards.value.length);
   }
 }, 1000); // 1秒防抖
