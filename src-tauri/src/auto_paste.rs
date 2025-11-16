@@ -297,7 +297,7 @@ pub fn auto_paste_to_previous_window() -> AppResult<()> {
 
         if target_app == nil {
             log::warn!("无法找到目标应用");
-            return Err("无法找到目标应用".to_string());
+            return Err(AppError::AutoPaste("无法找到目标应用".to_string()));
         }
 
         // 激活目标应用
