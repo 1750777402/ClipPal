@@ -85,7 +85,7 @@ tauri-plugin-window-state = "2"    # 记忆窗口大小/位置
 windows = "0.58"                   # Windows API 绑定
 cocoa = "0.26.0"                   # macOS Cocoa 绑定
 objc = "0.2.7"                     # Objective-C 绑定（macOS API）
-core-graphics = "0.24.0"           # macOS 图形 API
+core-graphics = "0.25.0"           # macOS 图形 API
 
 # =========================
 # 构建依赖

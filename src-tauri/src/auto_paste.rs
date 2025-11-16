@@ -100,105 +100,92 @@ pub fn save_foreground_window() {
 /// Mac系统保存当前获得焦点的窗口信息
 #[cfg(target_os = "macos")]
 pub fn save_foreground_window() {
+    use core_graphics::window::{CGWindowListCopyWindowInfo, kCGWindowListOptionOnScreenOnly, kCGWindowListExcludeDesktopElements};
+    use core_graphics::window::CGWindowListOption;
+    use cocoa::base::{id, nil};
+    use cocoa::foundation::NSString;
+    use std::ffi::CStr;
+
     unsafe {
-        // 获取当前前台应用
-        let workspace = NSWorkspace::sharedWorkspace(nil);
-        let running_apps: id = msg_send![workspace, runningApplications];
-        let app_count: usize = msg_send![running_apps, count];
-
-        let mut frontmost_app_pid = 0u32;
-
-        // 找到前台应用
-        for i in 0..app_count {
-            let app: id = msg_send![running_apps, objectAtIndex: i];
-            let is_active: bool = msg_send![app, isActive];
-
-            if is_active {
-                let pid_number: id = msg_send![app, processIdentifier];
-                frontmost_app_pid = msg_send![pid_number, intValue];
-                break;
-            }
-        }
-
-        // 获取当前进程PID
-        let current_pid = std::process::id();
-
-        // 如果是我们自己的窗口，不保存
-        if frontmost_app_pid == current_pid {
-            return;
-        }
-
-        // 获取窗口列表信息
-        let window_list_info = CGWindowListCopyWindowInfo(
-            CGWindowListOption::kCGWindowListOptionOnScreenOnly
-                | CGWindowListOption::kCGWindowListExcludeDesktopElements,
+        // 获取窗口列表
+        let info = CGWindowListCopyWindowInfo(
+            CGWindowListOption::from(kCGWindowListOptionOnScreenOnly | kCGWindowListExcludeDesktopElements),
             0,
         );
 
-        if window_list_info.is_null() {
+        if info.is_null() {
             return;
         }
 
-        let window_count: usize = msg_send![window_list_info, count];
+        let window_count: usize = msg_send![info, count];
 
-        for i in 0..window_count {
-            let window_info: id = msg_send![window_list_info, objectAtIndex: i];
-
-            // 获取窗口的进程ID
-            let pid_key = NSString::alloc(nil).init_str("kCGWindowOwnerPID");
-            let pid_obj: id = msg_send![window_info, objectForKey: pid_key];
-
-            if pid_obj != nil {
-                let window_pid: u32 = msg_send![pid_obj, intValue];
-
-                if window_pid == frontmost_app_pid {
-                    // 获取窗口标题
-                    let title_key = NSString::alloc(nil).init_str("kCGWindowName");
-                    let title_obj: id = msg_send![window_info, objectForKey: title_key];
-
-                    let title = if title_obj != nil {
-                        let title_ptr: *const i8 = msg_send![title_obj, UTF8String];
-                        if !title_ptr.is_null() {
-                            std::ffi::CStr::from_ptr(title_ptr)
-                                .to_string_lossy()
-                                .to_string()
-                        } else {
-                            "Unknown".to_string()
-                        }
-                    } else {
-                        "Unknown".to_string()
-                    };
-
-                    // 获取窗口编号
-                    let window_number_key = NSString::alloc(nil).init_str("kCGWindowNumber");
-                    let window_number_obj: id =
-                        msg_send![window_info, objectForKey: window_number_key];
-                    let window_number: u32 = if window_number_obj != nil {
-                        msg_send![window_number_obj, intValue]
-                    } else {
-                        0
-                    };
-
-                    let window_info = WindowInfo {
-                        window_number,
-                        title,
-                        process_id: window_pid,
-                    };
-
-                    if let Ok(mut previous) = PREVIOUS_WINDOW.lock() {
-                        *previous = Some(window_info.clone());
-                        log::debug!(
-                            "保存焦点窗口: {} (PID: {})",
-                            window_info.title,
-                            window_info.process_id
-                        );
-                    }
-                    break;
-                }
-            }
+        // 前台窗口一般是列表中的第一个
+        if window_count == 0 {
+            return;
         }
+
+        let window_info: id = msg_send![info, objectAtIndex: 0];
+
+        // 获取 PID
+        let pid_key = NSString::alloc(nil).init_str("kCGWindowOwnerPID");
+        let pid_obj: id = msg_send![window_info, objectForKey: pid_key];
+
+        let window_pid: u32 = if pid_obj != nil {
+            msg_send![pid_obj, intValue]
+        } else {
+            0
+        };
+
+        // 当前程序 PID
+        let current_pid = std::process::id();
+
+        // 跳过自己的程序
+        if window_pid == current_pid {
+            return;
+        }
+
+        // 获取标题
+        let title_key = NSString::alloc(nil).init_str("kCGWindowName");
+        let title_obj: id = msg_send![window_info, objectForKey: title_key];
+
+        let title = if title_obj != nil {
+            let c_ptr: *const i8 = msg_send![title_obj, UTF8String];
+            if !c_ptr.is_null() {
+                CStr::from_ptr(c_ptr).to_string_lossy().to_string()
+            } else {
+                "Unknown".to_string()
+            }
+        } else {
+            "Unknown".to_string()
+        };
+
+        // 获取窗口标识
+        let number_key = NSString::alloc(nil).init_str("kCGWindowNumber");
+        let number_obj: id = msg_send![window_info, objectForKey: number_key];
+
+        let window_number: u32 = if number_obj != nil {
+            msg_send![number_obj, intValue]
+        } else {
+            0
+        };
+
+        // 存储（你的结构体自己定义即可）
+        let w = WindowInfo {
+            window_number,
+            title,
+            process_id: window_pid,
+        };
+
+        if let Ok(mut prev) = PREVIOUS_WINDOW.lock() {
+            *prev = Some(w.clone());
+        }
+
+        log::debug!("保存焦点窗口: {} (PID: {})", w.title, w.process_id);
     }
 }
+
+
+
 
 /// 执行自动粘贴到之前的窗口 - Windows版本
 #[cfg(windows)]
