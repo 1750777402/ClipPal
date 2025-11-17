@@ -10,7 +10,7 @@ use windows::Win32::{
     System::Threading::GetCurrentProcessId,
     UI::{
         Input::KeyboardAndMouse::{
-            SendInput, INPUT, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_KEYUP, VK_CONTROL, VK_V,
+            INPUT, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_KEYUP, SendInput, VK_CONTROL, VK_V,
         },
         WindowsAndMessaging::{
             GetForegroundWindow, GetWindowTextW, GetWindowThreadProcessId, IsWindow,
@@ -18,21 +18,6 @@ use windows::Win32::{
         },
     },
 };
-
-#[cfg(target_os = "macos")]
-use cocoa::{
-    appkit::{NSApp, NSApplication, NSWindow, NSWorkspace},
-    base::{id, nil, NO, YES},
-    foundation::{NSArray, NSNumber, NSString},
-};
-#[cfg(target_os = "macos")]
-use core_graphics::{
-    event::{CGEvent, CGEventFlags, CGEventType, CGKeyCode},
-    event_source::{CGEventSource, CGEventSourceStateID},
-    window::{kCGWindowNumber, kCGWindowOwnerPID, CGWindowListCopyWindowInfo, CGWindowListOption},
-};
-#[cfg(target_os = "macos")]
-use objc::{msg_send, runtime::Object, sel, sel_impl};
 
 #[cfg(any(windows, target_os = "macos"))]
 static PREVIOUS_WINDOW: Lazy<Arc<Mutex<Option<WindowInfo>>>> =
@@ -97,96 +82,6 @@ pub fn save_foreground_window() {
     }
 }
 
-/// Mac系统保存当前获得焦点的窗口信息
-#[cfg(target_os = "macos")]
-pub fn save_foreground_window() {
-    use core_graphics::window::{CGWindowListCopyWindowInfo, kCGWindowListOptionOnScreenOnly, kCGWindowListExcludeDesktopElements};
-    use core_graphics::window::CGWindowListOption;
-    use cocoa::base::{id, nil};
-    use cocoa::foundation::NSString;
-    use std::ffi::CStr;
-
-    unsafe {
-        // 获取窗口列表
-        let info = CGWindowListCopyWindowInfo(
-            CGWindowListOption::from(kCGWindowListOptionOnScreenOnly | kCGWindowListExcludeDesktopElements),
-            0,
-        );
-
-        if info.is_null() {
-            return;
-        }
-
-        let window_count: usize = msg_send![info, count];
-
-        // 前台窗口一般是列表中的第一个
-        if window_count == 0 {
-            return;
-        }
-
-        let window_info: id = msg_send![info, objectAtIndex: 0];
-
-        // 获取 PID
-        let pid_key = NSString::alloc(nil).init_str("kCGWindowOwnerPID");
-        let pid_obj: id = msg_send![window_info, objectForKey: pid_key];
-
-        let window_pid: u32 = if pid_obj != nil {
-            msg_send![pid_obj, intValue]
-        } else {
-            0
-        };
-
-        // 当前程序 PID
-        let current_pid = std::process::id();
-
-        // 跳过自己的程序
-        if window_pid == current_pid {
-            return;
-        }
-
-        // 获取标题
-        let title_key = NSString::alloc(nil).init_str("kCGWindowName");
-        let title_obj: id = msg_send![window_info, objectForKey: title_key];
-
-        let title = if title_obj != nil {
-            let c_ptr: *const i8 = msg_send![title_obj, UTF8String];
-            if !c_ptr.is_null() {
-                CStr::from_ptr(c_ptr).to_string_lossy().to_string()
-            } else {
-                "Unknown".to_string()
-            }
-        } else {
-            "Unknown".to_string()
-        };
-
-        // 获取窗口标识
-        let number_key = NSString::alloc(nil).init_str("kCGWindowNumber");
-        let number_obj: id = msg_send![window_info, objectForKey: number_key];
-
-        let window_number: u32 = if number_obj != nil {
-            msg_send![number_obj, intValue]
-        } else {
-            0
-        };
-
-        // 存储（你的结构体自己定义即可）
-        let w = WindowInfo {
-            window_number,
-            title,
-            process_id: window_pid,
-        };
-
-        if let Ok(mut prev) = PREVIOUS_WINDOW.lock() {
-            *prev = Some(w.clone());
-        }
-
-        log::debug!("保存焦点窗口: {} (PID: {})", w.title, w.process_id);
-    }
-}
-
-
-
-
 /// 执行自动粘贴到之前的窗口 - Windows版本
 #[cfg(windows)]
 pub fn auto_paste_to_previous_window() -> AppResult<()> {
@@ -234,72 +129,6 @@ pub fn auto_paste_to_previous_window() -> AppResult<()> {
 
     // 发送 Ctrl+V 按键组合
     send_ctrl_v_windows()?;
-
-    log::debug!("自动粘贴完成");
-    Ok(())
-}
-
-/// 执行自动粘贴到之前的窗口 - macOS版本
-#[cfg(target_os = "macos")]
-pub fn auto_paste_to_previous_window() -> AppResult<()> {
-    let window_info = {
-        let previous = PREVIOUS_WINDOW
-            .lock()
-            .map_err(|e| AppError::Lock(format!("获取窗口信息锁失败: {}", e)))?;
-
-        match previous.as_ref() {
-            Some(info) => info.clone(),
-            None => {
-                log::warn!("没有保存的目标窗口信息");
-                return Err(AppError::AutoPaste("没有找到目标窗口".to_string()));
-            }
-        }
-    };
-
-    log::debug!(
-        "尝试自动粘贴到窗口: {} (PID: {})",
-        window_info.title,
-        window_info.process_id
-    );
-
-    unsafe {
-        // 激活目标应用
-        let workspace = NSWorkspace::sharedWorkspace(nil);
-        let running_apps: id = msg_send![workspace, runningApplications];
-        let app_count: usize = msg_send![running_apps, count];
-
-        let mut target_app: id = nil;
-
-        // 找到目标应用
-        for i in 0..app_count {
-            let app: id = msg_send![running_apps, objectAtIndex: i];
-            let pid_number: id = msg_send![app, processIdentifier];
-            let app_pid: u32 = msg_send![pid_number, intValue];
-
-            if app_pid == window_info.process_id {
-                target_app = app;
-                break;
-            }
-        }
-
-        if target_app == nil {
-            log::warn!("无法找到目标应用");
-            return Err(AppError::AutoPaste("无法找到目标应用".to_string()));
-        }
-
-        // 激活目标应用
-        let activated: bool = msg_send![target_app, activateWithOptions: 0];
-        if !activated {
-            log::warn!("无法激活目标应用");
-            // 继续尝试发送按键
-        }
-    }
-
-    // 等待一小段时间让应用切换完成
-    std::thread::sleep(std::time::Duration::from_millis(100));
-
-    // 发送 Cmd+V 按键组合
-    send_cmd_v_macos()?;
 
     log::debug!("自动粘贴完成");
     Ok(())
@@ -377,36 +206,187 @@ fn send_ctrl_v_windows() -> AppResult<()> {
     Ok(())
 }
 
-/// 发送 Cmd+V 按键组合 - macOS版本  
 #[cfg(target_os = "macos")]
-fn send_cmd_v_macos() -> AppResult<()> {
+use crate::errors::{AppError, AppResult};
+#[cfg(target_os = "macos")]
+use cocoa::{
+    appkit::{NSApp, NSApplication, NSWorkspace},
+    base::{id, nil},
+    foundation::NSString,
+};
+#[cfg(target_os = "macos")]
+use core_graphics::{
+    event::{CGEvent, CGEventFlags, CGKeyCode},
+    event_source::{CGEventSource, CGEventSourceStateID},
+};
+#[cfg(target_os = "macos")]
+use objc::{msg_send, sel, sel_impl};
+
+/// 保存前台窗口信息
+#[cfg(target_os = "macos")]
+pub fn save_foreground_window() {
     unsafe {
-        // 创建事件源
-        let event_source = CGEventSource::new(CGEventSourceStateID::CombinedSessionState)
-            .map_err(|e| AppError::AutoPaste(format!("创建事件源失败: {:?}", e)))?;
+        let workspace: id = NSWorkspace::sharedWorkspace(nil);
+        let front_app: id = msg_send![workspace, frontmostApplication];
+        if front_app == nil {
+            return;
+        }
 
-        // V键的虚拟键码 (基于US键盘布局)
-        let v_keycode: CGKeyCode = 9;
+        let pid: u32 = msg_send![front_app, processIdentifier];
+        if pid == std::process::id() {
+            return;
+        }
 
-        // 按下 Cmd+V
-        let key_down_event = CGEvent::new_keyboard_event(event_source.clone(), v_keycode, true)
-            .map_err(|e| AppError::AutoPaste(format!("创建按键按下事件失败: {:?}", e)))?;
+        let name_obj: id = msg_send![front_app, localizedName];
+        let cname: *const i8 = msg_send![name_obj, UTF8String];
+        let app_name = if !cname.is_null() {
+            std::ffi::CStr::from_ptr(cname)
+                .to_string_lossy()
+                .into_owned()
+        } else {
+            "Unknown".into()
+        };
 
-        key_down_event.set_flags(CGEventFlags::CGEventFlagCommand);
-        key_down_event.post(core_graphics::event::CGEventTapLocation::HID);
+        let info = WindowInfo {
+            window_number: 0,
+            title: app_name.clone(),
+            process_id: pid,
+        };
 
-        // 短暂延迟
-        std::thread::sleep(std::time::Duration::from_millis(10));
+        if let Ok(mut prev) = PREVIOUS_WINDOW.lock() {
+            *prev = Some(info.clone());
+        }
+        log::debug!("保存前台窗口: {} (PID: {})", app_name, pid);
+    }
+}
 
-        // 释放 Cmd+V
-        let key_up_event = CGEvent::new_keyboard_event(event_source, v_keycode, false)
-            .map_err(|e| AppError::AutoPaste(format!("创建按键释放事件失败: {:?}", e)))?;
+/// 执行自动粘贴
+#[cfg(target_os = "macos")]
+pub fn auto_paste_to_previous_window() -> AppResult<()> {
+    let window_info = {
+        let prev = PREVIOUS_WINDOW
+            .lock()
+            .map_err(|e| AppError::Lock(format!("锁失败: {}", e)))?;
+        match prev.as_ref() {
+            Some(info) => info.clone(),
+            None => return Err(AppError::AutoPaste("没有找到目标窗口".into())),
+        }
+    };
 
-        key_up_event.set_flags(CGEventFlags::CGEventFlagCommand);
-        key_up_event.post(core_graphics::event::CGEventTapLocation::HID);
+    log::debug!(
+        "自动粘贴到: {} (PID: {})",
+        window_info.title,
+        window_info.process_id
+    );
+
+    unsafe {
+        let workspace: id = NSWorkspace::sharedWorkspace(nil);
+        let running_apps: id = msg_send![workspace, runningApplications];
+        let count: usize = msg_send![running_apps, count];
+        let mut target_app: id = nil;
+
+        for i in 0..count {
+            let app: id = msg_send![running_apps, objectAtIndex: i];
+            let pid: u32 = msg_send![app, processIdentifier];
+            if pid == window_info.process_id {
+                target_app = app;
+                break;
+            }
+        }
+
+        if target_app == nil {
+            return Err(AppError::AutoPaste("目标应用未找到".into()));
+        }
+
+        // 强制激活 App
+        let _: () = msg_send![target_app, activateWithOptions: 1 << 1];
     }
 
-    log::debug!("成功发送 Cmd+V 组合键");
+    std::thread::sleep(std::time::Duration::from_millis(120));
+
+    // 尝试菜单 Paste 优先
+    if !try_menu_paste() {
+        send_cmd_v()?;
+    }
+
+    log::debug!("自动粘贴完成");
+    Ok(())
+}
+
+/// 尝试菜单 Paste
+#[cfg(target_os = "macos")]
+fn try_menu_paste() -> bool {
+    unsafe {
+        let app = NSApp();
+        if app == nil {
+            return false;
+        }
+        let main_menu: id = msg_send![app, mainMenu];
+        if main_menu == nil {
+            return false;
+        }
+
+        let item_count: usize = msg_send![main_menu, numberOfItems];
+        for i in 0..item_count {
+            let item: id = msg_send![main_menu, itemAtIndex: i];
+            if item == nil {
+                continue;
+            }
+            let submenu: id = msg_send![item, submenu];
+            if submenu == nil {
+                continue;
+            }
+            let sub_count: usize = msg_send![submenu, numberOfItems];
+            for j in 0..sub_count {
+                let sub_item: id = msg_send![submenu, itemAtIndex: j];
+                if sub_item == nil {
+                    continue;
+                }
+                let title: id = msg_send![sub_item, title];
+                let title_str = nsstring_to_rust(title).to_lowercase();
+                if title_str == "paste" || title_str == "粘贴" || title_str == "вставить"
+                {
+                    let _: () = msg_send![sub_item, performClick: nil];
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}
+
+#[cfg(target_os = "macos")]
+unsafe fn nsstring_to_rust(ns: id) -> String {
+    if ns == nil {
+        return "".into();
+    }
+    let c: *const i8 = msg_send![ns, UTF8String];
+    if c.is_null() {
+        return "".into();
+    }
+    std::ffi::CStr::from_ptr(c).to_string_lossy().into_owned()
+}
+
+/// 模拟 Cmd+V
+#[cfg(target_os = "macos")]
+fn send_cmd_v() -> AppResult<()> {
+    unsafe {
+        let source = CGEventSource::new(CGEventSourceStateID::HIDSystemState)
+            .map_err(|e| AppError::AutoPaste(format!("事件源失败: {:?}", e)))?;
+        let v_key: CGKeyCode = 9;
+
+        let down = CGEvent::new_keyboard_event(source.clone(), v_key, true)
+            .map_err(|e| AppError::AutoPaste(format!("按下失败: {:?}", e)))?;
+        down.set_flags(CGEventFlags::CGEventFlagCommand);
+        down.post(core_graphics::event::CGEventTapLocation::HID);
+
+        std::thread::sleep(std::time::Duration::from_millis(10));
+
+        let up = CGEvent::new_keyboard_event(source, v_key, false)
+            .map_err(|e| AppError::AutoPaste(format!("释放失败: {:?}", e)))?;
+        up.set_flags(CGEventFlags::CGEventFlagCommand);
+        up.post(core_graphics::event::CGEventTapLocation::HID);
+    }
     Ok(())
 }
 
