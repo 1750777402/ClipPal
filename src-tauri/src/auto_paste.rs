@@ -207,26 +207,22 @@ fn send_ctrl_v_windows() -> AppResult<()> {
 }
 
 #[cfg(target_os = "macos")]
-use crate::errors::{AppError, AppResult};
-#[cfg(target_os = "macos")]
 use cocoa::{
-    appkit::{NSApp, NSApplication, NSWorkspace},
+    appkit::{NSApp, NSApplication},
     base::{id, nil},
     foundation::NSString,
 };
-#[cfg(target_os = "macos")]
+use objc::{msg_send, sel, sel_impl, class}; // 添加 class 宏导入
 use core_graphics::{
     event::{CGEvent, CGEventFlags, CGKeyCode},
     event_source::{CGEventSource, CGEventSourceStateID},
 };
-#[cfg(target_os = "macos")]
-use objc::{msg_send, sel, sel_impl};
 
 /// 保存前台窗口信息
 #[cfg(target_os = "macos")]
 pub fn save_foreground_window() {
     unsafe {
-        let workspace: id = NSWorkspace::sharedWorkspace(nil);
+        let workspace: id = msg_send![class!(NSWorkspace), sharedWorkspace];
         let front_app: id = msg_send![workspace, frontmostApplication];
         if front_app == nil {
             return;
@@ -280,7 +276,7 @@ pub fn auto_paste_to_previous_window() -> AppResult<()> {
     );
 
     unsafe {
-        let workspace: id = NSWorkspace::sharedWorkspace(nil);
+        let workspace: id = msg_send![class!(NSWorkspace), sharedWorkspace];
         let running_apps: id = msg_send![workspace, runningApplications];
         let count: usize = msg_send![running_apps, count];
         let mut target_app: id = nil;
