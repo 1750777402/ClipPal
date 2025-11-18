@@ -212,11 +212,13 @@ use cocoa::{
     base::{id, nil},
     foundation::NSString,
 };
-use objc::{msg_send, sel, sel_impl, class}; // 添加 class 宏导入
+#[cfg(target_os = "macos")]
 use core_graphics::{
     event::{CGEvent, CGEventFlags, CGKeyCode},
     event_source::{CGEventSource, CGEventSourceStateID},
 };
+#[cfg(target_os = "macos")]
+use objc::{class, msg_send, sel, sel_impl}; // 添加 class 宏导入
 
 /// 保存前台窗口信息
 #[cfg(target_os = "macos")]
