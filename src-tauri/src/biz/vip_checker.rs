@@ -16,6 +16,21 @@ pub struct VipChecker;
 impl VipChecker {
     /// 检查用户是否为VIP - 必须调用服务端验证，同时处理权益更新
     pub async fn is_vip_user() -> AppResult<bool> {
+        // 首先检查用户是否登录
+        let has_token = {
+            let mut store = SECURE_STORE
+                .write()
+                .map_err(|_| AppError::Config("获取存储锁失败".to_string()))?;
+            let result = store.get_jwt_token()?.is_some();
+            drop(store);
+            result
+        };
+
+        if !has_token {
+            log::debug!("用户未登录，跳过VIP状态检查");
+            return Ok(false);
+        }
+
         // VIP状态必须通过服务端实时验证，不能依赖本地时间
         match user_vip_check().await {
             Ok(Some(vip_response)) => {
@@ -548,10 +563,23 @@ impl VipChecker {
         log::info!("初始化VIP状态并执行权益限制检查");
 
         // 检查VIP状态（这会同时更新本地状态和执行记录数限制）
-        let _ = Self::is_vip_user().await?;
+        // 静默处理错误，不向前端报告
+        match Self::is_vip_user().await {
+            Ok(_) => {
+                log::debug!("VIP状态检查完成");
+            }
+            Err(e) => {
+                log::warn!("VIP状态检查失败（静默处理）: {}", e);
+                // 不返回错误，静默处理
+            }
+        }
 
         // 额外检查数据库记录数并清理超出部分
-        Self::enforce_local_records_limit_from_db().await?;
+        // 也静默处理错误
+        if let Err(e) = Self::enforce_local_records_limit_from_db().await {
+            log::warn!("数据库记录数限制检查失败（静默处理）: {}", e);
+            // 不返回错误，静默处理
+        }
 
         log::info!("VIP状态初始化和权益限制检查完成");
         Ok(())

@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>NSAppleEventsUsageDescription</key>
+    <string>ClipPal需要发送按键事件以实现自动粘贴功能</string>
+    <key>NSSystemAdministrationUsageDescription</key>
+    <string>ClipPal需要控制其他应用以实现自动粘贴功能</string>
+    <key>NSAccessibilityUsageDescription</key>
+    <string>ClipPal需要辅助功能权限以监听全局快捷键和实现自动粘贴</string>
+    <key>LSUIElement</key>
+    <false/>
+</dict>
+</plist>
+

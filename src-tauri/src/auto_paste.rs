@@ -19,17 +19,14 @@ use windows::Win32::{
     },
 };
 
-#[cfg(any(windows, target_os = "macos"))]
+#[cfg(windows)]
 static PREVIOUS_WINDOW: Lazy<Arc<Mutex<Option<WindowInfo>>>> =
     Lazy::new(|| Arc::new(Mutex::new(None)));
 
-#[cfg(any(windows, target_os = "macos"))]
+#[cfg(windows)]
 #[derive(Debug, Clone)]
 struct WindowInfo {
-    #[cfg(windows)]
     hwnd: isize, // HWND as isize for thread safety
-    #[cfg(target_os = "macos")]
-    window_number: u32, // CGWindowID for macOS
     title: String,
     process_id: u32,
 }
@@ -207,162 +204,53 @@ fn send_ctrl_v_windows() -> AppResult<()> {
 }
 
 #[cfg(target_os = "macos")]
-use cocoa::{
-    appkit::{NSApp, NSApplication},
-    base::{id, nil},
-    foundation::NSString,
-};
-#[cfg(target_os = "macos")]
 use core_graphics::{
     event::{CGEvent, CGEventFlags, CGKeyCode},
     event_source::{CGEventSource, CGEventSourceStateID},
 };
-#[cfg(target_os = "macos")]
-use objc::{class, msg_send, sel, sel_impl}; // 添加 class 宏导入
 
-/// 保存前台窗口信息
+/// 保存前台窗口信息 - macOS 简化版（不保存）
 #[cfg(target_os = "macos")]
 pub fn save_foreground_window() {
-    unsafe {
-        let workspace: id = msg_send![class!(NSWorkspace), sharedWorkspace];
-        let front_app: id = msg_send![workspace, frontmostApplication];
-        if front_app == nil {
-            return;
-        }
-
-        let pid: u32 = msg_send![front_app, processIdentifier];
-        if pid == std::process::id() {
-            return;
-        }
-
-        let name_obj: id = msg_send![front_app, localizedName];
-        let cname: *const i8 = msg_send![name_obj, UTF8String];
-        let app_name = if !cname.is_null() {
-            std::ffi::CStr::from_ptr(cname)
-                .to_string_lossy()
-                .into_owned()
-        } else {
-            "Unknown".into()
-        };
-
-        let info = WindowInfo {
-            window_number: 0,
-            title: app_name.clone(),
-            process_id: pid,
-        };
-
-        if let Ok(mut prev) = PREVIOUS_WINDOW.lock() {
-            *prev = Some(info.clone());
-        }
-        log::debug!("保存前台窗口: {} (PID: {})", app_name, pid);
-    }
+    // macOS 策略：不保存窗口，依赖系统自动切换
+    // 当 ClipPal 窗口隐藏时，macOS 会自动激活之前活动的应用
+    log::debug!("macOS 不需要手动保存窗口信息");
 }
 
-/// 执行自动粘贴
+/// 执行自动粘贴 - macOS 简化版
 #[cfg(target_os = "macos")]
 pub fn auto_paste_to_previous_window() -> AppResult<()> {
-    let window_info = {
-        let prev = PREVIOUS_WINDOW
-            .lock()
-            .map_err(|e| AppError::Lock(format!("锁失败: {}", e)))?;
-        match prev.as_ref() {
-            Some(info) => info.clone(),
-            None => return Err(AppError::AutoPaste("没有找到目标窗口".into())),
-        }
-    };
+    use crate::CONTEXT;
+    use tauri::{AppHandle, Manager};
 
-    log::debug!(
-        "自动粘贴到: {} (PID: {})",
-        window_info.title,
-        window_info.process_id
-    );
+    log::debug!("开始 macOS 自动粘贴");
 
-    unsafe {
-        let workspace: id = msg_send![class!(NSWorkspace), sharedWorkspace];
-        let running_apps: id = msg_send![workspace, runningApplications];
-        let count: usize = msg_send![running_apps, count];
-        let mut target_app: id = nil;
+    // 获取窗口句柄
+    let app_handle = CONTEXT.get::<AppHandle>();
+    let window = app_handle
+        .get_webview_window("main")
+        .ok_or_else(|| AppError::AutoPaste("无法获取主窗口".to_string()))?;
 
-        for i in 0..count {
-            let app: id = msg_send![running_apps, objectAtIndex: i];
-            let pid: u32 = msg_send![app, processIdentifier];
-            if pid == window_info.process_id {
-                target_app = app;
-                break;
-            }
-        }
+    // 确保窗口已隐藏，让系统自动切换到之前的应用
+    if window.is_visible().unwrap_or(true) {
+        log::debug!("隐藏 ClipPal 窗口");
+        window
+            .hide()
+            .map_err(|e| AppError::AutoPaste(format!("隐藏窗口失败: {}", e)))?;
 
-        if target_app == nil {
-            return Err(AppError::AutoPaste("目标应用未找到".into()));
-        }
-
-        // 强制激活 App
-        let _: () = msg_send![target_app, activateWithOptions: 1 << 1];
+        // 等待窗口隐藏和系统切换到上一个应用
+        std::thread::sleep(std::time::Duration::from_millis(350));
+    } else {
+        log::debug!("窗口已隐藏，稍等系统切换");
+        // 窗口已隐藏，稍等片刻确保系统完成切换
+        std::thread::sleep(std::time::Duration::from_millis(150));
     }
 
-    std::thread::sleep(std::time::Duration::from_millis(120));
+    // 发送 Cmd+V 到当前前台应用
+    send_cmd_v()?;
 
-    // 尝试菜单 Paste 优先
-    if !try_menu_paste() {
-        send_cmd_v()?;
-    }
-
-    log::debug!("自动粘贴完成");
+    log::debug!("macOS 自动粘贴完成");
     Ok(())
-}
-
-/// 尝试菜单 Paste
-#[cfg(target_os = "macos")]
-fn try_menu_paste() -> bool {
-    unsafe {
-        let app = NSApp();
-        if app == nil {
-            return false;
-        }
-        let main_menu: id = msg_send![app, mainMenu];
-        if main_menu == nil {
-            return false;
-        }
-
-        let item_count: usize = msg_send![main_menu, numberOfItems];
-        for i in 0..item_count {
-            let item: id = msg_send![main_menu, itemAtIndex: i];
-            if item == nil {
-                continue;
-            }
-            let submenu: id = msg_send![item, submenu];
-            if submenu == nil {
-                continue;
-            }
-            let sub_count: usize = msg_send![submenu, numberOfItems];
-            for j in 0..sub_count {
-                let sub_item: id = msg_send![submenu, itemAtIndex: j];
-                if sub_item == nil {
-                    continue;
-                }
-                let title: id = msg_send![sub_item, title];
-                let title_str = nsstring_to_rust(title).to_lowercase();
-                if title_str == "paste" || title_str == "粘贴" || title_str == "вставить"
-                {
-                    let _: () = msg_send![sub_item, performClick: nil];
-                    return true;
-                }
-            }
-        }
-    }
-    false
-}
-
-#[cfg(target_os = "macos")]
-unsafe fn nsstring_to_rust(ns: id) -> String {
-    if ns == nil {
-        return "".into();
-    }
-    let c: *const i8 = msg_send![ns, UTF8String];
-    if c.is_null() {
-        return "".into();
-    }
-    std::ffi::CStr::from_ptr(c).to_string_lossy().into_owned()
 }
 
 /// 模拟 Cmd+V
@@ -370,21 +258,30 @@ unsafe fn nsstring_to_rust(ns: id) -> String {
 fn send_cmd_v() -> AppResult<()> {
     unsafe {
         let source = CGEventSource::new(CGEventSourceStateID::HIDSystemState)
-            .map_err(|e| AppError::AutoPaste(format!("事件源失败: {:?}", e)))?;
-        let v_key: CGKeyCode = 9;
+            .map_err(|e| AppError::AutoPaste(format!("创建事件源失败: {:?}", e)))?;
 
-        let down = CGEvent::new_keyboard_event(source.clone(), v_key, true)
-            .map_err(|e| AppError::AutoPaste(format!("按下失败: {:?}", e)))?;
-        down.set_flags(CGEventFlags::CGEventFlagCommand);
-        down.post(core_graphics::event::CGEventTapLocation::HID);
+        let v_key: CGKeyCode = 9; // V 键的键码
 
-        std::thread::sleep(std::time::Duration::from_millis(10));
+        // 按下 Cmd+V
+        let key_down = CGEvent::new_keyboard_event(source.clone(), v_key, true)
+            .map_err(|e| AppError::AutoPaste(format!("创建按键按下事件失败: {:?}", e)))?;
+        key_down.set_flags(CGEventFlags::CGEventFlagCommand);
+        key_down.post(core_graphics::event::CGEventTapLocation::HID);
 
-        let up = CGEvent::new_keyboard_event(source, v_key, false)
-            .map_err(|e| AppError::AutoPaste(format!("释放失败: {:?}", e)))?;
-        up.set_flags(CGEventFlags::CGEventFlagCommand);
-        up.post(core_graphics::event::CGEventTapLocation::HID);
+        log::debug!("已发送 Cmd+V 按下事件");
+
+        // 短暂延迟，模拟真实按键
+        std::thread::sleep(std::time::Duration::from_millis(20));
+
+        // 释放 Cmd+V
+        let key_up = CGEvent::new_keyboard_event(source, v_key, false)
+            .map_err(|e| AppError::AutoPaste(format!("创建按键释放事件失败: {:?}", e)))?;
+        key_up.set_flags(CGEventFlags::CGEventFlagCommand);
+        key_up.post(core_graphics::event::CGEventTapLocation::HID);
+
+        log::debug!("已发送 Cmd+V 释放事件");
     }
+
     Ok(())
 }
 

@@ -59,10 +59,20 @@ unsafe impl Sync for Settings {}
 
 impl Default for Settings {
     fn default() -> Self {
+        // macOS 和 Windows 使用相同的默认快捷键
+        #[cfg(target_os = "macos")]
+        let default_shortcut = String::from("Ctrl+`"); // macOS 使用 Control 键
+
+        #[cfg(target_os = "windows")]
+        let default_shortcut = String::from("Ctrl+`"); // Windows 使用 Ctrl 键
+
+        #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+        let default_shortcut = String::from("Ctrl+`"); // 其他平台默认 Ctrl
+
         Self {
             max_records: 200,
             auto_start: 0,
-            shortcut_key: String::from("Ctrl+`"),
+            shortcut_key: default_shortcut,
             cloud_sync: 0,
             auto_paste: 1,         // 默认开启自动粘贴
             tutorial_completed: 0, // 默认未完成引导

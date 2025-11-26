@@ -1,0 +1,27 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "bundle": {
+    "targets": [
+      "app",
+      "dmg"
+    ],
+    "macOS": {
+      "entitlements": null,
+      "exceptionDomain": null,
+      "frameworks": [],
+      "providerShortName": null,
+      "signingIdentity": null,
+      "minimumSystemVersion": "10.13",
+      "infoPlist": "Info.plist"
+    }
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "transparent": true,
+        "decorations": false
+      }
+    ]
+  }
+}

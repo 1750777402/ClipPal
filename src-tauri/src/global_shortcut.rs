@@ -36,12 +36,13 @@ pub fn init_global_shortcut(app: &App) -> tauri::Result<()> {
                 move |_app, shortcut, event| {
                     log::debug!("快捷键触发: {:?}, 状态: {:?}", shortcut, event.state());
                     if event.state() == tauri_plugin_global_shortcut::ShortcutState::Pressed {
-                        // 在显示粘贴板窗口之前，先保存当前获得焦点的窗口
-                        auto_paste::save_foreground_window();
-
                         if let Some(window) = app_handle.get_webview_window("main") {
+                            // 在显示粘贴板窗口之前，先保存当前获得焦点的窗口
+                            auto_paste::save_foreground_window();
+
                             let _ = window.show();
                             let _ = window.set_focus();
+                            log::debug!("窗口已显示并聚焦");
                         }
                     }
                 }

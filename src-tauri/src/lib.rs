@@ -223,15 +223,22 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
                 // 开启粘贴板内容监听器
                 manager.start_event_loop();
 
-                // 初始化VIP状态并执行权益限制检查
+                // 只有在用户登录时才初始化VIP状态并执行权益限制检查
                 let rb_for_vip = rb_for_run.clone();
                 tokio::spawn(async move {
                     CONTEXT.set(rb_for_vip);
-                    if let Err(e) =
-                        crate::biz::vip_checker::VipChecker::initialize_vip_and_enforce_limits()
-                            .await
-                    {
-                        log::error!("VIP状态初始化失败: {}", e);
+
+                    // 检查用户是否已登录
+                    if crate::utils::token_manager::has_valid_auth() {
+                        log::info!("用户已登录，开始初始化VIP状态并执行权益限制检查");
+                        if let Err(e) =
+                            crate::biz::vip_checker::VipChecker::initialize_vip_and_enforce_limits()
+                                .await
+                        {
+                            log::error!("VIP状态初始化失败: {}", e);
+                        }
+                    } else {
+                        log::info!("用户未登录，跳过VIP状态检查");
                     }
                 });
             }

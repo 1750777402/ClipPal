@@ -133,6 +133,17 @@ pub async fn login(param: FrontendLoginRequest) -> Result<LoginResponse, String>
                     return Err(format!("存储认证数据失败: {}", e));
                 }
 
+                // 登录成功后，触发VIP状态检查
+                tokio::spawn(async {
+                    log::info!("用户登录成功，触发VIP状态检查");
+                    if let Err(e) =
+                        crate::biz::vip_checker::VipChecker::initialize_vip_and_enforce_limits()
+                            .await
+                    {
+                        log::error!("登录后VIP状态初始化失败: {}", e);
+                    }
+                });
+
                 // 构造前端响应
                 let login_response = LoginResponse {
                     user_info: auth_response.user_info.into(),

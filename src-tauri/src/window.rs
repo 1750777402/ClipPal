@@ -48,8 +48,47 @@ pub fn init_main_window(app: &App) -> tauri::Result<()> {
     let (work_area_top, x_position) =
         get_accurate_work_area(screen_width, window_width, scale_factor);
 
-    // 窗口高度使用全屏高度，底部可以被遮挡
-    let window_height = screen_height;
+    // 计算窗口高度 - macOS 和 Windows 不同的策略
+    #[cfg(target_os = "macos")]
+    let window_height = {
+        // macOS: 从菜单栏下方到屏幕底部（Dock 会遮挡底部，但窗口置顶会显示在 Dock 上方）
+        use cocoa::appkit::NSScreen;
+        use cocoa::base::nil;
+        use cocoa::foundation::NSRect;
+
+        let height = unsafe {
+            let main_screen = NSScreen::mainScreen(nil);
+            if main_screen != nil {
+                let screen_frame: NSRect = msg_send![main_screen, frame];
+                let visible_frame: NSRect = msg_send![main_screen, visibleFrame];
+
+                // NSScreen 返回的是逻辑像素，需要转换为物理像素
+                // 物理像素 = 逻辑像素 × scale_factor
+                let logical_height = visible_frame.size.height;
+                let physical_height = (logical_height * scale_factor) as i32;
+
+                log::info!(
+                    "macOS 屏幕总高度(逻辑): {}px, 可见区域高度(逻辑): {}px, 物理高度: {}px",
+                    screen_frame.size.height as i32,
+                    logical_height as i32,
+                    physical_height
+                );
+
+                physical_height
+            } else {
+                log::warn!("无法获取 macOS 可见区域，使用屏幕高度");
+                screen_height - work_area_top
+            }
+        };
+        height
+    };
+
+    #[cfg(target_os = "windows")]
+    let window_height = {
+        // Windows: 使用全屏高度，底部可以被遮挡
+        screen_height
+    };
+
     let y_position = work_area_top;
 
     log::info!(
@@ -63,6 +102,47 @@ pub fn init_main_window(app: &App) -> tauri::Result<()> {
     // 设置窗口大小和位置
     main_window.set_size(PhysicalSize::new(window_width, window_height))?;
     main_window.set_position(PhysicalPosition::new(x_position, y_position))?;
+
+    // macOS 特定配置：设置窗口始终置顶，确保在菜单栏和 Dock 上方
+    #[cfg(target_os = "macos")]
+    {
+        if let Err(e) = main_window.set_always_on_top(true) {
+            log::error!("设置窗口置顶失败: {}", e);
+        } else {
+            log::info!("macOS 窗口已设置为始终置顶");
+        }
+
+        // 设置窗口圆角
+        use cocoa::appkit::{NSWindow, NSWindowStyleMask};
+        use cocoa::base::{id, YES};
+
+        if let Ok(ns_window) = main_window.ns_window() {
+            unsafe {
+                let ns_window = ns_window as id;
+
+                // 设置窗口样式，允许圆角
+                let mut style_mask: NSWindowStyleMask = msg_send![ns_window, styleMask];
+                style_mask |= NSWindowStyleMask::NSFullSizeContentViewWindowMask;
+                let _: () = msg_send![ns_window, setStyleMask: style_mask];
+
+                // 设置窗口圆角半径
+                let content_view: id = msg_send![ns_window, contentView];
+                if content_view != cocoa::base::nil {
+                    let layer: id = msg_send![content_view, layer];
+                    if layer != cocoa::base::nil {
+                        // 设置圆角半径为 12px（可以根据需要调整）
+                        let corner_radius: f64 = 12.0;
+                        let _: () = msg_send![layer, setCornerRadius: corner_radius];
+
+                        // 确保圆角被正确裁剪
+                        let _: () = msg_send![layer, setMasksToBounds: YES];
+
+                        log::info!("macOS 窗口圆角已设置: {}px", corner_radius);
+                    }
+                }
+            }
+        }
+    }
 
     // 延迟显示
     std::thread::sleep(std::time::Duration::from_millis(100));
@@ -88,13 +168,44 @@ pub fn init_main_window(app: &App) -> tauri::Result<()> {
 
     main_window.on_window_event(move |event| match event {
         WindowEvent::Focused(false) => {
+            log::debug!("窗口失去焦点事件触发");
+
             let window_focus_count = CONTEXT.get::<WindowFocusCount>();
             let window_hide_flag = CONTEXT.get::<WindowHideFlag>();
-            if window_focus_count.inc() >= 1 && window_hide_flag.is_can_hide() {
+            let count = window_focus_count.inc();
+            let can_hide = window_hide_flag.is_can_hide();
+
+            log::debug!("失去焦点计数: {}, 可以隐藏: {}", count, can_hide);
+
+            // 判断是否应该隐藏窗口（平台特定逻辑）
+            let should_hide = {
+                #[cfg(target_os = "macos")]
+                {
+                    // macOS: 只要允许隐藏就隐藏（不检查计数）
+                    // 通过 WindowHideFlag 的临时保护机制避免误操作
+                    can_hide
+                }
+
+                #[cfg(target_os = "windows")]
+                {
+                    // Windows: 需要至少失去焦点一次（count >= 1）才隐藏
+                    // 避免程序启动时窗口闪现后立即消失
+                    count >= 1 && can_hide
+                }
+            };
+
+            // 统一的窗口隐藏逻辑
+            if should_hide {
+                log::info!("触发窗口隐藏");
                 if let Err(e) = main1.hide() {
                     log::error!("隐藏窗口失败: {}", e);
+                } else {
+                    log::info!("窗口已成功隐藏");
                 }
             }
+        }
+        WindowEvent::Focused(true) => {
+            log::debug!("窗口获得焦点事件触发");
         }
         _ => {}
     });
@@ -181,8 +292,10 @@ fn get_macos_work_area(screen_width: i32, window_width: i32, scale_factor: f64) 
         }
     };
 
-    let edge_margin = (8.0 * scale_factor) as i32;
-    let x_position = (screen_width - window_width - edge_margin).max(0);
+    // macOS: 窗口右侧紧贴屏幕边缘，不需要边距
+    let x_position = (screen_width - window_width).max(0);
+
+    log::info!("macOS 窗口X位置: {}, 窗口宽度: {}, 屏幕宽度: {}", x_position, window_width, screen_width);
 
     (menubar_height, x_position)
 }
@@ -228,6 +341,11 @@ pub struct WindowFocusCount {
 impl WindowFocusCount {
     pub fn inc(&self) -> u64 {
         self.lost_count.fetch_add(1, Ordering::SeqCst)
+    }
+
+    /// 重置焦点丢失计数器
+    pub fn reset(&self) {
+        self.lost_count.store(0, Ordering::SeqCst);
     }
 }
 
