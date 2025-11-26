@@ -87,7 +87,7 @@ pub fn create_tray<R: Runtime>(app: &tauri::AppHandle<R>) -> tauri::Result<()> {
                         let _ = window.show();
                     }
                 }
-                let _ = app_handle.emit("open_settings_winodws", ());
+                let _ = app_handle.emit("open_settings_windows", ());
             }
             _ => {
                 log::warn!("菜单项 {:?} 未处理", event.id);

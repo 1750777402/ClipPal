@@ -196,11 +196,9 @@ pub fn init_main_window(app: &App) -> tauri::Result<()> {
 
             // 统一的窗口隐藏逻辑
             if should_hide {
-                log::info!("触发窗口隐藏");
+                log::debug!("触发窗口隐藏");
                 if let Err(e) = main1.hide() {
                     log::error!("隐藏窗口失败: {}", e);
-                } else {
-                    log::info!("窗口已成功隐藏");
                 }
             }
         }
