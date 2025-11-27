@@ -1,6 +1,3 @@
-// 抑制 cocoa crate 的弃用警告，因为我们目前仍在使用 cocoa 而非 objc2
-#![allow(deprecated)]
-
 use crate::errors::{AppError, AppResult};
 
 #[cfg(windows)]
@@ -230,35 +227,46 @@ static PREVIOUS_APP_PID: Lazy<Arc<Mutex<Option<i32>>>> =
 /// 保存前台窗口信息 - macOS版本
 #[cfg(target_os = "macos")]
 pub fn save_foreground_window() {
-    use objc2_app_kit::NSWorkspace;
+    use cocoa::base::id;
 
-    // 获取共享的 NSWorkspace 实例
-    let workspace = NSWorkspace::sharedWorkspace();
+    unsafe {
+        let cls = objc::class!(NSWorkspace);
+        let workspace: id = msg_send![cls, sharedWorkspace];
 
-    // 获取前台应用
-    if let Some(front_app) = workspace.frontmostApplication() {
-        // 获取应用名称
-        if let Some(app_name) = front_app.localizedName() {
-            let name = app_name.to_string();
+        if workspace != nil {
+            let front_app: id = msg_send![workspace, frontmostApplication];
 
-            // 跳过ClipPal自己
-            if name == "ClipPal" {
-                log::debug!("当前前台是ClipPal，不保存");
-                return;
-            }
+            if front_app != nil {
+                // 获取应用名称
+                let app_name: id = msg_send![front_app, localizedName];
+                let name_ptr: *const i8 = msg_send![app_name, UTF8String];
+                let name = if !name_ptr.is_null() {
+                    std::ffi::CStr::from_ptr(name_ptr)
+                        .to_string_lossy()
+                        .to_string()
+                } else {
+                    "Unknown".to_string()
+                };
 
-            // 获取进程ID
-            let pid = front_app.processIdentifier();
+                // 跳过ClipPal自己
+                if name == "ClipPal" {
+                    log::debug!("当前前台是ClipPal，不保存");
+                    return;
+                }
 
-            if let Ok(mut previous) = PREVIOUS_APP_PID.lock() {
-                *previous = Some(pid);
-                log::info!("保存前台应用: {} (PID: {})", name, pid);
+                // 获取进程ID
+                let pid: i32 = msg_send![front_app, processIdentifier];
+
+                if let Ok(mut previous) = PREVIOUS_APP_PID.lock() {
+                    *previous = Some(pid);
+                    log::info!("保存前台应用: {} (PID: {})", name, pid);
+                }
             }
         }
     }
 }
 
-/// 执行自动粘贴 - macOS 简化版
+/// 执行自动粘贴
 #[cfg(target_os = "macos")]
 pub fn auto_paste_to_previous_window() -> AppResult<()> {
     use crate::CONTEXT;
@@ -347,43 +355,40 @@ pub fn auto_paste_to_previous_window() -> AppResult<()> {
 /// 根据PID激活应用
 #[cfg(target_os = "macos")]
 fn activate_app_by_pid(pid: i32) -> AppResult<()> {
-    use objc2_app_kit::NSRunningApplication;
+    use cocoa::base::id;
 
-    // 通过 PID 获取运行中的应用
-    let app = NSRunningApplication::runningApplicationWithProcessIdentifier(pid);
+    unsafe {
+        let cls = objc::class!(NSRunningApplication);
+        let app: id = msg_send![cls, runningApplicationWithProcessIdentifier: pid];
 
-    if app.is_none() {
-        log::warn!("无法找到PID为{}的应用", pid);
-        return Err(AppError::AutoPaste(format!("无法找到PID为{}的应用", pid)));
-    }
+        if app == nil {
+            log::warn!("无法找到PID为{}的应用", pid);
+            return Err(AppError::AutoPaste(format!("无法找到PID为{}的应用", pid)));
+        }
 
-    let app = app.unwrap();
+        // 获取应用名称用于日志
+        let app_name: id = msg_send![app, localizedName];
+        let name_ptr: *const i8 = msg_send![app_name, UTF8String];
+        let name = if !name_ptr.is_null() {
+            std::ffi::CStr::from_ptr(name_ptr)
+                .to_string_lossy()
+                .to_string()
+        } else {
+            format!("PID:{}", pid)
+        };
 
-    // 获取应用名称用于日志
-    let name = app
-        .localizedName()
-        .map(|n| n.to_string())
-        .unwrap_or_else(|| format!("PID:{}", pid));
-
-    log::info!("激活应用: {}", name);
-
-    // NSApplicationActivateIgnoringOtherApps = 1 << 1
-    // 在 objc2-app-kit 中，使用 activateIgnoringOtherApps 选项
-    let result = unsafe {
-        use objc2::runtime::Bool;
-        use objc2::msg_send_id;
+        log::info!("激活应用: {}", name);
 
         let options: usize = 1 << 1; // NSApplicationActivateIgnoringOtherApps
-        let result: Bool = msg_send_id![&app, activateWithOptions: options];
-        result.as_bool()
-    };
+        let result: bool = msg_send![app, activateWithOptions: options];
 
-    if result {
-        log::info!("成功激活应用: {}", name);
-        Ok(())
-    } else {
-        log::error!("激活应用失败: {}", name);
-        Err(AppError::AutoPaste(format!("激活应用失败: {}", name)))
+        if result {
+            log::info!("成功激活应用: {}", name);
+            Ok(())
+        } else {
+            log::error!("激活应用失败: {}", name);
+            Err(AppError::AutoPaste(format!("激活应用失败: {}", name)))
+        }
     }
 }
 
@@ -491,17 +496,6 @@ fn get_frontmost_app_name() -> Option<String> {
     None
 }
 
-/// 记录当前前台应用名称（用于调试）
-#[cfg(target_os = "macos")]
-#[allow(dead_code)]
-fn log_frontmost_app() {
-    if let Some(name) = get_frontmost_app_name() {
-        log::info!("当前前台应用: {}", name);
-    } else {
-        log::warn!("无法获取前台应用名称");
-    }
-}
-
 /// 检查辅助功能权限
 #[cfg(target_os = "macos")]
 fn check_accessibility_permissions() -> bool {
@@ -578,51 +572,53 @@ fn send_cmd_v() -> AppResult<()> {
         log::warn!("⚠️ 剪贴板为空或无法读取内容");
     }
 
-    // 使用 CombinedSessionState 而不是 HIDSystemState
-    let source = CGEventSource::new(CGEventSourceStateID::CombinedSessionState)
-        .map_err(|e| {
-            log::error!("创建事件源失败: {:?}", e);
-            AppError::AutoPaste(format!("创建事件源失败: {:?}", e))
-        })?;
+    unsafe {
+        // 使用 CombinedSessionState 而不是 HIDSystemState
+        let source = CGEventSource::new(CGEventSourceStateID::CombinedSessionState)
+            .map_err(|e| {
+                log::error!("创建事件源失败: {:?}", e);
+                AppError::AutoPaste(format!("创建事件源失败: {:?}", e))
+            })?;
 
-    log::debug!("CGEventSource 创建成功 (CombinedSessionState)");
+        log::debug!("CGEventSource 创建成功 (CombinedSessionState)");
 
-    let v_key: CGKeyCode = 9; // V 键的键码
+        let v_key: CGKeyCode = 9; // V 键的键码
 
-    // 设置 Command 标志，包括设备特定的左 Command 键标志
-    // CGEventFlagCommand = 0x100000 (general command flag)
-    // NX_DEVICELCMDKEYMASK = 0x00000008 (device-specific left command key)
-    let command_flags = CGEventFlags::from_bits_truncate(
-        CGEventFlags::CGEventFlagCommand.bits() | 0x00000008
-    );
+        // 设置 Command 标志，包括设备特定的左 Command 键标志
+        // CGEventFlagCommand = 0x100000 (general command flag)
+        // NX_DEVICELCMDKEYMASK = 0x00000008 (device-specific left command key)
+        let command_flags = CGEventFlags::from_bits_truncate(
+            CGEventFlags::CGEventFlagCommand.bits() | 0x00000008
+        );
 
-    log::debug!("创建 V 键按下事件，标志: 0x{:x}", command_flags.bits());
+        log::debug!("创建 V 键按下事件，标志: 0x{:x}", command_flags.bits());
 
-    // 按下 V 键（带 Command 标志）
-    let v_down = CGEvent::new_keyboard_event(source.clone(), v_key, true)
-        .map_err(|e| {
-            log::error!("创建 V 按下事件失败: {:?}", e);
-            AppError::AutoPaste(format!("创建 V 按下事件失败: {:?}", e))
-        })?;
-    v_down.set_flags(command_flags);
-    // 使用 AnnotatedSession 而不是 HID
-    v_down.post(core_graphics::event::CGEventTapLocation::AnnotatedSession);
+        // 按下 V 键（带 Command 标志）
+        let v_down = CGEvent::new_keyboard_event(source.clone(), v_key, true)
+            .map_err(|e| {
+                log::error!("创建 V 按下事件失败: {:?}", e);
+                AppError::AutoPaste(format!("创建 V 按下事件失败: {:?}", e))
+            })?;
+        v_down.set_flags(command_flags);
+        // 使用 AnnotatedSession 而不是 HID
+        v_down.post(core_graphics::event::CGEventTapLocation::AnnotatedSession);
 
-    log::debug!("已发送 V 键按下事件");
+        log::debug!("已发送 V 键按下事件");
 
-    // 短暂延迟
-    std::thread::sleep(std::time::Duration::from_millis(20));
+        // 短暂延迟
+        std::thread::sleep(std::time::Duration::from_millis(20));
 
-    // 释放 V 键
-    let v_up = CGEvent::new_keyboard_event(source, v_key, false)
-        .map_err(|e| {
-            log::error!("创建 V 释放事件失败: {:?}", e);
-            AppError::AutoPaste(format!("创建 V 释放事件失败: {:?}", e))
-        })?;
-    v_up.set_flags(command_flags);
-    v_up.post(core_graphics::event::CGEventTapLocation::AnnotatedSession);
+        // 释放 V 键
+        let v_up = CGEvent::new_keyboard_event(source, v_key, false)
+            .map_err(|e| {
+                log::error!("创建 V 释放事件失败: {:?}", e);
+                AppError::AutoPaste(format!("创建 V 释放事件失败: {:?}", e))
+            })?;
+        v_up.set_flags(command_flags);
+        v_up.post(core_graphics::event::CGEventTapLocation::AnnotatedSession);
 
-    log::debug!("已发送 V 键释放事件");
+        log::debug!("已发送 V 键释放事件");
+    }
 
     log::info!("Cmd+V 按键事件发送完成");
     Ok(())
