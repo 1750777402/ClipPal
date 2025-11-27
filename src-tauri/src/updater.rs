@@ -22,6 +22,7 @@ pub struct UpdateInfo {
 }
 
 /// 更新进度信息
+#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UpdateProgress {
     /// 已下载字节数

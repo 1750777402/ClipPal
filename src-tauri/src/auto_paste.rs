@@ -1,3 +1,6 @@
+// 抑制 cocoa crate 的弃用警告，因为我们目前仍在使用 cocoa 而非 objc2
+#![allow(deprecated)]
+
 use crate::errors::{AppError, AppResult};
 
 #[cfg(windows)]
@@ -227,40 +230,29 @@ static PREVIOUS_APP_PID: Lazy<Arc<Mutex<Option<i32>>>> =
 /// 保存前台窗口信息 - macOS版本
 #[cfg(target_os = "macos")]
 pub fn save_foreground_window() {
-    use cocoa::base::id;
+    use objc2_app_kit::NSWorkspace;
 
-    unsafe {
-        let cls = objc::class!(NSWorkspace);
-        let workspace: id = msg_send![cls, sharedWorkspace];
+    // 获取共享的 NSWorkspace 实例
+    let workspace = NSWorkspace::sharedWorkspace();
 
-        if workspace != nil {
-            let front_app: id = msg_send![workspace, frontmostApplication];
+    // 获取前台应用
+    if let Some(front_app) = workspace.frontmostApplication() {
+        // 获取应用名称
+        if let Some(app_name) = front_app.localizedName() {
+            let name = app_name.to_string();
 
-            if front_app != nil {
-                // 获取应用名称
-                let app_name: id = msg_send![front_app, localizedName];
-                let name_ptr: *const i8 = msg_send![app_name, UTF8String];
-                let name = if !name_ptr.is_null() {
-                    std::ffi::CStr::from_ptr(name_ptr)
-                        .to_string_lossy()
-                        .to_string()
-                } else {
-                    "Unknown".to_string()
-                };
+            // 跳过ClipPal自己
+            if name == "ClipPal" {
+                log::debug!("当前前台是ClipPal，不保存");
+                return;
+            }
 
-                // 跳过ClipPal自己
-                if name == "ClipPal" {
-                    log::debug!("当前前台是ClipPal，不保存");
-                    return;
-                }
+            // 获取进程ID
+            let pid = front_app.processIdentifier();
 
-                // 获取进程ID
-                let pid: i32 = msg_send![front_app, processIdentifier];
-
-                if let Ok(mut previous) = PREVIOUS_APP_PID.lock() {
-                    *previous = Some(pid);
-                    log::info!("保存前台应用: {} (PID: {})", name, pid);
-                }
+            if let Ok(mut previous) = PREVIOUS_APP_PID.lock() {
+                *previous = Some(pid);
+                log::info!("保存前台应用: {} (PID: {})", name, pid);
             }
         }
     }
@@ -352,262 +344,46 @@ pub fn auto_paste_to_previous_window() -> AppResult<()> {
     Ok(())
 }
 
-/// 使用菜单栏触发粘贴（配合重试机制）
-#[cfg(target_os = "macos")]
-fn trigger_paste_menu_item(pid: i32) -> AppResult<()> {
-    use core_foundation::base::TCFType;
-    use core_foundation::string::CFString;
-
-    log::info!("使用 Accessibility API 触发粘贴菜单，目标应用 PID: {}", pid);
-
-    unsafe {
-        // 直接使用 PID 创建应用的 AXUIElement
-        let app_element = accessibility_sys::AXUIElementCreateApplication(pid);
-
-        if app_element.is_null() {
-            log::error!("无法创建应用的 AXUIElement，PID: {}", pid);
-            return Err(AppError::AutoPaste(format!("无法创建应用的 AXUIElement，PID: {}", pid)));
-        }
-
-        // 获取菜单栏
-        let menu_bar_key = CFString::from_static_string("AXMenuBar");
-        let mut menu_bar_value: core_foundation::base::CFTypeRef = std::ptr::null_mut();
-
-        let result = accessibility_sys::AXUIElementCopyAttributeValue(
-            app_element,
-            menu_bar_key.as_CFTypeRef() as core_foundation::string::CFStringRef,
-            &mut menu_bar_value
-        );
-
-        if result != 0 {
-            core_foundation::base::CFRelease(app_element as *const std::ffi::c_void);
-            log::error!("无法获取菜单栏: {}", result);
-            return Err(AppError::AutoPaste("无法获取菜单栏".to_string()));
-        }
-
-        let menu_bar = menu_bar_value as accessibility_sys::AXUIElementRef;
-
-        // 查找编辑菜单（支持中英文）
-        let mut paste_item: Option<accessibility_sys::AXUIElementRef> = None;
-
-        if let Some(edit_menu) = find_menu_by_title(menu_bar, "编辑") {
-            log::debug!("找到编辑菜单");
-            if let Some(item) = find_menu_by_title(edit_menu, "粘贴") {
-                log::debug!("找到粘贴菜单项");
-                paste_item = Some(item);
-            }
-            core_foundation::base::CFRelease(edit_menu as *const std::ffi::c_void);
-        }
-
-        if paste_item.is_none() {
-            if let Some(edit_menu) = find_menu_by_title(menu_bar, "Edit") {
-                log::debug!("找到 Edit 菜单");
-                if let Some(item) = find_menu_by_title(edit_menu, "Paste") {
-                    log::debug!("找到 Paste 菜单项");
-                    paste_item = Some(item);
-                }
-                core_foundation::base::CFRelease(edit_menu as *const std::ffi::c_void);
-            }
-        }
-
-        core_foundation::base::CFRelease(menu_bar as *const std::ffi::c_void);
-        core_foundation::base::CFRelease(app_element as *const std::ffi::c_void);
-
-        if let Some(paste) = paste_item {
-            log::info!("找到粘贴菜单项，准备点击");
-
-            let press_action = CFString::from_static_string("AXPress");
-            let result = accessibility_sys::AXUIElementPerformAction(
-                paste,
-                press_action.as_CFTypeRef() as core_foundation::string::CFStringRef,
-            );
-
-            core_foundation::base::CFRelease(paste as *const std::ffi::c_void);
-
-            if result != 0 {
-                log::error!("触发粘贴菜单项失败: {}", result);
-                return Err(AppError::AutoPaste(format!("触发粘贴菜单项失败: {}", result)));
-            }
-
-            log::info!("成功触发粘贴菜单项");
-            Ok(())
-        } else {
-            log::error!("未找到粘贴菜单项");
-            Err(AppError::AutoPaste("未找到粘贴菜单项".to_string()))
-        }
-    }
-}
-
-/// 在 UI 元素中查找指定标题的菜单项
-#[cfg(target_os = "macos")]
-fn find_menu_by_title(
-    element: accessibility_sys::AXUIElementRef,
-    title: &str,
-) -> Option<accessibility_sys::AXUIElementRef> {
-    use core_foundation::base::TCFType;
-    use core_foundation::string::CFString;
-
-    unsafe {
-        // 获取子元素
-        let children_key = CFString::from_static_string("AXChildren");
-        let mut children_value: core_foundation::base::CFTypeRef = std::ptr::null_mut();
-
-        let result = accessibility_sys::AXUIElementCopyAttributeValue(
-            element,
-            children_key.as_CFTypeRef() as core_foundation::string::CFStringRef,
-            &mut children_value
-        );
-
-        if result != 0 {
-            return None;
-        }
-
-        // children_value 是一个 CFArray
-        let children_array = children_value as core_foundation::array::CFArrayRef;
-        let count = core_foundation::array::CFArrayGetCount(children_array);
-
-        for i in 0..count {
-            let child = core_foundation::array::CFArrayGetValueAtIndex(children_array, i);
-            if child.is_null() {
-                continue;
-            }
-
-            let child_element = child as accessibility_sys::AXUIElementRef;
-
-            // 获取标题
-            let title_key = CFString::from_static_string("AXTitle");
-            let mut title_value: core_foundation::base::CFTypeRef = std::ptr::null_mut();
-
-            let result = accessibility_sys::AXUIElementCopyAttributeValue(
-                child_element,
-                title_key.as_CFTypeRef() as core_foundation::string::CFStringRef,
-                &mut title_value
-            );
-
-            if result == 0 && !title_value.is_null() {
-                let cf_title = CFString::wrap_under_get_rule(
-                    title_value as core_foundation::string::CFStringRef
-                );
-
-                if cf_title.to_string() == title {
-                    core_foundation::base::CFRelease(children_value as *const std::ffi::c_void);
-                    // 增加引用计数，因为我们要返回这个元素
-                    core_foundation::base::CFRetain(child);
-                    return Some(child_element);
-                }
-
-                core_foundation::base::CFRelease(title_value as *const std::ffi::c_void);
-            }
-        }
-
-        core_foundation::base::CFRelease(children_value as *const std::ffi::c_void);
-        None
-    }
-}
-
-/// 使用AppleScript执行粘贴操作（已废弃，保留用于参考）
-#[cfg(target_os = "macos")]
-#[allow(dead_code)]
-fn send_cmd_v_via_applescript() -> AppResult<()> {
-    use cocoa::base::{id, nil};
-    use objc::{msg_send, sel, sel_impl};
-    use std::ffi::CString;
-
-    log::info!("使用NSAppleScript执行粘贴");
-
-    unsafe {
-        // AppleScript代码 - 使用key code方式
-        // 9是V键的key code
-        let script_str = "tell application \"System Events\"\nkey code 9 using {command down}\nend tell";
-
-        // 使用CString确保null终止符
-        let c_script = CString::new(script_str).map_err(|e| {
-            log::error!("创建CString失败: {}", e);
-            AppError::AutoPaste(format!("创建CString失败: {}", e))
-        })?;
-
-        // 创建NSString
-        let ns_string_class = objc::class!(NSString);
-        let ns_script: id = msg_send![ns_string_class, stringWithUTF8String: c_script.as_ptr()];
-
-        if ns_script == nil {
-            log::error!("创建NSString失败");
-            return Err(AppError::AutoPaste("创建NSString失败".to_string()));
-        }
-
-        // 创建NSAppleScript对象
-        let apple_script_class = objc::class!(NSAppleScript);
-        let apple_script: id = msg_send![apple_script_class, alloc];
-        let apple_script: id = msg_send![apple_script, initWithSource: ns_script];
-
-        if apple_script == nil {
-            log::error!("创建NSAppleScript失败");
-            return Err(AppError::AutoPaste("创建NSAppleScript失败".to_string()));
-        }
-
-        // 执行脚本
-        let mut error: id = nil;
-        let _result: id = msg_send![apple_script, executeAndReturnError: &mut error];
-
-        if error != nil {
-            // 获取错误信息
-            let error_desc: id = msg_send![error, description];
-            let error_cstr: *const i8 = msg_send![error_desc, UTF8String];
-            let error_msg = if !error_cstr.is_null() {
-                std::ffi::CStr::from_ptr(error_cstr)
-                    .to_string_lossy()
-                    .to_string()
-            } else {
-                "Unknown error".to_string()
-            };
-
-            log::error!("NSAppleScript执行失败: {}", error_msg);
-            return Err(AppError::AutoPaste(format!("NSAppleScript执行失败: {}", error_msg)));
-        }
-
-        log::info!("NSAppleScript执行成功");
-    }
-
-    Ok(())
-}
-
 /// 根据PID激活应用
 #[cfg(target_os = "macos")]
 fn activate_app_by_pid(pid: i32) -> AppResult<()> {
-    use cocoa::base::id;
+    use objc2_app_kit::NSRunningApplication;
 
-    unsafe {
-        let cls = objc::class!(NSRunningApplication);
-        let app: id = msg_send![cls, runningApplicationWithProcessIdentifier: pid];
+    // 通过 PID 获取运行中的应用
+    let app = NSRunningApplication::runningApplicationWithProcessIdentifier(pid);
 
-        if app == nil {
-            log::warn!("无法找到PID为{}的应用", pid);
-            return Err(AppError::AutoPaste(format!("无法找到PID为{}的应用", pid)));
-        }
+    if app.is_none() {
+        log::warn!("无法找到PID为{}的应用", pid);
+        return Err(AppError::AutoPaste(format!("无法找到PID为{}的应用", pid)));
+    }
 
-        // 获取应用名称用于日志
-        let app_name: id = msg_send![app, localizedName];
-        let name_ptr: *const i8 = msg_send![app_name, UTF8String];
-        let name = if !name_ptr.is_null() {
-            std::ffi::CStr::from_ptr(name_ptr)
-                .to_string_lossy()
-                .to_string()
-        } else {
-            format!("PID:{}", pid)
-        };
+    let app = app.unwrap();
 
-        log::info!("激活应用: {}", name);
+    // 获取应用名称用于日志
+    let name = app
+        .localizedName()
+        .map(|n| n.to_string())
+        .unwrap_or_else(|| format!("PID:{}", pid));
+
+    log::info!("激活应用: {}", name);
+
+    // NSApplicationActivateIgnoringOtherApps = 1 << 1
+    // 在 objc2-app-kit 中，使用 activateIgnoringOtherApps 选项
+    let result = unsafe {
+        use objc2::runtime::Bool;
+        use objc2::msg_send_id;
 
         let options: usize = 1 << 1; // NSApplicationActivateIgnoringOtherApps
-        let result: bool = msg_send![app, activateWithOptions: options];
+        let result: Bool = msg_send_id![&app, activateWithOptions: options];
+        result.as_bool()
+    };
 
-        if result {
-            log::info!("成功激活应用: {}", name);
-            Ok(())
-        } else {
-            log::error!("激活应用失败: {}", name);
-            Err(AppError::AutoPaste(format!("激活应用失败: {}", name)))
-        }
+    if result {
+        log::info!("成功激活应用: {}", name);
+        Ok(())
+    } else {
+        log::error!("激活应用失败: {}", name);
+        Err(AppError::AutoPaste(format!("激活应用失败: {}", name)))
     }
 }
 
@@ -717,6 +493,7 @@ fn get_frontmost_app_name() -> Option<String> {
 
 /// 记录当前前台应用名称（用于调试）
 #[cfg(target_os = "macos")]
+#[allow(dead_code)]
 fn log_frontmost_app() {
     if let Some(name) = get_frontmost_app_name() {
         log::info!("当前前台应用: {}", name);
@@ -801,53 +578,51 @@ fn send_cmd_v() -> AppResult<()> {
         log::warn!("⚠️ 剪贴板为空或无法读取内容");
     }
 
-    unsafe {
-        // 使用 CombinedSessionState 而不是 HIDSystemState
-        let source = CGEventSource::new(CGEventSourceStateID::CombinedSessionState)
-            .map_err(|e| {
-                log::error!("创建事件源失败: {:?}", e);
-                AppError::AutoPaste(format!("创建事件源失败: {:?}", e))
-            })?;
+    // 使用 CombinedSessionState 而不是 HIDSystemState
+    let source = CGEventSource::new(CGEventSourceStateID::CombinedSessionState)
+        .map_err(|e| {
+            log::error!("创建事件源失败: {:?}", e);
+            AppError::AutoPaste(format!("创建事件源失败: {:?}", e))
+        })?;
 
-        log::debug!("CGEventSource 创建成功 (CombinedSessionState)");
+    log::debug!("CGEventSource 创建成功 (CombinedSessionState)");
 
-        let v_key: CGKeyCode = 9; // V 键的键码
+    let v_key: CGKeyCode = 9; // V 键的键码
 
-        // 设置 Command 标志，包括设备特定的左 Command 键标志
-        // CGEventFlagCommand = 0x100000 (general command flag)
-        // NX_DEVICELCMDKEYMASK = 0x00000008 (device-specific left command key)
-        let command_flags = CGEventFlags::from_bits_truncate(
-            CGEventFlags::CGEventFlagCommand.bits() | 0x00000008
-        );
+    // 设置 Command 标志，包括设备特定的左 Command 键标志
+    // CGEventFlagCommand = 0x100000 (general command flag)
+    // NX_DEVICELCMDKEYMASK = 0x00000008 (device-specific left command key)
+    let command_flags = CGEventFlags::from_bits_truncate(
+        CGEventFlags::CGEventFlagCommand.bits() | 0x00000008
+    );
 
-        log::debug!("创建 V 键按下事件，标志: 0x{:x}", command_flags.bits());
+    log::debug!("创建 V 键按下事件，标志: 0x{:x}", command_flags.bits());
 
-        // 按下 V 键（带 Command 标志）
-        let v_down = CGEvent::new_keyboard_event(source.clone(), v_key, true)
-            .map_err(|e| {
-                log::error!("创建 V 按下事件失败: {:?}", e);
-                AppError::AutoPaste(format!("创建 V 按下事件失败: {:?}", e))
-            })?;
-        v_down.set_flags(command_flags);
-        // 使用 AnnotatedSession 而不是 HID
-        v_down.post(core_graphics::event::CGEventTapLocation::AnnotatedSession);
+    // 按下 V 键（带 Command 标志）
+    let v_down = CGEvent::new_keyboard_event(source.clone(), v_key, true)
+        .map_err(|e| {
+            log::error!("创建 V 按下事件失败: {:?}", e);
+            AppError::AutoPaste(format!("创建 V 按下事件失败: {:?}", e))
+        })?;
+    v_down.set_flags(command_flags);
+    // 使用 AnnotatedSession 而不是 HID
+    v_down.post(core_graphics::event::CGEventTapLocation::AnnotatedSession);
 
-        log::debug!("已发送 V 键按下事件");
+    log::debug!("已发送 V 键按下事件");
 
-        // 短暂延迟
-        std::thread::sleep(std::time::Duration::from_millis(20));
+    // 短暂延迟
+    std::thread::sleep(std::time::Duration::from_millis(20));
 
-        // 释放 V 键
-        let v_up = CGEvent::new_keyboard_event(source, v_key, false)
-            .map_err(|e| {
-                log::error!("创建 V 释放事件失败: {:?}", e);
-                AppError::AutoPaste(format!("创建 V 释放事件失败: {:?}", e))
-            })?;
-        v_up.set_flags(command_flags);
-        v_up.post(core_graphics::event::CGEventTapLocation::AnnotatedSession);
+    // 释放 V 键
+    let v_up = CGEvent::new_keyboard_event(source, v_key, false)
+        .map_err(|e| {
+            log::error!("创建 V 释放事件失败: {:?}", e);
+            AppError::AutoPaste(format!("创建 V 释放事件失败: {:?}", e))
+        })?;
+    v_up.set_flags(command_flags);
+    v_up.post(core_graphics::event::CGEventTapLocation::AnnotatedSession);
 
-        log::debug!("已发送 V 键释放事件");
-    }
+    log::debug!("已发送 V 键释放事件");
 
     log::info!("Cmd+V 按键事件发送完成");
     Ok(())

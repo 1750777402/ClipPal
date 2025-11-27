@@ -19,6 +19,7 @@ pub struct QueryParam {
     pub search: Option<String>,
 }
 
+#[allow(dead_code)]
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ClipRecordDTO {
     pub id: String,

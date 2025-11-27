@@ -459,6 +459,7 @@ async fn notify_cloud_sync_disabled() {
     }
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UpdateNicknameRequest {
     pub nick_name: String,

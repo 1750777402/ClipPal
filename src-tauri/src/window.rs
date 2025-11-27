@@ -1,3 +1,6 @@
+// 抑制 cocoa crate 的弃用警告
+#![allow(deprecated)]
+
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 use tauri::{App, WindowEvent};
