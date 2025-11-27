@@ -104,7 +104,7 @@ const updateState = ref<UpdateState>('checking')
 const updateInfo = ref<UpdateInfo | null>(null)
 const downloadProgress = ref(0)
 const errorMessage = ref('')
-const currentVersion = ref('1.0.6')
+const currentVersion = ref('1.0.7')
 const isFromAutoCheck = ref(false) // 标记是否来自自动检查
 
 const formatChangelog = (body: string): string => {
