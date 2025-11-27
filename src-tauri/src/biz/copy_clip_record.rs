@@ -141,15 +141,31 @@ pub async fn copy_clip_record(param: CopyClipRecord) -> Result<String, String> {
     // 只有在启用自动粘贴时才执行
     if auto_paste_enabled {
         log::info!("准备执行自动粘贴");
+
+        // 克隆 app_handle 供线程使用
+        let app_handle_clone = app_handle.clone();
+
         // 使用独立的系统线程避免阻塞，因为auto_paste中使用了std::thread::sleep
-        std::thread::spawn(|| {
+        std::thread::spawn(move || {
             // 等待一小段时间确保剪贴板内容已经更新
             std::thread::sleep(std::time::Duration::from_millis(100));
 
             log::info!("开始执行自动粘贴");
             // 尝试自动粘贴到之前获得焦点的窗口
             if let Err(e) = auto_paste::auto_paste_to_previous_window() {
-                log::warn!("自动粘贴失败: {}", e);
+                let error_msg = e.to_string();
+                log::warn!("自动粘贴失败: {}", error_msg);
+
+                // 检查是否是权限相关的错误
+                if error_msg.contains("辅助功能权限") || error_msg.contains("权限") {
+                    log::error!("检测到辅助功能权限问题，准备提示用户");
+
+                    // 在主线程中显示对话框
+                    let app_handle_for_dialog = app_handle_clone.clone();
+                    let _ = app_handle_clone.run_on_main_thread(move || {
+                        show_accessibility_permission_dialog(&app_handle_for_dialog);
+                    });
+                }
                 // 自动粘贴失败不影响复制功能，只记录警告日志
             } else {
                 log::info!("自动粘贴执行完成");
@@ -563,4 +579,56 @@ async fn cleanup_temp_files(temp_dir: &std::path::Path) -> Result<(), String> {
     }
 
     Ok(())
+}
+
+/// 显示辅助功能权限提示对话框
+fn show_accessibility_permission_dialog(app_handle: &AppHandle) {
+    log::info!("准备显示辅助功能权限提示对话框");
+
+    // 构建详细的提示消息
+    let message = "自动粘贴功能需要辅助功能权限才能正常工作。\n\n\
+请在系统设置中授予 ClipPal 辅助功能权限：\n\
+1. 点击下方【打开系统设置】按钮\n\
+2. 在【隐私与安全性】中找到【辅助功能】\n\
+3. 勾选 ClipPal 旁边的复选框\n\
+4. 重启 ClipPal 应用";
+
+    // 使用 blocking 对话框显示提示
+    app_handle.dialog()
+        .message(message)
+        .title("需要辅助功能权限")
+        .kind(tauri_plugin_dialog::MessageDialogKind::Warning)
+        .blocking_show();
+
+    log::info!("辅助功能权限对话框已显示");
+
+    // 尝试自动打开系统设置
+    #[cfg(target_os = "macos")]
+    {
+        use std::process::Command;
+
+        log::info!("尝试打开系统设置 - 辅助功能");
+
+        // macOS Ventura (13.0) 及以上使用新的 URL scheme
+        // macOS Monterey 及以下使用旧的 URL scheme
+        let setting_urls = [
+            // 新的 macOS Ventura+ URL
+            "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility",
+            // 旧的 macOS Monterey- URL
+            "x-apple.systempreferences:com.apple.preference.security?Privacy",
+        ];
+
+        for url in &setting_urls {
+            log::debug!("尝试打开设置 URL: {}", url);
+            match Command::new("open").arg(url).spawn() {
+                Ok(_) => {
+                    log::info!("成功打开系统设置");
+                    break;
+                }
+                Err(e) => {
+                    log::warn!("打开系统设置失败: {}, 尝试下一个 URL", e);
+                }
+            }
+        }
+    }
 }
