@@ -105,7 +105,7 @@ VIP界面
    如果你需要自动更新功能，那么在target\release\bundle中的msi和nsis下有对应的exe.sig或者msi.sig签名文件，并且需要把exe.sig或者msi.sig文件中的内容更新到latest.json中的对应平台的signature字段中，然后上传/更新 你的latest.json文件
    
    mac下:
-   打包后的新包会在target\release\bundle\dmg目录中有.dmg安装包;target\release\bundle\macos目录下会有一个一个 .tar.gz 归档文件,其中包含了.app文件.一般采用.dmg文件安装软件
+   打包后的新包会在target\release\bundle\dmg目录中有.dmg安装包;target\release\bundle\macos目录下会有一个 .tar.gz 归档文件,其中包含了.app程序文件. 一般采用.dmg文件安装软件
    在target\release\bundle\macos下会产生:
    myapp.app - 标准的应用程序包。
    myapp.app.tar.gz - 更新包。
