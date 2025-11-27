@@ -126,7 +126,11 @@ pub async fn copy_clip_record(param: CopyClipRecord) -> Result<String, String> {
     let auto_paste_enabled = {
         let settings_lock = CONTEXT.get::<Arc<RwLock<Settings>>>();
         match safe_read_lock(&settings_lock) {
-            Ok(settings) => settings.auto_paste == 1,
+            Ok(settings) => {
+                let enabled = settings.auto_paste == 1;
+                log::debug!("自动粘贴功能状态: {}", if enabled { "已启用" } else { "未启用" });
+                enabled
+            }
             Err(e) => {
                 log::warn!("无法获取设置: {}", e);
                 false // 如果无法获取设置，默认不启用自动粘贴
@@ -136,17 +140,23 @@ pub async fn copy_clip_record(param: CopyClipRecord) -> Result<String, String> {
 
     // 只有在启用自动粘贴时才执行
     if auto_paste_enabled {
-        // 使用异步任务避免阻塞主线程
-        tokio::spawn(async {
+        log::info!("准备执行自动粘贴");
+        // 使用独立的系统线程避免阻塞，因为auto_paste中使用了std::thread::sleep
+        std::thread::spawn(|| {
             // 等待一小段时间确保剪贴板内容已经更新
-            tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+            std::thread::sleep(std::time::Duration::from_millis(100));
 
+            log::info!("开始执行自动粘贴");
             // 尝试自动粘贴到之前获得焦点的窗口
             if let Err(e) = auto_paste::auto_paste_to_previous_window() {
                 log::warn!("自动粘贴失败: {}", e);
                 // 自动粘贴失败不影响复制功能，只记录警告日志
+            } else {
+                log::info!("自动粘贴执行完成");
             }
         });
+    } else {
+        log::debug!("自动粘贴未启用，跳过");
     }
 
     Ok(String::new())

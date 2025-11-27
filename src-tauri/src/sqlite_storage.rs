@@ -389,6 +389,7 @@ pub async fn init_sqlite() -> AppResult<RBatis> {
     let db_path = get_data_dir()
         .ok_or_else(|| AppError::Config("无法获取数据目录".to_string()))?
         .join("clip_record.db");
+    log::info!("SQLite数据库路径: {:?}", db_path);
 
     // 使用工具函数安全地处理路径
     let db_path_str = to_safe_string(&db_path);

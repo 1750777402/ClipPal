@@ -77,6 +77,8 @@ windows = { workspace = true, features = [
 cocoa = { workspace = true }
 objc = { workspace = true }
 core-graphics = { workspace = true }
+core-foundation = { workspace = true }
+accessibility-sys = { workspace = true }
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-autostart = { workspace = true }

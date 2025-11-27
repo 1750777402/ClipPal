@@ -86,6 +86,8 @@ windows = "0.58"                   # Windows API 绑定
 cocoa = "0.26.0"                   # macOS Cocoa 绑定
 objc = "0.2.7"                     # Objective-C 绑定（macOS API）
 core-graphics = "0.25.0"           # macOS 图形 API
+core-foundation = "0.10.0"         # macOS Core Foundation 框架
+accessibility-sys = "0.2.0"        # macOS Accessibility API
 
 # =========================
 # 构建依赖

@@ -72,14 +72,25 @@ VIP界面
    cargo tauri signer generate -w ~/.tauri/myapp.key
    ```
    - 下面这个是在软件版本更新时的打包流程：
+   先打包前端:
    ```bash
    cd ./frontend
    npm run build
    cd ..
+   ```
+   设置更新密钥,win上是:
+   ```bash  
    $env:TAURI_SIGNING_PRIVATE_KEY="自己的更新的私钥"
    $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD="私钥的密码(生成公私钥的时候输入的那个密码)"
    cargo tauri build
    ```
+   mac上是:
+   ```bash
+   export TAURI_SIGNING_PRIVATE_KEY="自己的更新的私钥"
+   export TAURI_SIGNING_PRIVATE_KEY_PASSWORD="私钥的密码(生成公私钥的时候输入的那个密码)"
+   cargo tauri build
+   ```
+
    - 如果你不需要版本更新功能，首先修改tauri.conf.json中的plugins.updater.active为false，然后：
    ```bash
    cd ./frontend
@@ -123,6 +134,7 @@ VIP界面
 | v1.0.4   | 2025-07-03   | 优化了前端代码，增加自适应UI，图片加载方式优化；去除了对内容的分词处理(安装包体积大大降低、内存占用率也大大降低)和.bin文件存储，采用内存搜索和bloomfilter配合的方式处理模糊搜索  |
 | v1.0.5   | 2025-09-04   | 处理了很多bug；添加了云同步功能；添加了用户登录相关功能；添加了vip和支付相关功能  |
 | v1.0.6   | 2025-10-31   | 添加软件更新功能  |
+| v1.0.7   | 2025-11-27   | 适配macOS  |
 
 
 

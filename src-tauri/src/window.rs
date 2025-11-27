@@ -113,7 +113,7 @@ pub fn init_main_window(app: &App) -> tauri::Result<()> {
         }
 
         // 设置窗口圆角
-        use cocoa::appkit::{NSWindow, NSWindowStyleMask};
+        use cocoa::appkit::NSWindowStyleMask;
         use cocoa::base::{id, YES};
 
         if let Ok(ns_window) = main_window.ns_window() {
