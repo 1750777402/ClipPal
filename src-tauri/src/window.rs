@@ -114,37 +114,6 @@ pub fn init_main_window(app: &App) -> tauri::Result<()> {
         } else {
             log::info!("macOS 窗口已设置为始终置顶");
         }
-
-        // 设置窗口圆角
-        use cocoa::appkit::NSWindowStyleMask;
-        use cocoa::base::{id, YES};
-
-        if let Ok(ns_window) = main_window.ns_window() {
-            unsafe {
-                let ns_window = ns_window as id;
-
-                // 设置窗口样式，允许圆角
-                let mut style_mask: NSWindowStyleMask = msg_send![ns_window, styleMask];
-                style_mask |= NSWindowStyleMask::NSFullSizeContentViewWindowMask;
-                let _: () = msg_send![ns_window, setStyleMask: style_mask];
-
-                // 设置窗口圆角半径
-                let content_view: id = msg_send![ns_window, contentView];
-                if content_view != cocoa::base::nil {
-                    let layer: id = msg_send![content_view, layer];
-                    if layer != cocoa::base::nil {
-                        // 设置圆角半径为 12px（可以根据需要调整）
-                        let corner_radius: f64 = 12.0;
-                        let _: () = msg_send![layer, setCornerRadius: corner_radius];
-
-                        // 确保圆角被正确裁剪
-                        let _: () = msg_send![layer, setMasksToBounds: YES];
-
-                        log::info!("macOS 窗口圆角已设置: {}px", corner_radius);
-                    }
-                }
-            }
-        }
     }
 
     // 延迟显示
