@@ -1,7 +1,7 @@
 {
   "version": "1.0.7",
   "notes": "See the assets to download and install this version.",
-  "pub_date": "2025-11-27T18:00:00.000Z",
+  "pub_date": "2025-11-28T12:00:00.000Z",
   "platforms": {
     "windows-x86_64": {
       "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSMThYakQ2VUh6bFBsWHhiaWNnNE13TEpLVEtTb2pzeGtVOGU1cllRTHBYTDJDdFdmbVZqcXBSaE9QVTJuWm95Rktwb2U1RmNFMExNWVpqR1Y5dk1YVEJFTmRKR2F1UUFnPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzY0MjM3OTMwCWZpbGU6Q2xpcFBhbF8xLjAuN194NjQtc2V0dXAuZXhlCmR1VTRESXNsUWY3UWRSVFVDYmQxM3VtTHpTQ1NsY1ZzOUc1S2p3L1J5c1J5OWhxVllLckhSWGQ3dGZqblpWMHQwMUROd0JyK0hhc1dOYmVwNEVVU0NBPT0K",
@@ -9,7 +9,7 @@
     },
     "darwin-aarch64": {
       "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSMThYakQ2VUh6bE5lOXczT2NmZVJEKzA3L1RJaEdLNnkxVHZuZkZPc0dBTS9nc2poTi9rYTBRaDJYallxWVBqb0tubExuemhlYUFSRTRkQW5ZWExNbG93ci9ualcxRXdJPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzY0MzE0MTAzCWZpbGU6Q2xpcFBhbC5hcHAudGFyLmd6CkVrUmRvN0lmbGJEbTVQVUZvcXZJZzhDTWF1dVo3VkI0QVlIQWRMdDNTNmswaVBRNUdlN2VTKzJVYjZNY1NzZE82MmF0UGxFdyszSTNhSXRUNXZRckN3PT0K",
-      "url": "https://gitee.com/ygz123/clip-pal/releases/download/v1.0.7-Release/ClipPal_aarch64.tar.gz"
+      "url": "https://gitee.com/ygz123/clip-pal/releases/download/v1.0.7-Release/ClipPal_1.0.7_aarch64.tar.gz"
     }
   }
 }
