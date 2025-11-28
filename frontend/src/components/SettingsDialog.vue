@@ -991,28 +991,15 @@ input:checked+.slider:before {
   }
 }
 
-/* macOS平台特殊优化 */
+/* macOS平台特殊优化 - 视觉效果增强 */
 @supports (-webkit-backdrop-filter: blur()) {
-  @media (max-width: 480px) {
-    .settings-overlay {
-      backdrop-filter: blur(8px);
-    }
-    
-    .settings-dialog {
-      backdrop-filter: blur(20px);
-      background: rgba(245, 247, 250, 0.95);
-    }
+  .settings-overlay {
+    backdrop-filter: blur(8px);
+  }
 
-    .settings-footer {
-      flex-direction: column;
-      align-items: stretch; /* 左右都拉满 */
-    }
-
-    .left-buttons,
-    .right-buttons {
-      justify-content: space-between;
-      width: 100%;
-    }
+  .settings-dialog {
+    backdrop-filter: blur(20px);
+    background: rgba(245, 247, 250, 0.95);
   }
 }
 
