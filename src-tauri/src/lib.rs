@@ -44,6 +44,7 @@ mod clip_board_listener;
 mod errors;
 mod global_shortcut;
 mod log_config;
+mod menu;
 mod sqlite_storage;
 mod tray;
 mod updater;
@@ -123,6 +124,9 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
         }))
         .setup(move |app| {
             CONTEXT.set(app.handle().clone());
+
+            // 初始化菜单栏（macOS 最小化菜单）
+            let _ = menu::init_menu(&app);
 
             // 创建托盘区图标
             tray::create_tray(app.handle())?;
