@@ -44,17 +44,16 @@ pub async fn check_soft_version() -> Result<UpdateInfo, String> {
             let check_res = updater.check().await;
             match check_res {
                 Ok(Some(update)) => {
-                    let has_update = update.version != update.current_version;
-
+                    // Tauri updater 返回 Some(update) 即表示有可用更新
+                    // 不需要额外的版本比较，updater 已经做了语义版本比较
                     log::info!(
-                        "版本检查完成 - 当前: {}, 最新: {}, 有更新: {}",
+                        "版本检查完成 - 发现新版本: 当前: {}, 最新: {}",
                         update.current_version,
-                        update.version,
-                        has_update
+                        update.version
                     );
 
                     Ok(UpdateInfo {
-                        has_update,
+                        has_update: true,
                         current_version: update.current_version.clone(),
                         latest_version: update.version.clone(),
                         body: update.body.clone(),
@@ -63,11 +62,14 @@ pub async fn check_soft_version() -> Result<UpdateInfo, String> {
                     })
                 }
                 Ok(None) => {
-                    log::info!("没有更新信息");
+                    // 获取当前版本号
+                    let current_version = app_handle.package_info().version.to_string();
+                    log::info!("已是最新版本: {}", current_version);
+
                     Ok(UpdateInfo {
                         has_update: false,
-                        current_version: "unknown".to_string(),
-                        latest_version: "unknown".to_string(),
+                        current_version: current_version.clone(),
+                        latest_version: current_version,
                         body: None,
                         size: None,
                         date: None,

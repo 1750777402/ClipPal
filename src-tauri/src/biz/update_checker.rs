@@ -17,27 +17,23 @@ async fn check_and_notify_update(app_handle: &AppHandle) -> Result<(), String> {
         Ok(updater) => {
             match updater.check().await {
                 Ok(Some(update)) => {
-                    let has_update = update.version != update.current_version;
+                    // Tauri updater 返回 Some(update) 即表示有可用更新
+                    // 不需要额外的版本比较，updater 已经做了语义版本比较
+                    log::info!(
+                        "发现新版本: {} -> {}",
+                        update.current_version,
+                        update.version
+                    );
 
-                    if has_update {
-                        log::info!(
-                            "发现新版本: {} -> {}",
-                            update.current_version,
-                            update.version
-                        );
-
-                        // 发送事件到前端，通知有新版本
-                        let _ = app_handle.emit(
-                            "update-available",
-                            serde_json::json!({
-                                "current_version": update.current_version,
-                                "latest_version": update.version,
-                                "body": update.body,
-                            }),
-                        );
-                    } else {
-                        log::debug!("已是最新版本: {}", update.current_version);
-                    }
+                    // 发送事件到前端，通知有新版本
+                    let _ = app_handle.emit(
+                        "update-available",
+                        serde_json::json!({
+                            "current_version": update.current_version,
+                            "latest_version": update.version,
+                            "body": update.body,
+                        }),
+                    );
 
                     Ok(())
                 }

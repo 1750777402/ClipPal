@@ -118,10 +118,14 @@ VIP界面
 - 如果你之前忽略又想把它恢复回去那就执行："git update-index --no-skip-worktree src-tauri/config.json"
 - 这个提示好像更多是告诉我自己的...
 
-- 如果安装软件出现“Windows保护提示”，这是因为软件没有进行Windows安全机制认证(这个认证要几千块一年，所以没搞)；请放心安装，操作方式如下：
+- 如果在Windows上安装软件出现“Windows保护提示”，这是因为软件没有进行Windows安全机制认证(这个认证要几千块一年，所以没搞)；请放心安装，操作方式如下：
 
    ![Windows保护弹窗](assets/5.png)
    ![Windows保护弹窗](assets/6.png)
+
+- 如果在MacOS上安装软件,由于是我们自己打的包,所以你需要允许安装任何来源的应用,自动粘贴功能还需要你给软件添加辅助功能的权限,具体操作方式如下:
+   ![MacOS允许任何来源应用](assets/7.png)
+   ![MacOS软件添加辅助功能权限](assets/8.png)
 
 ## 依赖
 - [Tauri](https://tauri.app/)（桌面端框架）

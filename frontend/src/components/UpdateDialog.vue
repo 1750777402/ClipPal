@@ -48,7 +48,7 @@
           <div class="progress-bar">
             <div class="progress-fill" :style="{ width: downloadProgress + '%' }"></div>
           </div>
-          <p class="progress-text">{{ downloadProgress }}%</p>
+          <p class="progress-text">{{ Math.round(downloadProgress) }}%</p>
         </div>
 
         <!-- 安装中状态 -->
