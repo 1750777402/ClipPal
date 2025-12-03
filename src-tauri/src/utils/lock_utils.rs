@@ -15,7 +15,7 @@ impl<T> NonblockMutex<T> {
         }
     }
 
-    pub fn try_lock(&self) -> Option<MutexGuard<T>> {
+    pub fn try_lock(&self) -> Option<MutexGuard<'_, T>> {
         match self.inner.try_lock() {
             Ok(guard) => Some(guard),
             Err(_) => None,
@@ -53,19 +53,19 @@ pub mod lock_utils {
 
     use crate::errors::{AppError, AppResult};
 
-    pub fn safe_lock<T>(mutex: &Mutex<T>) -> AppResult<MutexGuard<T>> {
+    pub fn safe_lock<T>(mutex: &Mutex<T>) -> AppResult<MutexGuard<'_, T>> {
         mutex
             .lock()
             .map_err(|e| AppError::Lock(format!("无法获取锁: {}", e)))
     }
 
-    pub fn safe_read_lock<T>(rwlock: &RwLock<T>) -> AppResult<RwLockReadGuard<T>> {
+    pub fn safe_read_lock<T>(rwlock: &RwLock<T>) -> AppResult<RwLockReadGuard<'_, T>> {
         rwlock
             .read()
             .map_err(|e| AppError::Lock(format!("无法获取读锁: {}", e)))
     }
 
-    pub fn safe_write_lock<T>(rwlock: &RwLock<T>) -> AppResult<RwLockWriteGuard<T>> {
+    pub fn safe_write_lock<T>(rwlock: &RwLock<T>) -> AppResult<RwLockWriteGuard<'_, T>> {
         rwlock
             .write()
             .map_err(|e| AppError::Lock(format!("无法获取写锁: {}", e)))

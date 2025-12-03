@@ -1,4 +1,7 @@
-use tauri::{App, Manager, menu::{MenuBuilder, SubmenuBuilder, PredefinedMenuItem}};
+#[cfg(target_os = "macos")]
+use tauri::{Manager, menu::{MenuBuilder, SubmenuBuilder, PredefinedMenuItem}};
+
+use tauri::App;
 
 /// 初始化 macOS 菜单栏
 ///
