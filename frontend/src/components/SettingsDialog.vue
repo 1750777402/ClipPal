@@ -153,6 +153,50 @@ const responsiveClasses = computed(() => generateResponsiveClasses(responsive));
 
 // 使用统一的平台检测
 const isMac = computed(() => responsive.isMac.value);
+let shortcutValidationToken = 0;
+
+const MODIFIER_KEY_NAMES = ['Control', 'Shift', 'Alt', 'Meta'];
+const REGULAR_SHORTCUT_KEYS = ['Ctrl', 'Shift', 'Alt', 'Meta', 'Cmd'];
+const KEY_CODE_MAP: Record<string, string> = {
+  Backquote: '`',
+  Minus: '-',
+  Equal: '=',
+  BracketLeft: '[',
+  BracketRight: ']',
+  Backslash: '\\',
+  Semicolon: ';',
+  Quote: "'",
+  Comma: ',',
+  Period: '.',
+  Slash: '/',
+  Space: 'Space',
+  Escape: 'Escape',
+  Enter: 'Enter',
+  Tab: 'Tab',
+  Backspace: 'Backspace',
+  Delete: 'Delete',
+  Insert: 'Insert',
+  Home: 'Home',
+  End: 'End',
+  PageUp: 'PageUp',
+  PageDown: 'PageDown',
+  ArrowUp: 'ArrowUp',
+  ArrowDown: 'ArrowDown',
+  ArrowLeft: 'ArrowLeft',
+  ArrowRight: 'ArrowRight',
+  F1: 'F1',
+  F2: 'F2',
+  F3: 'F3',
+  F4: 'F4',
+  F5: 'F5',
+  F6: 'F6',
+  F7: 'F7',
+  F8: 'F8',
+  F9: 'F9',
+  F10: 'F10',
+  F11: 'F11',
+  F12: 'F12'
+};
 
 // 计算是否有错误
 const hasErrors = computed(() => {
@@ -166,7 +210,7 @@ const displayShortcut = computed(() => {
   if (!settings.value.shortcut_key) return '';
   
   let displayKey = settings.value.shortcut_key;
-  if (isMac) {
+  if (isMac.value) {
     // Mac上显示适配：Meta -> Cmd（因为Meta对应Mac的Cmd键）
     displayKey = displayKey.replace(/\bMeta\b/g, 'Cmd');
   }
@@ -179,7 +223,12 @@ const shortcutErrorText = computed(() => {
   
   // 根据输入框宽度动态调整文本
   // 如果是较短的错误信息，使用简化版本
-  if (shortcutError.value.includes('不可用') || shortcutError.value.includes('验证失败')) {
+  if (
+    shortcutError.value.includes('不可用') ||
+    shortcutError.value.includes('验证失败') ||
+    shortcutError.value.includes('不支持') ||
+    shortcutError.value.includes('格式错误')
+  ) {
     return '不可用';
   }
   return '快捷键不可用';
@@ -187,10 +236,35 @@ const shortcutErrorText = computed(() => {
 
 // 将显示格式转换为存储格式
 const convertDisplayToStorage = (displayKey: string): string => {
-  if (!isMac) return displayKey;
+  if (!isMac.value) return displayKey;
   
   // Mac上存储适配：Cmd -> Meta（因为Mac的Cmd键对应后端的Meta）
   return displayKey.replace(/\bCmd\b/g, 'Meta');
+};
+
+const getModifierKeys = (e: KeyboardEvent): string[] => {
+  const modifiers: string[] = [];
+  if (e.ctrlKey) modifiers.push('Ctrl');
+  if (e.shiftKey) modifiers.push('Shift');
+  if (e.altKey) modifiers.push('Alt');
+  if (e.metaKey) modifiers.push(isMac.value ? 'Cmd' : 'Meta');
+  return modifiers;
+};
+
+const normalizeKeyFromEvent = (e: KeyboardEvent): string | null => {
+  if (MODIFIER_KEY_NAMES.includes(e.key)) {
+    return null;
+  }
+
+  if (e.code.startsWith('Key') && e.code.length === 4) {
+    return e.code.slice(3).toUpperCase();
+  }
+
+  if (e.code.startsWith('Digit') && e.code.length === 6) {
+    return e.code.slice(5);
+  }
+
+  return KEY_CODE_MAP[e.code] || null;
 };
 
 // 处理云同步开关切换
@@ -228,6 +302,7 @@ const loadSettings = async () => {
     settings.value = { ...currentSettings };
     // 清除错误状态
     shortcutError.value = '';
+    stopRecording();
   } catch (error) {
     console.error('加载设置失败:', error);
   }
@@ -245,6 +320,7 @@ watch(() => props.modelValue, async (newVal) => {
 
 
 const handleClose = () => {
+  stopRecording();
   emit('update:modelValue', false);
 };
 
@@ -289,6 +365,7 @@ const startRecording = (_e: any) => {
   isRecording.value = true;
   pressedKeys.value = [];
   shortcutError.value = '';
+  shortcutValidationToken += 1;
 };
 
 // 停止录制时清空数组，避免残留
@@ -298,20 +375,25 @@ const stopRecording = () => {
 };
 
 // 验证快捷键
-const validateShortcut = async (shortcut: string) => {
+const validateShortcut = async (shortcut: string, token: number) => {
   try {
     // 验证时需要转换为存储格式
     const storageFormat = convertDisplayToStorage(shortcut);
     const response = await settingsApi.validateShortcut(storageFormat);
     const isValid = isSuccess(response) && response.data;
+    if (token !== shortcutValidationToken) {
+      return false;
+    }
     if (!isValid) {
-      shortcutError.value = '快捷键不可用或已被占用';
+      shortcutError.value = response.error || '快捷键不可用或已被占用';
     } else {
       shortcutError.value = '';
     }
     return isValid;
   } catch (error) {
-    shortcutError.value = '快捷键验证失败';
+    if (token === shortcutValidationToken) {
+      shortcutError.value = '快捷键验证失败';
+    }
     return false;
   }
 };
@@ -321,53 +403,28 @@ const validateShortcut = async (shortcut: string) => {
 // 精准记录所有按下的键（含修饰键+普通键+特殊键）
 const handleKeyDown = async (e: KeyboardEvent) => {
   if (!isRecording.value) return;
+  if (e.repeat) return;
   e.preventDefault();
 
-  // 1. 识别当前按下的修饰键（Ctrl/Shift/Alt/Meta）
-  const modifiers = [];
-  if (e.ctrlKey) modifiers.push('Ctrl');
-  if (e.shiftKey) modifiers.push('Shift');
-  if (e.altKey) modifiers.push('Alt');
-  if (e.metaKey) modifiers.push(isMac ? 'Cmd' : 'Meta');
+  const modifiers = getModifierKeys(e);
+  const normalizedKey = normalizeKeyFromEvent(e);
+  const isModifierKey = MODIFIER_KEY_NAMES.includes(e.key);
 
-  // 2. 处理普通键（映射特殊键，保证可读性）
-  let key = e.key;
-  
-  // 过滤修饰键本身，避免重复添加（如Ctrl+Control）
-  const modifierKeyNames = ['Control', 'Shift', 'Alt', 'Meta'];
-  const isModifierKey = modifierKeyNames.includes(key);
-  
-  // 如果是修饰键本身，只更新显示但不添加到普通键
-  if (!isModifierKey) {
-    const keyMap: { [k: string]: string } = {
-      ' ': 'Space',
-      'Escape': 'Escape',
-      // 保持箭头键原始名称，与后端一致
-      'ArrowUp': 'ArrowUp',
-      'ArrowDown': 'ArrowDown',
-      'ArrowLeft': 'ArrowLeft',
-      'ArrowRight': 'ArrowRight',
-      'Backspace': 'Backspace',
-      'Delete': 'Delete',
-      'Enter': 'Enter',
-      'Tab': 'Tab',
-      'Insert': 'Insert',
-      'Home': 'Home',
-      'End': 'End',
-      'PageUp': 'PageUp',
-      'PageDown': 'PageDown',
-      // Backquote键映射
-      'Backquote': '`',
-      '`': '`'
-    };
-    key = keyMap[key] || key; // 特殊键映射
-    if (key.length === 1) key = key.toUpperCase(); // 单个字符转大写
+  if (!isModifierKey && !normalizedKey) {
+    shortcutError.value = '当前不支持该按键，请使用字母、数字、符号键或功能键';
+    pressedKeys.value = [...modifiers];
+    return;
   }
 
-  // 3. 更新pressedKeys数组 - 始终显示当前状态
+  if (!isModifierKey && e.key === 'Escape' && modifiers.length === 0) {
+    stopRecording();
+    return;
+  }
+
+  // 更新pressedKeys数组 - 始终显示当前状态
   pressedKeys.value = [...modifiers];
-  if (!isModifierKey) {
-    pressedKeys.value.push(key);
+  if (normalizedKey) {
+    pressedKeys.value.push(normalizedKey);
   }
 
   // 4. 限制最大按键数（最多4个，避免无意义组合）
@@ -377,8 +434,7 @@ const handleKeyDown = async (e: KeyboardEvent) => {
 
   // 5. 保存条件：至少1个修饰键 + 1个普通键
   const hasModifier = modifiers.length > 0;
-  const regularKeys = ['Ctrl', 'Shift', 'Alt', 'Meta', 'Cmd'];
-  const hasRegularKey = !isModifierKey && !regularKeys.includes(key);
+  const hasRegularKey = !!normalizedKey && !REGULAR_SHORTCUT_KEYS.includes(normalizedKey);
   
   if (hasModifier && hasRegularKey) {
     const newShortcut = pressedKeys.value.join('+'); // 按顺序拼接
@@ -391,7 +447,8 @@ const handleKeyDown = async (e: KeyboardEvent) => {
     }
     
     // 实时验证快捷键
-    const isValid = await validateShortcut(newShortcut);
+    const validationToken = ++shortcutValidationToken;
+    const isValid = await validateShortcut(newShortcut, validationToken);
     if (isValid) {
       // 保存时转换为存储格式
       settings.value.shortcut_key = convertDisplayToStorage(newShortcut);
@@ -404,56 +461,15 @@ const handleKeyDown = async (e: KeyboardEvent) => {
 const handleKeyUp = (e: KeyboardEvent) => {
   if (!isRecording.value) return;
 
-  // 1. 重新计算当前状态的修饰键（基于事件状态而非释放的键）
-  const currentModifiers = [];
-  if (e.ctrlKey) currentModifiers.push('Ctrl');
-  if (e.shiftKey) currentModifiers.push('Shift');
-  if (e.altKey) currentModifiers.push('Alt');
-  if (e.metaKey) currentModifiers.push(isMac ? 'Cmd' : 'Meta');
+  const currentModifiers = getModifierKeys(e);
+  const releasedKey = normalizeKeyFromEvent(e);
+  const isModifierKey = MODIFIER_KEY_NAMES.includes(e.key);
 
-  // 2. 处理释放的键
-  let key = e.key;
-  const modifierKeyNames = ['Control', 'Shift', 'Alt', 'Meta'];
-  const isModifierKey = modifierKeyNames.includes(key);
-  
-  if (!isModifierKey) {
-    const keyMap: { [k: string]: string } = {
-      ' ': 'Space',
-      'Escape': 'Escape',
-      // 保持箭头键原始名称，与后端一致
-      'ArrowUp': 'ArrowUp',
-      'ArrowDown': 'ArrowDown',
-      'ArrowLeft': 'ArrowLeft',
-      'ArrowRight': 'ArrowRight',
-      'Backspace': 'Backspace',
-      'Delete': 'Delete',
-      'Enter': 'Enter',
-      'Tab': 'Tab',
-      'Insert': 'Insert',
-      'Home': 'Home',
-      'End': 'End',
-      'PageUp': 'PageUp',
-      'PageDown': 'PageDown',
-      // Backquote键映射
-      'Backquote': '`',
-      '`': '`'
-    };
-    key = keyMap[key] || key;
-    if (key.length === 1) key = key.toUpperCase();
-
-    // 从数组中移除释放的普通键
-    const index = pressedKeys.value.indexOf(key);
-    if (index > -1) {
-      pressedKeys.value.splice(index, 1);
-    }
+  if (!isModifierKey && releasedKey) {
+    pressedKeys.value = pressedKeys.value.filter(k => k !== releasedKey);
   }
 
-  // 3. 更新pressedKeys数组以反映当前修饰键状态
-  // 移除所有修饰键，然后添加当前按下的修饰键
-  const regularKeys = ['Ctrl', 'Shift', 'Alt', 'Meta', 'Cmd'];
-  pressedKeys.value = pressedKeys.value.filter(k => !regularKeys.includes(k));
-  
-  // 添加当前仍按下的修饰键到开头
+  pressedKeys.value = pressedKeys.value.filter(k => !REGULAR_SHORTCUT_KEYS.includes(k));
   pressedKeys.value = [...currentModifiers, ...pressedKeys.value];
 };
 

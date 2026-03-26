@@ -15,7 +15,7 @@ use crate::{
     biz::cloud_sync_timer::trigger_immediate_sync,
     biz::vip_checker::VipChecker,
     errors::{AppError, AppResult},
-    global_shortcut::parse_shortcut,
+    global_shortcut::parse_shortcut_strict,
     utils::{
         file_dir::get_config_dir,
         lock_utils::lock_utils::{safe_read_lock, safe_write_lock},
@@ -260,11 +260,12 @@ async fn validate_settings(settings: &Settings) -> AppResult<()> {
         return Err(AppError::Config("快捷键不能为空".to_string()));
     }
 
-    // 4. 验证快捷键格式
-    if !is_valid_shortcut_format(&settings.shortcut_key) {
-        return Err(AppError::Config(
-            "快捷键格式错误，请使用如 Ctrl+Shift+C 的组合键".to_string(),
-        ));
+    // 4. 验证快捷键格式和支持情况
+    if let Err(error) = parse_shortcut_strict(&settings.shortcut_key) {
+        return Err(AppError::Config(format!(
+            "快捷键格式错误，请使用如 Ctrl+Shift+C 的组合键。{}",
+            error
+        )));
     }
 
     Ok(())
@@ -273,25 +274,28 @@ async fn validate_settings(settings: &Settings) -> AppResult<()> {
 // 验证快捷键格式
 fn is_valid_shortcut_format(shortcut: &str) -> bool {
     let parts: Vec<&str> = shortcut.split('+').collect();
-    if parts.len() < 2 || parts.len() > 3 {
+    if parts.len() < 2 || parts.len() > 4 {
         return false;
     }
 
-    // 检查是否包含修饰键
-    parts
+    let modifier_count = parts
         .iter()
-        .any(|&part| matches!(part, "Ctrl" | "Shift" | "Alt" | "Meta"))
+        .filter(|&&part| matches!(part, "Ctrl" | "Shift" | "Alt" | "Meta" | "Cmd"))
+        .count();
+
+    modifier_count >= 1 && modifier_count < parts.len()
 }
 
 // 更新全局快捷键
 async fn update_global_shortcut(shortcut: &str) -> AppResult<()> {
     let app_handle = CONTEXT.get::<AppHandle>();
 
+    // 先严格解析，确保失败时不会把现有快捷键卸载掉。
+    let shortcut_obj = parse_shortcut_strict(shortcut)
+        .map_err(|e| AppError::GlobalShortcut(format!("快捷键格式无效: {}", e)))?;
+
     // 先取消注册所有快捷键
     let _ = app_handle.global_shortcut().unregister_all();
-
-    // 解析快捷键字符串为Shortcut类型
-    let shortcut_obj = parse_shortcut(shortcut);
 
     // 注册新的快捷键
     match app_handle.global_shortcut().on_shortcut(shortcut_obj, {
@@ -368,7 +372,13 @@ async fn rollback_settings(applied_settings: &[(&str, bool)]) -> AppResult<()> {
         match *setting_type {
             "shortcut" => {
                 // 恢复原快捷键
-                let shortcut_obj = parse_shortcut(&current_settings.shortcut_key);
+                let shortcut_obj = match parse_shortcut_strict(&current_settings.shortcut_key) {
+                    Ok(shortcut) => shortcut,
+                    Err(error) => {
+                        log::error!("恢复快捷键失败，原快捷键无效: {}", error);
+                        continue;
+                    }
+                };
                 if let Err(e) = app_handle.global_shortcut().on_shortcut(shortcut_obj, {
                     let app_handle_clone = app_handle.clone();
                     move |_app, shortcut_triggered, event| {
@@ -425,14 +435,8 @@ pub async fn validate_shortcut(shortcut: String) -> Result<bool, String> {
         return Ok(true);
     }
 
-    // 4. 尝试解析快捷键字符串验证其有效性
-    let _shortcut_obj = match shortcut.parse::<tauri_plugin_global_shortcut::Shortcut>() {
-        Ok(s) => s,
-        Err(_) => {
-            // 如果解析失败，使用自定义解析器
-            parse_shortcut(&shortcut)
-        }
-    };
+    // 4. 严格解析快捷键字符串验证其有效性
+    parse_shortcut_strict(&shortcut)?;
 
     // 5. 格式验证通过，返回true
     // 实际的冲突检测将在注册时进行

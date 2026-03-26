@@ -84,7 +84,7 @@
                     <div v-if="imageError && !isDownloadingFromCloud" class="image-error">
                         <i class="iconfont icon-tishi"></i>
                         <span class="error-text">图片加载失败</span>
-                        <button class="retry-btn" @click="loadImage">重试</button>
+                        <button class="retry-btn" @click="retryLoadImage">重试</button>
                     </div>
                     
                     <!-- 云端下载状态 -->
@@ -265,8 +265,26 @@ const isLoadingImage = ref(false);
 const shouldLoadImage = ref(false);
 const imageContainer = ref<HTMLElement | null>(null);
 const intersectionObserver = ref<IntersectionObserver | null>(null);
+let imageCleanupTimer: ReturnType<typeof setTimeout> | null = null;
 
 // showMessageBar 现在通过全局错误处理器自动处理，不需要手动注入
+
+const clearPendingImageCleanup = () => {
+    if (imageCleanupTimer) {
+        clearTimeout(imageCleanupTimer);
+        imageCleanupTimer = null;
+    }
+};
+
+const isImageContainerNearViewport = () => {
+    if (!imageContainer.value) {
+        return false;
+    }
+
+    const preloadMargin = 200;
+    const rect = imageContainer.value.getBoundingClientRect();
+    return rect.bottom >= -preloadMargin && rect.top <= window.innerHeight + preloadMargin;
+};
 
 // 清理图片内存
 const clearImageMemory = () => {
@@ -281,10 +299,16 @@ const clearImageMemory = () => {
 
 // 懒加载图片（仅使用asset协议，专注性能）
 const loadImage = async () => {
-    if (isLoadingImage.value || imageProtocolUrl.value || props.record.type !== 'Image') {
+    if (isLoadingImage.value || props.record.type !== 'Image' || isDownloadingFromCloud.value) {
         return;
     }
 
+    // 已经有一张可用图片时不重复请求，错误态允许重试。
+    if (imageProtocolUrl.value && !imageError.value) {
+        return;
+    }
+
+    clearPendingImageCleanup();
     isLoadingImage.value = true;
     imageError.value = false;
 
@@ -292,8 +316,7 @@ const loadImage = async () => {
         // 获取图片文件路径并转换为asset协议URL
         const pathResponse = await clipApi.getImagePath(props.record.id);
         if (isSuccess(pathResponse) && pathResponse.data) {
-            // 使用convertFileSrc转换文件路径为asset协议URL
-            imageProtocolUrl.value = convertFileSrc(pathResponse.data.file_path);
+            imageProtocolUrl.value = pathResponse.data.protocol_url || convertFileSrc(pathResponse.data.file_path);
             isImageLoaded.value = true;
         } else {
             imageError.value = true;
@@ -530,17 +553,31 @@ const handleImagePreview = () => {
     // 只有在图片已加载的情况下才能预览
     if (imageProtocolUrl.value && !imageError.value) {
         showImagePreview.value = true;
-    } else if (!isLoadingImage.value && !shouldLoadImage.value) {
-        // 如果图片还没加载，先触发加载
+    } else if (!isLoadingImage.value) {
+        // 如果图片还没加载或之前加载失败，先触发一次加载
+        shouldLoadImage.value = true;
         loadImage();
-        // 可以选择等待加载完成后自动预览，或者提示用户
     }
 };
 
 // 处理图片加载错误
 const handleImageError = () => {
     console.log('图片加载失败');
+    imageProtocolUrl.value = '';
+    isImageLoaded.value = false;
     imageError.value = true;
+};
+
+const retryLoadImage = async () => {
+    if (isLoadingImage.value || props.record.type !== 'Image') {
+        return;
+    }
+
+    imageProtocolUrl.value = '';
+    imageError.value = false;
+    isImageLoaded.value = false;
+    shouldLoadImage.value = true;
+    await loadImage();
 };
 
 const handleDelete = async () => {
@@ -613,6 +650,7 @@ onMounted(() => {
                 const entry = entries[0];
 
                 if (entry.isIntersecting) {
+                    clearPendingImageCleanup();
                     // 进入视窗 - 加载图片
                     if (!shouldLoadImage.value && !isDownloadingFromCloud.value) {
                         // 检查是否可以加载（非云端下载或已下载完成）
@@ -626,9 +664,11 @@ onMounted(() => {
                     // 离开视窗 - 清理内存（但保持观察器运行）
                     if (imageProtocolUrl.value && !showImagePreview.value) {
                         // 延迟清理，避免快速滚动时频繁加载
-                        setTimeout(() => {
-                            // 再次检查是否仍然不可见且未在预览
-                            if (!entry.isIntersecting && !showImagePreview.value) {
+                        clearPendingImageCleanup();
+                        imageCleanupTimer = setTimeout(() => {
+                            imageCleanupTimer = null;
+                            // 再次检查当前是否仍然在视口外且未在预览，避免旧定时器误清理
+                            if (!isImageContainerNearViewport() && !showImagePreview.value) {
                                 clearImageMemory();
                             }
                         }, 2000); // 2秒延迟清理
@@ -647,6 +687,7 @@ onMounted(() => {
 
 // 组件卸载时清理
 onUnmounted(() => {
+    clearPendingImageCleanup();
     if (intersectionObserver.value) {
         intersectionObserver.value.disconnect();
         intersectionObserver.value = null;
