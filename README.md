@@ -63,6 +63,7 @@ VIP界面
 4. 回到项目根目录，运行桌面端：
    ```bash
    cd ..
+   cargo install tauri-cli (只有第一次启动tauri需要执行一次，后续就不用执行了)
    cargo tauri dev
    # 或 npm run tauri dev
    ```
