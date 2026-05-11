@@ -61,6 +61,8 @@ urlencoding = "2.1"                # URL编码/解码
 # =========================
 rbatis = {version = "=4.5"}        # ORM 框架
 rbdc-sqlite = {version = "=4.5"}   # SQLite 驱动
+rbdc = {version = "=4.5.55"}       # RBatis 数据库连接接口，需与 rbatis/rbdc-sqlite 保持 4.5 系列
+rbdc-pool-fast = {version = "=4.5.15"} # RBatis 连接池，需与 rbdc 保持 4.5 系列
 rbs = {version = "=4.5"}           # RBatis 底层结构支持
 
 # =========================

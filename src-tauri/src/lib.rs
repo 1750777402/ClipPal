@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use crate::{
+    app_context::AppContextConfig,
     biz::{
         clip_async_queue::{AsyncQueue, consume_clip_record_queue},
         clip_record::ClipRecord,
@@ -50,6 +51,7 @@ mod tray;
 mod updater;
 mod utils;
 mod window;
+mod app_context;
 
 // 全局上下文存储
 pub static CONTEXT: TypeMap![Send + Sync] = <TypeMap![Send + Sync]>::new();
@@ -77,6 +79,8 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
             std::process::exit(1);
         }
     };
+
+    let app_context = Arc::new(AppContextConfig::create(rb_res.clone()));
 
     // 初始化搜索索引
     let all_clips = ClipRecord::select_order_by(&rb_res)
@@ -122,6 +126,7 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
                 let _ = window.set_focus();
             }
         }))
+        .manage(app_context.clone())
         .setup(move |app| {
             CONTEXT.set(app.handle().clone());
 

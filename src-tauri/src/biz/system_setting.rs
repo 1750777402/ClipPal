@@ -93,6 +93,18 @@ pub fn init_settings() {
     create_default_config_if_not_exists(&settings);
 }
 
+/// 为新的 AppContext 创建设置缓存。
+///
+/// 这个函数不依赖旧的全局 CONTEXT，只负责：
+/// 1. 从配置文件加载设置；
+/// 2. 配置文件不存在时创建默认配置；
+/// 3. 返回可共享的设置缓存。
+pub fn load_settings_context() -> Arc<RwLock<Settings>> {
+    let settings = load_settings();
+    create_default_config_if_not_exists(&settings);
+    Arc::new(RwLock::new(settings))
+}
+
 /// 如果配置文件不存在，创建默认配置文件
 fn create_default_config_if_not_exists(settings: &Settings) {
     if let Some(path) = get_settings_file_path() {
