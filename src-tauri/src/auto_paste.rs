@@ -16,7 +16,7 @@ use windows::Win32::{
     System::Threading::GetCurrentProcessId,
     UI::{
         Input::KeyboardAndMouse::{
-            INPUT, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_KEYUP, SendInput, VK_CONTROL, VK_V,
+            SendInput, INPUT, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_KEYUP, VK_CONTROL, VK_V,
         },
         WindowsAndMessaging::{
             GetForegroundWindow, GetWindowTextW, GetWindowThreadProcessId, IsWindow,
@@ -221,8 +221,7 @@ use cocoa::base::nil;
 use objc::{msg_send, sel, sel_impl};
 
 #[cfg(target_os = "macos")]
-static PREVIOUS_APP_PID: Lazy<Arc<Mutex<Option<i32>>>> =
-    Lazy::new(|| Arc::new(Mutex::new(None)));
+static PREVIOUS_APP_PID: Lazy<Arc<Mutex<Option<i32>>>> = Lazy::new(|| Arc::new(Mutex::new(None)));
 
 /// 保存前台窗口信息 - macOS版本
 #[cfg(target_os = "macos")]
@@ -276,12 +275,10 @@ pub fn auto_paste_to_previous_window() -> AppResult<()> {
 
     // 获取窗口句柄
     let app_handle = CONTEXT.get::<AppHandle>();
-    let window = app_handle
-        .get_webview_window("main")
-        .ok_or_else(|| {
-            log::error!("无法获取主窗口");
-            AppError::AutoPaste("无法获取主窗口".to_string())
-        })?;
+    let window = app_handle.get_webview_window("main").ok_or_else(|| {
+        log::error!("无法获取主窗口");
+        AppError::AutoPaste("无法获取主窗口".to_string())
+    })?;
 
     log::debug!("已获取主窗口句柄");
 
@@ -313,12 +310,10 @@ pub fn auto_paste_to_previous_window() -> AppResult<()> {
 
     if is_visible {
         log::info!("准备隐藏窗口");
-        window
-            .hide()
-            .map_err(|e| {
-                log::error!("隐藏窗口失败: {}", e);
-                AppError::AutoPaste(format!("隐藏窗口失败: {}", e))
-            })?;
+        window.hide().map_err(|e| {
+            log::error!("隐藏窗口失败: {}", e);
+            AppError::AutoPaste(format!("隐藏窗口失败: {}", e))
+        })?;
 
         log::debug!("窗口已隐藏");
     }
@@ -483,9 +478,7 @@ fn get_frontmost_app_name() -> Option<String> {
                     let name_ptr: *const i8 = msg_send![app_name, UTF8String];
 
                     if !name_ptr.is_null() {
-                        let name = CStr::from_ptr(name_ptr)
-                            .to_string_lossy()
-                            .to_string();
+                        let name = CStr::from_ptr(name_ptr).to_string_lossy().to_string();
                         return Some(name);
                     }
                 }
@@ -551,12 +544,21 @@ fn send_cmd_v() -> AppResult<()> {
 
     // 检查辅助功能权限
     let has_permission = check_accessibility_permissions();
-    log::info!("辅助功能权限状态: {}", if has_permission { "已授予" } else { "未授予 ⚠️" });
+    log::info!(
+        "辅助功能权限状态: {}",
+        if has_permission {
+            "已授予"
+        } else {
+            "未授予 ⚠️"
+        }
+    );
 
     if !has_permission {
-        log::error!("❌ 未授予辅助功能权限！请在系统设置 > 隐私与安全性 > 辅助功能中授予 ClipPal 权限");
+        log::error!(
+            "❌ 未授予辅助功能权限！请在系统设置 > 隐私与安全性 > 辅助功能中授予 ClipPal 权限"
+        );
         return Err(AppError::AutoPaste(
-            "需要辅助功能权限才能执行自动粘贴。请在系统设置中授予权限。".to_string()
+            "需要辅助功能权限才能执行自动粘贴。请在系统设置中授予权限。".to_string(),
         ));
     }
 
@@ -574,8 +576,8 @@ fn send_cmd_v() -> AppResult<()> {
 
     unsafe {
         // 使用 CombinedSessionState 而不是 HIDSystemState
-        let source = CGEventSource::new(CGEventSourceStateID::CombinedSessionState)
-            .map_err(|e| {
+        let source =
+            CGEventSource::new(CGEventSourceStateID::CombinedSessionState).map_err(|e| {
                 log::error!("创建事件源失败: {:?}", e);
                 AppError::AutoPaste(format!("创建事件源失败: {:?}", e))
             })?;
@@ -587,18 +589,16 @@ fn send_cmd_v() -> AppResult<()> {
         // 设置 Command 标志，包括设备特定的左 Command 键标志
         // CGEventFlagCommand = 0x100000 (general command flag)
         // NX_DEVICELCMDKEYMASK = 0x00000008 (device-specific left command key)
-        let command_flags = CGEventFlags::from_bits_truncate(
-            CGEventFlags::CGEventFlagCommand.bits() | 0x00000008
-        );
+        let command_flags =
+            CGEventFlags::from_bits_truncate(CGEventFlags::CGEventFlagCommand.bits() | 0x00000008);
 
         log::debug!("创建 V 键按下事件，标志: 0x{:x}", command_flags.bits());
 
         // 按下 V 键（带 Command 标志）
-        let v_down = CGEvent::new_keyboard_event(source.clone(), v_key, true)
-            .map_err(|e| {
-                log::error!("创建 V 按下事件失败: {:?}", e);
-                AppError::AutoPaste(format!("创建 V 按下事件失败: {:?}", e))
-            })?;
+        let v_down = CGEvent::new_keyboard_event(source.clone(), v_key, true).map_err(|e| {
+            log::error!("创建 V 按下事件失败: {:?}", e);
+            AppError::AutoPaste(format!("创建 V 按下事件失败: {:?}", e))
+        })?;
         v_down.set_flags(command_flags);
         // 使用 AnnotatedSession 而不是 HID
         v_down.post(core_graphics::event::CGEventTapLocation::AnnotatedSession);
@@ -609,11 +609,10 @@ fn send_cmd_v() -> AppResult<()> {
         std::thread::sleep(std::time::Duration::from_millis(20));
 
         // 释放 V 键
-        let v_up = CGEvent::new_keyboard_event(source, v_key, false)
-            .map_err(|e| {
-                log::error!("创建 V 释放事件失败: {:?}", e);
-                AppError::AutoPaste(format!("创建 V 释放事件失败: {:?}", e))
-            })?;
+        let v_up = CGEvent::new_keyboard_event(source, v_key, false).map_err(|e| {
+            log::error!("创建 V 释放事件失败: {:?}", e);
+            AppError::AutoPaste(format!("创建 V 释放事件失败: {:?}", e))
+        })?;
         v_up.set_flags(command_flags);
         v_up.post(core_graphics::event::CGEventTapLocation::AnnotatedSession);
 

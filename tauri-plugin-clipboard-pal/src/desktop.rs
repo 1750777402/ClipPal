@@ -1,9 +1,9 @@
-use base64::{Engine, engine::general_purpose};
+use base64::{engine::general_purpose, Engine};
 use clipboard_listener::{ClipType, ClipboardEvent, EventManager};
 use clipboard_rs::{
-    Clipboard as ClipboardRS, ClipboardContent, ClipboardContext as ClipboardRsContext,
-    ClipboardHandler, ClipboardWatcher, ClipboardWatcherContext, ContentFormat, RustImageData,
-    WatcherShutdown, common::RustImage,
+    common::RustImage, Clipboard as ClipboardRS, ClipboardContent,
+    ClipboardContext as ClipboardRsContext, ClipboardHandler, ClipboardWatcher,
+    ClipboardWatcherContext, ContentFormat, RustImageData, WatcherShutdown,
 };
 use image::EncodableLayout;
 use serde::{Deserialize, Serialize};

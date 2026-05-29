@@ -1,9 +1,9 @@
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 use crate::{
-    app_context::AppContextConfig,
+    app_context::AppContext,
     biz::{
-        clip_async_queue::{AsyncQueue, consume_clip_record_queue},
+        clip_async_queue::consume_clip_record_queue,
         clip_record::ClipRecord,
         cloud_sync_timer::start_cloud_sync_timer,
         content_search::initialize_search_index,
@@ -15,7 +15,7 @@ use crate::{
         query_clip_record::{
             get_clip_records, get_full_text_content, get_image_info_batch, get_image_path,
         },
-        system_setting::{init_settings, load_settings, save_settings, validate_shortcut},
+        system_setting::{init_settings, load_settings, save_settings, validate_shortcut, Settings},
         update_checker::check_update_on_startup,
         upload_cloud_timer::start_upload_cloud_timer,
         user_auth::{
@@ -36,9 +36,11 @@ use biz::clip_record_sync::ClipboardEventTigger;
 use clipboard_listener::{ClipboardEvent, EventManager};
 use log::LevelFilter;
 use state::TypeMap;
+use tauri::Manager;
 use tauri_plugin_autostart::MacosLauncher;
 
 mod api;
+mod app_context;
 mod auto_paste;
 mod biz;
 mod clip_board_listener;
@@ -51,7 +53,6 @@ mod tray;
 mod updater;
 mod utils;
 mod window;
-mod app_context;
 
 // 全局上下文存储
 pub static CONTEXT: TypeMap![Send + Sync] = <TypeMap![Send + Sync]>::new();
@@ -80,7 +81,19 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
-    let app_context = Arc::new(AppContextConfig::create(rb_res.clone()));
+    let settings_context = CONTEXT.get::<Arc<RwLock<Settings>>>().clone();
+    let sync_lock = create_global_sync_lock();
+    let clip_record_queue = crate::biz::clip_async_queue::AsyncQueue::new(1000);
+    CONTEXT.set(sync_lock.clone());
+    CONTEXT.set(clip_record_queue.clone());
+    let app_context = Arc::new(AppContext::from_existing_parts(
+        rb_res.clone(),
+        settings_context,
+        sync_lock,
+        clip_record_queue,
+    ));
+    CONTEXT.set(app_context.window_focus_count());
+    CONTEXT.set(app_context.window_hide_flag());
 
     // 初始化搜索索引
     let all_clips = ClipRecord::select_order_by(&rb_res)
@@ -94,9 +107,10 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
         log::error!("搜索索引初始化失败: {}", e);
     }
 
-    // 为不同的地方克隆RBatis实例
     let rb_for_setup = rb_res.clone();
     let rb_for_run = rb_res.clone();
+    let app_context_for_setup = app_context.clone();
+    let app_context_for_run = app_context.clone();
 
     tauri::Builder::default()
         // 软件自动更新
@@ -128,7 +142,11 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
         }))
         .manage(app_context.clone())
         .setup(move |app| {
-            CONTEXT.set(app.handle().clone());
+            let app_handle = app.handle().clone();
+            CONTEXT.set(app_handle.clone());
+            if let Err(e) = app_context_for_setup.set_app_handle(app_handle) {
+                log::warn!("设置 AppHandle 到 AppContext 失败: {}", e);
+            }
 
             // 初始化菜单栏（macOS 最小化菜单）
             let _ = menu::init_menu(&app);
@@ -138,6 +156,11 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
 
             // 初始化主窗口
             let _ = window::init_main_window(&app);
+            if let Some(main_window) = app.get_webview_window("main") {
+                if let Err(e) = app_context_for_setup.set_main_window(main_window) {
+                    log::warn!("设置主窗口到 AppContext 失败: {}", e);
+                }
+            }
 
             // 注册全局快捷键
             let _ = global_shortcut::init_global_shortcut(&app);
@@ -216,15 +239,8 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
             }
             // 程序启动完成后续事件处理
             tauri::RunEvent::Ready { .. } => {
-                // 创建全局同步锁
-                let sync_lock = create_global_sync_lock();
-                CONTEXT.set(sync_lock.clone());
-
-                // 创建一个内存队列  用来处理粘贴板记录的同步操作记录
-                let queue: AsyncQueue<ClipRecord> = AsyncQueue::new(1000);
-                CONTEXT.set(queue.clone());
                 // 启动队列消费
-                consume_clip_record_queue(queue);
+                consume_clip_record_queue(app_context_for_run.clip_record_queue());
 
                 // 启动文件同步定时任务
                 start_upload_cloud_timer();

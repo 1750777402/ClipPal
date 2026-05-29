@@ -99,6 +99,7 @@ pub fn init_settings() {
 /// 1. 从配置文件加载设置；
 /// 2. 配置文件不存在时创建默认配置；
 /// 3. 返回可共享的设置缓存。
+#[allow(dead_code)]
 pub fn load_settings_context() -> Arc<RwLock<Settings>> {
     let settings = load_settings();
     create_default_config_if_not_exists(&settings);

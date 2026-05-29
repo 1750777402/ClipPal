@@ -128,7 +128,10 @@ pub async fn copy_clip_record(param: CopyClipRecord) -> Result<String, String> {
         match safe_read_lock(&settings_lock) {
             Ok(settings) => {
                 let enabled = settings.auto_paste == 1;
-                log::debug!("自动粘贴功能状态: {}", if enabled { "已启用" } else { "未启用" });
+                log::debug!(
+                    "自动粘贴功能状态: {}",
+                    if enabled { "已启用" } else { "未启用" }
+                );
                 enabled
             }
             Err(e) => {
@@ -348,9 +351,9 @@ pub async fn image_save_as(param: CopyClipRecord) -> Result<String, String> {
                 return Err("图片资源丢失".to_string());
             }
 
-            let window_hide_flag = CONTEXT.get::<WindowHideFlag>();
+            let window_hide_flag = CONTEXT.get::<Arc<WindowHideFlag>>();
             // 用Arc包裹WindowHideGuard，延长生命周期到回调闭包
-            let guard = Arc::new(WindowHideGuard::new(window_hide_flag));
+            let guard = Arc::new(WindowHideGuard::new(window_hide_flag.as_ref()));
             let app_handle = CONTEXT.get::<AppHandle>();
             let abs_path_clone = abs_path.clone();
             let guard_clone = guard.clone();
@@ -594,7 +597,8 @@ fn show_accessibility_permission_dialog(app_handle: &AppHandle) {
 4. 重启 ClipPal 应用";
 
     // 使用 blocking 对话框显示提示
-    app_handle.dialog()
+    app_handle
+        .dialog()
         .message(message)
         .title("需要辅助功能权限")
         .kind(tauri_plugin_dialog::MessageDialogKind::Warning)

@@ -1,7 +1,10 @@
 // 抑制 cocoa crate 的弃用警告
 #![allow(deprecated)]
 
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{
+    atomic::{AtomicBool, AtomicU64, Ordering},
+    Arc,
+};
 
 use tauri::{App, WindowEvent};
 use tauri::{Manager, PhysicalPosition, PhysicalSize};
@@ -133,17 +136,12 @@ pub fn init_main_window(app: &App) -> tauri::Result<()> {
 
     let main1 = main_window.clone();
 
-    // 设置一个窗口失去焦点的计数器，用于记录窗口是否被聚焦或者失去焦点
-    CONTEXT.set(WindowFocusCount::default());
-    // 设置一个窗口隐藏标志，用于判断窗口是否被隐藏
-    CONTEXT.set(WindowHideFlag::default());
-
     main_window.on_window_event(move |event| match event {
         WindowEvent::Focused(false) => {
             log::debug!("窗口失去焦点事件触发");
 
-            let window_focus_count = CONTEXT.get::<WindowFocusCount>();
-            let window_hide_flag = CONTEXT.get::<WindowHideFlag>();
+            let window_focus_count = CONTEXT.get::<Arc<WindowFocusCount>>();
+            let window_hide_flag = CONTEXT.get::<Arc<WindowHideFlag>>();
             let count = window_focus_count.inc();
             let can_hide = window_hide_flag.is_can_hide();
 
@@ -265,7 +263,12 @@ fn get_macos_work_area(screen_width: i32, window_width: i32, scale_factor: f64) 
     // macOS: 窗口右侧紧贴屏幕边缘，不需要边距
     let x_position = (screen_width - window_width).max(0);
 
-    log::info!("macOS 窗口X位置: {}, 窗口宽度: {}, 屏幕宽度: {}", x_position, window_width, screen_width);
+    log::info!(
+        "macOS 窗口X位置: {}, 窗口宽度: {}, 屏幕宽度: {}",
+        x_position,
+        window_width,
+        screen_width
+    );
 
     (menubar_height, x_position)
 }

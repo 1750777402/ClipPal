@@ -1,5 +1,8 @@
 #[cfg(target_os = "macos")]
-use tauri::{Manager, menu::{MenuBuilder, SubmenuBuilder, PredefinedMenuItem}};
+use tauri::{
+    menu::{MenuBuilder, PredefinedMenuItem, SubmenuBuilder},
+    Manager,
+};
 
 use tauri::App;
 
@@ -19,9 +22,7 @@ pub fn init_menu(app: &App) -> tauri::Result<()> {
         .build()?;
 
     // 创建主菜单栏
-    let menu = MenuBuilder::new(app_handle)
-        .item(&app_menu)
-        .build()?;
+    let menu = MenuBuilder::new(app_handle).item(&app_menu).build()?;
 
     // 设置应用菜单
     app.set_menu(menu)?;

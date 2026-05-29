@@ -1,10 +1,10 @@
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::Arc;
 use tauri::image::Image;
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, TrayIconEvent};
 use tauri::{tray::TrayIconBuilder, Manager, Runtime};
 use tauri::{AppHandle, Emitter};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::Arc;
 
 use crate::{auto_paste, CONTEXT};
 
@@ -99,93 +99,51 @@ pub fn create_tray<R: Runtime>(app: &tauri::AppHandle<R>) -> tauri::Result<()> {
             move |tray, event| {
                 log::debug!("托盘图标事件触发: {:?}", event);
                 match event {
-                // 鼠标左键双击事件
-                TrayIconEvent::DoubleClick {
-                    button: MouseButton::Left,
-                    ..
-                } => {
-                    // 防抖检查
-                    if !debounce.should_process_click() {
-                        return;
-                    }
-
-                    log::info!("托盘图标双击事件");
-                    let app = tray.app_handle();
-
-                    // 如果窗口已经可见，先隐藏它，让用户的应用重新获得焦点
-                    if let Some(window) = app.get_webview_window("main") {
-                        use crate::CONTEXT;
-                        use crate::window::{WindowFocusCount};
-
-                        let is_visible = window.is_visible().unwrap_or(false);
-                        log::debug!("窗口当前可见状态: {}", is_visible);
-
-                        if is_visible {
-                            let _ = window.hide();
-                            // 等待一小段时间让用户应用获得焦点，然后重新保存
-                            std::thread::sleep(std::time::Duration::from_millis(50));
-                            auto_paste::save_foreground_window();
-
-                            // 重新显示窗口
-                            let _ = window.show();
-                            let _ = window.set_focus();
-                            log::debug!("窗口已重新显示并聚焦");
-
-                            // 重置焦点计数器，确保第一次失去焦点不会隐藏窗口
-                            let focus_count = CONTEXT.get::<WindowFocusCount>();
-                            focus_count.reset();
-                            log::debug!("已重置焦点丢失计数器");
-
-                            // 完成防抖处理
-                            let debounce_clone = Arc::clone(&debounce);
-                            std::thread::spawn(move || {
-                                std::thread::sleep(std::time::Duration::from_millis(100));
-                                debounce_clone.finish_processing();
-                            });
-                        } else {
-                            // 先尝试保存当前焦点窗口（在显示我们的窗口之前）
-                            auto_paste::save_foreground_window();
-
-                            // 显示并聚焦窗口
-                            let _ = window.show();
-                            let _ = window.set_focus();
-                            log::debug!("窗口已显示并聚焦");
-
-                            // 完成防抖处理
-                            let debounce_clone = Arc::clone(&debounce);
-                            std::thread::spawn(move || {
-                                std::thread::sleep(std::time::Duration::from_millis(100));
-                                debounce_clone.finish_processing();
-                            });
-                        }
-                    } else {
-                        debounce.finish_processing();
-                    }
-                }
-                // macOS 上可能更习惯使用单击
-                TrayIconEvent::Click {
-                    button: MouseButton::Left,
-                    ..
-                } => {
-                    #[cfg(target_os = "macos")]
-                    {
+                    // 鼠标左键双击事件
+                    TrayIconEvent::DoubleClick {
+                        button: MouseButton::Left,
+                        ..
+                    } => {
                         // 防抖检查
                         if !debounce.should_process_click() {
                             return;
                         }
 
-                        log::info!("托盘图标单击事件 (macOS)");
+                        log::info!("托盘图标双击事件");
                         let app = tray.app_handle();
 
+                        // 如果窗口已经可见，先隐藏它，让用户的应用重新获得焦点
                         if let Some(window) = app.get_webview_window("main") {
+                            use crate::window::WindowFocusCount;
+                            use crate::CONTEXT;
+
                             let is_visible = window.is_visible().unwrap_or(false);
                             log::debug!("窗口当前可见状态: {}", is_visible);
 
                             if is_visible {
                                 let _ = window.hide();
-                                debounce.finish_processing();
+                                // 等待一小段时间让用户应用获得焦点，然后重新保存
+                                std::thread::sleep(std::time::Duration::from_millis(50));
+                                auto_paste::save_foreground_window();
+
+                                // 重新显示窗口
+                                let _ = window.show();
+                                let _ = window.set_focus();
+                                log::debug!("窗口已重新显示并聚焦");
+
+                                // 重置焦点计数器，确保第一次失去焦点不会隐藏窗口
+                                let focus_count = CONTEXT.get::<Arc<WindowFocusCount>>();
+                                focus_count.reset();
+                                log::debug!("已重置焦点丢失计数器");
+
+                                // 完成防抖处理
+                                let debounce_clone = Arc::clone(&debounce);
+                                std::thread::spawn(move || {
+                                    std::thread::sleep(std::time::Duration::from_millis(100));
+                                    debounce_clone.finish_processing();
+                                });
                             } else {
-                                // 保存前台窗口
+                                // 先尝试保存当前焦点窗口（在显示我们的窗口之前）
                                 auto_paste::save_foreground_window();
 
                                 // 显示并聚焦窗口
@@ -204,10 +162,52 @@ pub fn create_tray<R: Runtime>(app: &tauri::AppHandle<R>) -> tauri::Result<()> {
                             debounce.finish_processing();
                         }
                     }
+                    // macOS 上可能更习惯使用单击
+                    TrayIconEvent::Click {
+                        button: MouseButton::Left,
+                        ..
+                    } => {
+                        #[cfg(target_os = "macos")]
+                        {
+                            // 防抖检查
+                            if !debounce.should_process_click() {
+                                return;
+                            }
+
+                            log::info!("托盘图标单击事件 (macOS)");
+                            let app = tray.app_handle();
+
+                            if let Some(window) = app.get_webview_window("main") {
+                                let is_visible = window.is_visible().unwrap_or(false);
+                                log::debug!("窗口当前可见状态: {}", is_visible);
+
+                                if is_visible {
+                                    let _ = window.hide();
+                                    debounce.finish_processing();
+                                } else {
+                                    // 保存前台窗口
+                                    auto_paste::save_foreground_window();
+
+                                    // 显示并聚焦窗口
+                                    let _ = window.show();
+                                    let _ = window.set_focus();
+                                    log::debug!("窗口已显示并聚焦");
+
+                                    // 完成防抖处理
+                                    let debounce_clone = Arc::clone(&debounce);
+                                    std::thread::spawn(move || {
+                                        std::thread::sleep(std::time::Duration::from_millis(100));
+                                        debounce_clone.finish_processing();
+                                    });
+                                }
+                            } else {
+                                debounce.finish_processing();
+                            }
+                        }
+                    }
+                    _ => {}
                 }
-                _ => {}
             }
-        }
         })
         .build(app);
     Ok(())

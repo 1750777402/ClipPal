@@ -5,11 +5,11 @@ use std::fs;
 use std::path::Path;
 
 use crate::{
-    CONTEXT,
     biz::{
         clip_record::ClipRecord, content_processor::ContentProcessor,
         content_search::search_ids_by_content,
     },
+    CONTEXT,
 };
 
 #[derive(Debug, Serialize, Deserialize)]
