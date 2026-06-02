@@ -65,7 +65,7 @@
 src-tauri/src/
   main.rs                         // Tauri 桌面入口，保持极薄，只调用 clip_pal_lib::run()
   lib.rs                          // 应用组装入口：注册插件、注册 commands、挂载 AppContext、连接启动流程
-  app_context.rs                    // 应用状态和依赖聚合
+  app_context.rs                  // 应用状态和依赖聚合                  
   errors.rs                       // 后端内部统一错误 AppError / AppResult
   response.rs                     // Tauri command 统一响应 CommandResponse<T>
 

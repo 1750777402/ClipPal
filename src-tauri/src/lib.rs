@@ -1,23 +1,13 @@
-use std::sync::{Arc, RwLock};
-
 use crate::{
-    app_context::AppContext,
     biz::{
-        clip_async_queue::consume_clip_record_queue,
-        clip_record::ClipRecord,
-        cloud_sync_timer::start_cloud_sync_timer,
-        content_search::initialize_search_index,
         copy_clip_record::{
             copy_clip_record, copy_clip_record_no_paste, copy_single_file, del_record,
             image_save_as, set_pinned,
         },
-        download_cloud_file::start_cloud_file_download_timer,
         query_clip_record::{
             get_clip_records, get_full_text_content, get_image_info_batch, get_image_path,
         },
-        system_setting::{init_settings, load_settings, save_settings, validate_shortcut, Settings},
-        update_checker::check_update_on_startup,
-        upload_cloud_timer::start_upload_cloud_timer,
+        system_setting::{load_settings, save_settings, validate_shortcut},
         user_auth::{
             check_login_status, check_username, get_user_info, login, logout, send_email_code,
             update_user_info, user_register, validate_token,
@@ -27,169 +17,43 @@ use crate::{
             get_vip_status, open_vip_purchase_page, refresh_vip_status,
         },
     },
-    log_config::init_logging,
     updater::{check_soft_version, download_and_install_update},
-    utils::lock_utils::create_global_sync_lock,
 };
 
-use biz::clip_record_sync::ClipboardEventTigger;
-use clipboard_listener::{ClipboardEvent, EventManager};
-use log::LevelFilter;
 use state::TypeMap;
-use tauri::Manager;
-use tauri_plugin_autostart::MacosLauncher;
 
 mod api;
 mod app_context;
 mod auto_paste;
 mod biz;
+mod bootstrap;
 mod clip_board_listener;
 mod errors;
 mod global_shortcut;
 mod log_config;
 mod menu;
+mod response;
 mod sqlite_storage;
 mod tray;
 mod updater;
 mod utils;
 mod window;
 
-// 全局上下文存储
+// 全局上下文兼容层。
+//
+// 新代码优先使用 `AppContext`。这里仅保留给尚未迁移的模块读取运行期资源。
 pub static CONTEXT: TypeMap![Send + Sync] = <TypeMap![Send + Sync]>::new();
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
-    // 初始化日志
-    init_logging(LevelFilter::Info);
+    let core = bootstrap::init_core().await?;
+    let app_context = core.app_context.clone();
+    let core_for_setup = core.clone();
+    let core_for_run = core.clone();
 
-    // 初始化系统设置
-    init_settings();
-
-    // 初始化粘贴板内容变化后的监听管理器
-    let manager: Arc<EventManager<ClipboardEvent>> = Arc::new(EventManager::default());
-    let m1 = manager.clone();
-
-    // 注册粘贴板内容变化的监听器
-    manager.add_event_listener(Arc::new(ClipboardEventTigger));
-
-    // 初始化sqlite链接
-    let rb_res = match sqlite_storage::init_sqlite().await {
-        Ok(rb) => rb,
-        Err(e) => {
-            log::error!("数据库初始化失败: {}", e);
-            std::process::exit(1);
-        }
-    };
-
-    let settings_context = CONTEXT.get::<Arc<RwLock<Settings>>>().clone();
-    let sync_lock = create_global_sync_lock();
-    let clip_record_queue = crate::biz::clip_async_queue::AsyncQueue::new(1000);
-    CONTEXT.set(sync_lock.clone());
-    CONTEXT.set(clip_record_queue.clone());
-    let app_context = Arc::new(AppContext::from_existing_parts(
-        rb_res.clone(),
-        settings_context,
-        sync_lock,
-        clip_record_queue,
-    ));
-    CONTEXT.set(app_context.window_focus_count());
-    CONTEXT.set(app_context.window_hide_flag());
-
-    // 初始化搜索索引
-    let all_clips = ClipRecord::select_order_by(&rb_res)
-        .await
-        .unwrap_or_else(|e| {
-            log::error!("获取剪贴板记录失败: {}", e);
-            vec![]
-        });
-
-    if let Err(e) = initialize_search_index(all_clips).await {
-        log::error!("搜索索引初始化失败: {}", e);
-    }
-
-    let rb_for_setup = rb_res.clone();
-    let rb_for_run = rb_res.clone();
-    let app_context_for_setup = app_context.clone();
-    let app_context_for_run = app_context.clone();
-
-    tauri::Builder::default()
-        // 软件自动更新
-        .plugin(tauri_plugin_updater::Builder::new().build())
-        // 本机系统对话框，用于打开和保存文件，以及消息对话框
-        .plugin(tauri_plugin_dialog::init())
-        // 保存窗口位置和大小，并在应用程序重新打开时恢复它们
-        .plugin(tauri_plugin_window_state::Builder::new().build())
-        // 使用特定或者默认的应用程序打开文件或者 URL
-        .plugin(tauri_plugin_opener::init())
-        // 粘贴板插件  同时把事件管理器传入在粘贴板插件内部注册
-        .plugin(tauri_plugin_clipboard_pal::init())
-        // 开机自启插件
-        .plugin(tauri_plugin_autostart::init(
-            MacosLauncher::LaunchAgent,
-            Some(vec!["--autostart"]),
-        ))
-        // http请求插件
-        .plugin(tauri_plugin_http::init())
-        // 单实例插件确保 Tauri 应用程序在同一时间只运行单个实例
-        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-            // 当用户尝试第二次启动程序时，会触发这个回调
-            use tauri::Manager;
-            if let Some(window) = app.get_webview_window("main") {
-                // 显示并聚焦已有主窗口
-                let _ = window.show();
-                let _ = window.set_focus();
-            }
-        }))
-        .manage(app_context.clone())
-        .setup(move |app| {
-            let app_handle = app.handle().clone();
-            CONTEXT.set(app_handle.clone());
-            if let Err(e) = app_context_for_setup.set_app_handle(app_handle) {
-                log::warn!("设置 AppHandle 到 AppContext 失败: {}", e);
-            }
-
-            // 初始化菜单栏（macOS 最小化菜单）
-            let _ = menu::init_menu(&app);
-
-            // 创建托盘区图标
-            tray::create_tray(app.handle())?;
-
-            // 初始化主窗口
-            let _ = window::init_main_window(&app);
-            if let Some(main_window) = app.get_webview_window("main") {
-                if let Err(e) = app_context_for_setup.set_main_window(main_window) {
-                    log::warn!("设置主窗口到 AppContext 失败: {}", e);
-                }
-            }
-
-            // 注册全局快捷键
-            let _ = global_shortcut::init_global_shortcut(&app);
-
-            // 初始化剪贴板监听器
-            let _ = clip_board_listener::init_clip_board_listener(&app, m1);
-
-            // 启动云同步定时任务
-            let app_handle = app.handle().clone();
-            let rb = rb_for_setup.clone();
-            tokio::spawn(async move {
-                start_cloud_sync_timer(app_handle, rb).await;
-            });
-
-            // 启动云文件下载定时任务
-            let app_handle_download = app.handle().clone();
-            tokio::spawn(async move {
-                start_cloud_file_download_timer(app_handle_download).await;
-            });
-
-            // 应用启动时检查一次更新（5 秒后在后台执行）
-            let app_handle_update = app.handle().clone();
-            tokio::spawn(async move {
-                tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
-                check_update_on_startup(app_handle_update).await;
-            });
-
-            Ok(())
-        })
+    bootstrap::register_plugins(tauri::Builder::default())
+        .manage(app_context)
+        .setup(move |app| Ok(bootstrap::setup_app(app, core_for_setup.clone())?))
         .invoke_handler(tauri::generate_handler![
             get_clip_records,
             get_image_path,
@@ -231,43 +95,8 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
             log::error!("应用构建失败: {}", e);
             std::process::exit(1);
         })
-        .run(move |_, event| match event {
-            // 程序关闭事件处理
-            tauri::RunEvent::ExitRequested { api: _, .. } => {
-                // 1.关闭监听器
-                let _ = manager.shutdown.0.send_blocking(());
-            }
-            // 程序启动完成后续事件处理
-            tauri::RunEvent::Ready { .. } => {
-                // 启动队列消费
-                consume_clip_record_queue(app_context_for_run.clip_record_queue());
-
-                // 启动文件同步定时任务
-                start_upload_cloud_timer();
-
-                // 开启粘贴板内容监听器
-                manager.start_event_loop();
-
-                // 只有在用户登录时才初始化VIP状态并执行权益限制检查
-                let rb_for_vip = rb_for_run.clone();
-                tokio::spawn(async move {
-                    CONTEXT.set(rb_for_vip);
-
-                    // 检查用户是否已登录
-                    if crate::utils::token_manager::has_valid_auth() {
-                        log::info!("用户已登录，开始初始化VIP状态并执行权益限制检查");
-                        if let Err(e) =
-                            crate::biz::vip_checker::VipChecker::initialize_vip_and_enforce_limits()
-                                .await
-                        {
-                            log::error!("VIP状态初始化失败: {}", e);
-                        }
-                    } else {
-                        log::info!("用户未登录，跳过VIP状态检查");
-                    }
-                });
-            }
-            _ => {}
+        .run(move |_, event| {
+            bootstrap::handle_run_event(event, core_for_run.clone());
         });
 
     Ok(())

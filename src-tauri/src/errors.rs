@@ -53,6 +53,35 @@ pub enum AppError {
     General(String),
 }
 
+impl AppError {
+    /// 前端统一识别用的稳定错误码。
+    pub fn code(&self) -> &'static str {
+        match self {
+            AppError::Database(_) => "database_error",
+            AppError::Io(_) => "io_error",
+            AppError::Serde(_) => "serde_error",
+            AppError::Config(_) => "config_error",
+            AppError::Window(_) => "window_error",
+            AppError::Clipboard(_) => "clipboard_error",
+            AppError::ClipSync(_) => "sync_error",
+            AppError::Crypto(_) => "crypto_error",
+            AppError::Lock(_) => "lock_error",
+            AppError::GlobalShortcut(_) => "global_shortcut_error",
+            AppError::Tray(_) => "tray_error",
+            AppError::Http(_) => "http_error",
+            AppError::Network(_) => "network_error",
+            AppError::System(_) => "system_error",
+            AppError::AutoPaste(_) => "auto_paste_error",
+            AppError::General(_) => "internal_error",
+        }
+    }
+
+    /// 是否适合直接展示给用户。
+    pub fn user_message(&self) -> String {
+        self.to_string()
+    }
+}
+
 /// String 类型的错误转换
 impl From<AppError> for String {
     fn from(err: AppError) -> Self {
