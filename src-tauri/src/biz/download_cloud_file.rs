@@ -8,6 +8,7 @@ use uuid::Uuid;
 
 use crate::{
     api::cloud_sync_api::{get_dowload_url, DownloadCloudFileParam},
+    app_context::app_context,
     biz::clip_record::{ClipRecord, SKIP_SYNC, SYNCHRONIZING},
     biz::query_clip_record::get_file_info_with_paths,
     errors::{AppError, AppResult},
@@ -18,7 +19,6 @@ use crate::{
         retry_helper::{retry_with_config, RetryConfig},
         token_manager::has_valid_auth,
     },
-    CONTEXT,
 };
 use rbatis::RBatis;
 
@@ -99,7 +99,8 @@ pub async fn start_cloud_file_download_timer(app_handle: AppHandle) {
 }
 
 async fn scan_and_download_cloud_files(app_handle: &AppHandle) -> AppResult<()> {
-    let rb: &RBatis = CONTEXT.get::<RBatis>();
+    let context = app_context()?;
+    let rb: &RBatis = context.db();
 
     let pending_records = ClipRecord::select_by_sync_flag_limit(rb, SYNCHRONIZING, 1, 3)
         .await
@@ -230,7 +231,8 @@ async fn download_cloud_file_core(app_handle: AppHandle, record: ClipRecord) -> 
     .await?;
 
     // 更新数据库记录
-    let rb: &RBatis = CONTEXT.get::<RBatis>();
+    let context = app_context()?;
+    let rb: &RBatis = context.db();
     ClipRecord::update_after_cloud_download(rb, &record.id, &filename, &absolute_path).await?;
 
     // 通知前端单条记录下载完成，提供更好的用户体验
@@ -273,7 +275,8 @@ async fn download_cloud_file_core(app_handle: AppHandle, record: ClipRecord) -> 
 
 /// 标记下载记录为跳过同步状态
 async fn mark_download_as_skip_sync(record_id: &str, reason: &str) -> AppResult<()> {
-    let rb: &RBatis = CONTEXT.get::<RBatis>();
+    let context = app_context()?;
+    let rb: &RBatis = context.db();
     let ids = vec![record_id.to_string()];
     let current_time = current_timestamp();
 

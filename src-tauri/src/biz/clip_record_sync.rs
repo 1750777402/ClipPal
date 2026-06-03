@@ -9,20 +9,17 @@ use chrono::Local;
 use clipboard_listener::{ClipBoardEventListener, ClipType, ClipboardEvent};
 use rbatis::RBatis;
 use serde_json::Value;
-use tauri::{AppHandle, Emitter};
+use tauri::Emitter;
 use uuid::Uuid;
 
 use crate::{
+    app_context::app_context,
     biz::clip_record::{ClipRecord, NOT_SYNCHRONIZED, SKIP_SYNC},
     biz::vip_checker::VipChecker,
     utils::{file_dir::get_resources_dir, file_ext::extract_full_extension},
-    CONTEXT,
 };
 use crate::{
-    biz::{
-        clip_async_queue::AsyncQueue, clip_record_clean::try_clean_clip_record,
-        content_search::add_content_to_index, system_setting::check_cloud_sync_enabled,
-    },
+    biz::{clip_record_clean::try_clean_clip_record, content_search::add_content_to_index},
     errors::AppError,
     utils::{
         aes_util::encrypt_content,
@@ -37,7 +34,11 @@ pub struct ClipboardEventTigger;
 #[async_trait::async_trait]
 impl ClipBoardEventListener<ClipboardEvent> for ClipboardEventTigger {
     async fn handle_event(&self, event: &ClipboardEvent) {
-        let rb: &RBatis = CONTEXT.get::<RBatis>();
+        let Ok(context) = app_context() else {
+            log::error!("AppContext 尚未初始化，跳过剪贴板事件");
+            return;
+        };
+        let rb: &RBatis = context.db();
         let next_sort = ClipRecord::get_next_sort(rb).await;
 
         let record_result = match event.r#type {
@@ -58,13 +59,17 @@ impl ClipBoardEventListener<ClipboardEvent> for ClipboardEventTigger {
         });
 
         // 通知前端粘贴板变更
-        let app_handle = CONTEXT.get::<AppHandle>();
-        let _ = app_handle.emit("clip_record_change", ());
+        if let Ok(app_handle) = context.app_handle() {
+            let _ = app_handle.emit("clip_record_change", ());
+        }
 
         if let Ok(Some(item)) = record_result {
             // 如果有新增记录，发送到异步队列   前提是开启了云同步开关
-            if item.sync_flag != Some(SKIP_SYNC) && check_cloud_sync_enabled().await {
-                let async_queue = CONTEXT.get::<AsyncQueue<ClipRecord>>();
+            let cloud_sync_enabled = context
+                .with_settings(|settings| settings.cloud_sync == 1)
+                .unwrap_or(false);
+            if item.sync_flag != Some(SKIP_SYNC) && cloud_sync_enabled {
+                let async_queue = context.clip_record_queue();
                 if !async_queue.is_full() {
                     let send_res = async_queue.send_add(item.clone()).await;
                     if let Err(e) = send_res {

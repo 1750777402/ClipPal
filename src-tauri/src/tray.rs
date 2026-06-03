@@ -3,10 +3,10 @@ use std::sync::Arc;
 use tauri::image::Image;
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, TrayIconEvent};
+use tauri::Emitter;
 use tauri::{tray::TrayIconBuilder, Manager, Runtime};
-use tauri::{AppHandle, Emitter};
 
-use crate::{auto_paste, CONTEXT};
+use crate::{auto_paste, window::WindowFocusCount};
 
 /// 防抖控制结构
 #[derive(Debug)]
@@ -56,7 +56,10 @@ impl TrayClickDebounce {
     }
 }
 
-pub fn create_tray<R: Runtime>(app: &tauri::AppHandle<R>) -> tauri::Result<()> {
+pub fn create_tray<R: Runtime>(
+    app: &tauri::AppHandle<R>,
+    window_focus_count: Arc<WindowFocusCount>,
+) -> tauri::Result<()> {
     // 为系统创建托盘图标
     let icon = Image::from_bytes(include_bytes!("../icons/icon_128x128.png"))?;
     let quit_i = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
@@ -80,14 +83,13 @@ pub fn create_tray<R: Runtime>(app: &tauri::AppHandle<R>) -> tauri::Result<()> {
             }
             "setSys" => {
                 // 通知前端显示系统设置窗口
-                let app_handle = CONTEXT.get::<AppHandle>();
                 if let Some(window) = app.get_webview_window("main") {
                     let visible = window.is_visible().unwrap_or(false);
                     if !visible {
                         let _ = window.show();
                     }
                 }
-                let _ = app_handle.emit("open_settings_windows", ());
+                let _ = app.emit("open_settings_windows", ());
             }
             _ => {
                 log::warn!("菜单项 {:?} 未处理", event.id);
@@ -96,6 +98,7 @@ pub fn create_tray<R: Runtime>(app: &tauri::AppHandle<R>) -> tauri::Result<()> {
         // 托盘图标响应鼠标事件
         .on_tray_icon_event({
             let debounce = Arc::clone(&debounce);
+            let window_focus_count = window_focus_count.clone();
             move |tray, event| {
                 log::debug!("托盘图标事件触发: {:?}", event);
                 match event {
@@ -114,9 +117,6 @@ pub fn create_tray<R: Runtime>(app: &tauri::AppHandle<R>) -> tauri::Result<()> {
 
                         // 如果窗口已经可见，先隐藏它，让用户的应用重新获得焦点
                         if let Some(window) = app.get_webview_window("main") {
-                            use crate::window::WindowFocusCount;
-                            use crate::CONTEXT;
-
                             let is_visible = window.is_visible().unwrap_or(false);
                             log::debug!("窗口当前可见状态: {}", is_visible);
 
@@ -132,8 +132,7 @@ pub fn create_tray<R: Runtime>(app: &tauri::AppHandle<R>) -> tauri::Result<()> {
                                 log::debug!("窗口已重新显示并聚焦");
 
                                 // 重置焦点计数器，确保第一次失去焦点不会隐藏窗口
-                                let focus_count = CONTEXT.get::<Arc<WindowFocusCount>>();
-                                focus_count.reset();
+                                window_focus_count.reset();
                                 log::debug!("已重置焦点丢失计数器");
 
                                 // 完成防抖处理

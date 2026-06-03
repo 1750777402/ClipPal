@@ -53,6 +53,7 @@ pub async fn init_core() -> AppResult<BootstrapCore> {
 
     let db = sqlite_storage::init_sqlite().await?;
     let app_context = Arc::new(AppContext::new(db.clone(), settings));
+    crate::app_context::set_app_context(app_context.clone())?;
 
     initialize_search_index_from_database(&db).await;
 

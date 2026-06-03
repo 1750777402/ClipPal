@@ -2,8 +2,8 @@ use crate::{
     api::user_auth_api::{
         refresh_token as api_refresh_token, AuthResponse, RefreshTokenRequestParam,
     },
+    app_context::try_app_context,
     utils::secure_store::SECURE_STORE,
-    CONTEXT,
 };
 use serde_json;
 use std::sync::{Arc, OnceLock, RwLock};
@@ -190,7 +190,7 @@ impl TokenManager {
         log::info!("通知前端认证已过期");
 
         // 通过Tauri事件系统通知前端
-        if let Some(app_handle) = CONTEXT.try_get::<tauri::AppHandle>() {
+        if let Some(app_handle) = try_app_context().and_then(|context| context.try_app_handle()) {
             if let Err(e) = app_handle.emit("auth-expired", ()) {
                 log::error!("发送认证过期事件失败: {}", e);
             }
@@ -210,7 +210,7 @@ impl TokenManager {
         }
 
         // 通知前端云同步已被禁用，前端需要更新UI状态
-        if let Some(app_handle) = CONTEXT.try_get::<tauri::AppHandle>() {
+        if let Some(app_handle) = try_app_context().and_then(|context| context.try_app_handle()) {
             if let Err(e) = app_handle.emit("cloud-sync-disabled", ()) {
                 log::error!("发送云同步禁用事件失败: {}", e);
             }

@@ -1,21 +1,12 @@
-use std::sync::{
-    atomic::{AtomicBool, Ordering},
-    Arc, RwLock,
-};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::{
-    biz::{
-        clip_record::ClipRecord, content_search::remove_ids_from_index, system_setting::Settings,
-    },
-    utils::{
-        file_dir::get_resources_dir, lock_utils::lock_utils::safe_read_lock,
-        path_utils::to_safe_string,
-    },
-    CONTEXT,
+    app_context::app_context,
+    biz::{clip_record::ClipRecord, content_search::remove_ids_from_index},
+    utils::{file_dir::get_resources_dir, path_utils::to_safe_string},
 };
 use clipboard_listener::ClipType;
 use once_cell::sync::Lazy;
-use rbatis::RBatis;
 
 static IS_CLEANING: Lazy<AtomicBool> = Lazy::new(|| AtomicBool::new(false));
 
@@ -42,20 +33,19 @@ pub async fn try_clean_clip_record() {
 }
 
 async fn clip_record_clean() {
-    let rb: &RBatis = CONTEXT.get::<RBatis>();
-
-    let system_settings = {
-        let lock = CONTEXT.get::<Arc<RwLock<Settings>>>().clone();
-        let result = match safe_read_lock(&lock) {
-            Ok(current) => current.clone(),
-            Err(e) => {
-                log::error!("获取系统设置锁失败: {}", e);
-                return;
-            }
-        };
-        result
+    let Ok(context) = app_context() else {
+        log::error!("AppContext 尚未初始化，跳过剪贴记录清理");
+        return;
     };
-    let max_num = system_settings.max_records;
+    let rb = context.db();
+
+    let max_num = match context.with_settings(|settings| settings.max_records) {
+        Ok(max_records) => max_records,
+        Err(e) => {
+            log::error!("获取系统设置失败: {}", e);
+            return;
+        }
+    };
 
     // 数据清理有两个部分
     // 1. 逻辑删除超过系统设置的最大记录数的剪贴板记录，但是逻辑删除的数据需要标记为未同步，等待定时任务同步删除的数据

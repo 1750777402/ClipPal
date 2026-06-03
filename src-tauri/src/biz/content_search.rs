@@ -1,17 +1,17 @@
+use crate::app_context::app_context;
 use crate::biz::clip_record::ClipRecord;
 use crate::biz::system_setting::{
     DEFAULT_BLOOM_FILTER_TRUST_THRESHOLD, DEFAULT_DIRECT_CONTAINS_THRESHOLD,
 };
 use crate::errors::AppResult;
 use crate::utils::lock_utils::lock_utils::safe_read_lock;
-use crate::{biz::system_setting::Settings, CONTEXT};
 use bloomfilter::Bloom;
 use clipboard_listener::ClipType;
 use dashmap::DashMap;
 use once_cell::sync::Lazy;
 use regex::Regex;
 use std::collections::HashSet;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
 // 静态编译的正则表达式
 static WORD_REGEX: Lazy<Regex> =
@@ -152,18 +152,22 @@ impl RecordSearchData {
     fn smart_search(&self, query: &str) -> bool {
         // 获取配置
         let (bloom_trust_threshold, direct_contains_threshold) = {
-            let lock = CONTEXT.get::<Arc<RwLock<Settings>>>().clone();
-            let guard = safe_read_lock(&lock);
-            match guard {
-                Ok(settings) => {
-                    let bloom_threshold = settings
-                        .bloom_filter_trust_threshold
-                        .unwrap_or(DEFAULT_BLOOM_FILTER_TRUST_THRESHOLD);
-                    let direct_threshold = settings
-                        .direct_contains_threshold
-                        .unwrap_or(DEFAULT_DIRECT_CONTAINS_THRESHOLD);
-                    (bloom_threshold, direct_threshold)
-                }
+            match app_context() {
+                Ok(context) => match safe_read_lock(&context.settings()) {
+                    Ok(settings) => {
+                        let bloom_threshold = settings
+                            .bloom_filter_trust_threshold
+                            .unwrap_or(DEFAULT_BLOOM_FILTER_TRUST_THRESHOLD);
+                        let direct_threshold = settings
+                            .direct_contains_threshold
+                            .unwrap_or(DEFAULT_DIRECT_CONTAINS_THRESHOLD);
+                        (bloom_threshold, direct_threshold)
+                    }
+                    Err(_) => (
+                        DEFAULT_BLOOM_FILTER_TRUST_THRESHOLD,
+                        DEFAULT_DIRECT_CONTAINS_THRESHOLD,
+                    ),
+                },
                 Err(_) => (
                     DEFAULT_BLOOM_FILTER_TRUST_THRESHOLD,
                     DEFAULT_DIRECT_CONTAINS_THRESHOLD,

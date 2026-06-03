@@ -1,7 +1,7 @@
 use clipboard_listener::ClipType;
 use log;
 use rbatis::RBatis;
-use std::sync::{Arc, OnceLock, RwLock};
+use std::sync::OnceLock;
 use tauri::{AppHandle, Emitter};
 use tokio::sync::mpsc;
 use tokio::time::Duration;
@@ -10,6 +10,7 @@ use uuid::Uuid;
 use crate::api::cloud_sync_api::{
     sync_clipboard, sync_server_time, ClipRecordParam, CloudSyncRequest,
 };
+use crate::app_context::app_context;
 use crate::biz::clip_record::{NOT_SYNCHRONIZED, SKIP_SYNC, SYNCHRONIZED, SYNCHRONIZING};
 use crate::biz::clip_record_clean::try_clean_clip_record;
 use crate::biz::content_search::add_content_to_index;
@@ -20,13 +21,8 @@ use crate::errors::{AppError, AppResult};
 use crate::utils::config::get_max_file_size_bytes;
 use crate::utils::device_info::GLOBAL_DEVICE_ID;
 use crate::utils::file_dir::get_resources_dir;
-use crate::utils::lock_utils::lock_utils::safe_read_lock;
 use crate::utils::token_manager::has_valid_auth;
-use crate::{
-    biz::{clip_record::ClipRecord, system_setting::Settings},
-    utils::lock_utils::GlobalSyncLock,
-    CONTEXT,
-};
+use crate::{biz::clip_record::ClipRecord, utils::lock_utils::GlobalSyncLock};
 use std::path::PathBuf;
 
 pub struct CloudSyncTimer {
@@ -56,9 +52,10 @@ impl CloudSyncTimer {
     /// 启动云同步定时任务
     pub async fn start(mut self) {
         let cloud_sync_interval = {
-            let settings_lock = CONTEXT.get::<Arc<RwLock<Settings>>>();
-            match safe_read_lock(&settings_lock) {
-                Ok(settings) => settings.cloud_sync_interval,
+            match app_context()
+                .and_then(|context| context.with_settings(|settings| settings.cloud_sync_interval))
+            {
+                Ok(interval) => interval,
                 Err(e) => {
                     log::warn!("无法获取设置: {}", e);
                     SYNC_INTERVAL_SECONDS
@@ -67,7 +64,11 @@ impl CloudSyncTimer {
         };
         log::info!("云同步服务已启动，间隔: {}秒", cloud_sync_interval);
 
-        let sync_lock: &GlobalSyncLock = CONTEXT.get::<GlobalSyncLock>();
+        let Ok(context) = app_context() else {
+            log::error!("AppContext 尚未初始化，云同步定时任务无法启动");
+            return;
+        };
+        let sync_lock: &GlobalSyncLock = context.sync_lock();
         let mut trigger_receiver = self.trigger_receiver.take().unwrap();
 
         // 创建定时器

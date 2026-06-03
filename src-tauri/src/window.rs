@@ -9,13 +9,15 @@ use std::sync::{
 use tauri::{App, WindowEvent};
 use tauri::{Manager, PhysicalPosition, PhysicalSize};
 
-use crate::CONTEXT;
-
 // macOS系统API导入
 #[cfg(target_os = "macos")]
 use objc::{msg_send, sel, sel_impl};
 
-pub fn init_main_window(app: &App) -> tauri::Result<()> {
+pub fn init_main_window(
+    app: &App,
+    window_focus_count: Arc<WindowFocusCount>,
+    window_hide_flag: Arc<WindowHideFlag>,
+) -> tauri::Result<()> {
     // 获取主显示器
     let main_window = app.get_webview_window("main").ok_or_else(|| {
         log::error!("无法获取主窗口");
@@ -135,15 +137,15 @@ pub fn init_main_window(app: &App) -> tauri::Result<()> {
     }
 
     let main1 = main_window.clone();
+    let focus_count = window_focus_count.clone();
+    let hide_flag = window_hide_flag.clone();
 
     main_window.on_window_event(move |event| match event {
         WindowEvent::Focused(false) => {
             log::debug!("窗口失去焦点事件触发");
 
-            let window_focus_count = CONTEXT.get::<Arc<WindowFocusCount>>();
-            let window_hide_flag = CONTEXT.get::<Arc<WindowHideFlag>>();
-            let count = window_focus_count.inc();
-            let can_hide = window_hide_flag.is_can_hide();
+            let count = focus_count.inc();
+            let can_hide = hide_flag.is_can_hide();
 
             log::debug!("失去焦点计数: {}, 可以隐藏: {}", count, can_hide);
 

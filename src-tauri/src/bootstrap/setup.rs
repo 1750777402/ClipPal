@@ -38,16 +38,20 @@ pub fn setup_app(app: &mut App, core: BootstrapCore) -> tauri::Result<()> {
 fn init_desktop_shell(app: &mut App, core: &BootstrapCore) -> tauri::Result<()> {
     let _ = menu::init_menu(app);
 
-    tray::create_tray(app.handle())?;
+    tray::create_tray(app.handle(), core.app_context.window_focus_count())?;
 
-    let _ = window::init_main_window(app);
+    let _ = window::init_main_window(
+        app,
+        core.app_context.window_focus_count(),
+        core.app_context.window_hide_flag(),
+    );
     if let Some(main_window) = app.get_webview_window("main") {
         if let Err(e) = core.app_context.set_main_window(main_window) {
             log::warn!("设置主窗口到 AppContext 失败: {}", e);
         }
     }
 
-    let _ = global_shortcut::init_global_shortcut(app);
+    let _ = global_shortcut::init_global_shortcut(app, core.app_context.clone());
 
     let _ =
         clip_board_listener::init_clip_board_listener(app, core.clipboard_event_manager.clone());

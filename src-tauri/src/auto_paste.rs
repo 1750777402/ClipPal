@@ -268,13 +268,13 @@ pub fn save_foreground_window() {
 /// 执行自动粘贴
 #[cfg(target_os = "macos")]
 pub fn auto_paste_to_previous_window() -> AppResult<()> {
-    use crate::CONTEXT;
-    use tauri::{AppHandle, Manager};
+    use crate::app_context::app_context;
+    use tauri::Manager;
 
     log::info!("macOS 自动粘贴开始");
 
     // 获取窗口句柄
-    let app_handle = CONTEXT.get::<AppHandle>();
+    let app_handle = app_context()?.app_handle()?;
     let window = app_handle.get_webview_window("main").ok_or_else(|| {
         log::error!("无法获取主窗口");
         AppError::AutoPaste("无法获取主窗口".to_string())

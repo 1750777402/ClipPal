@@ -1,8 +1,5 @@
 use crate::errors::{AppError, AppResult};
-use crate::{
-    utils::{file_dir::get_data_dir, path_utils::to_safe_string},
-    CONTEXT,
-};
+use crate::utils::{file_dir::get_data_dir, path_utils::to_safe_string};
 use rbatis::RBatis;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -399,9 +396,6 @@ pub async fn init_sqlite() -> AppResult<RBatis> {
 
     // 检查并修复数据库结构
     check_and_fix_database_schema(&rb).await?;
-
-    // 把sqlite链接放入全局变量中
-    CONTEXT.set(rb.clone());
 
     log::info!("数据库初始化完成");
 

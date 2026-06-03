@@ -1,10 +1,10 @@
 use crate::auto_paste;
-use crate::{biz::system_setting::Settings, CONTEXT};
-use std::sync::{Arc, RwLock};
+use crate::{app_context::AppContext, biz::system_setting::Settings};
+use std::sync::Arc;
 use tauri::{App, Manager};
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut};
 
-pub fn init_global_shortcut(app: &App) -> tauri::Result<()> {
+pub fn init_global_shortcut(app: &App, app_context: Arc<AppContext>) -> tauri::Result<()> {
     #[cfg(desktop)]
     {
         // 首先注册插件
@@ -12,19 +12,10 @@ pub fn init_global_shortcut(app: &App) -> tauri::Result<()> {
             .plugin(tauri_plugin_global_shortcut::Builder::new().build())?;
 
         // 从设置中获取快捷键
-        let settings = {
-            use crate::utils::lock_utils::lock_utils::safe_read_lock;
-
-            let lock = CONTEXT.get::<Arc<RwLock<Settings>>>().clone();
-            let result = match safe_read_lock(&lock) {
-                Ok(current) => current.clone(),
-                Err(e) => {
-                    log::error!("获取设置锁失败: {}", e);
-                    return Err(tauri::Error::FailedToReceiveMessage);
-                }
-            };
-            result
-        };
+        let settings = app_context.with_settings(Clone::clone).map_err(|e| {
+            log::error!("获取设置失败: {}", e);
+            tauri::Error::FailedToReceiveMessage
+        })?;
         let shortcut_str = settings.shortcut_key.clone();
 
         // 注册快捷键并设置处理器

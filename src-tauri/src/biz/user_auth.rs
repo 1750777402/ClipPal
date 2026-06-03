@@ -8,9 +8,9 @@ use crate::{
         EmailCodeRequestParam, LoginRequestParam, RegisterRequestParam, UpdateUserInfoParam,
         UserInfo as ApiUserInfo,
     },
+    app_context::try_app_context,
     utils::secure_store::SECURE_STORE,
     utils::token_manager::has_valid_auth,
-    CONTEXT,
 };
 use tauri::Emitter;
 
@@ -440,7 +440,7 @@ async fn notify_auth_cleared() {
     log::info!("通知前端认证状态已清除");
 
     // 通过Tauri事件系统通知前端
-    if let Some(app_handle) = CONTEXT.try_get::<tauri::AppHandle>() {
+    if let Some(app_handle) = try_app_context().and_then(|context| context.try_app_handle()) {
         if let Err(e) = app_handle.emit("auth-cleared", ()) {
             log::error!("发送认证清除事件失败: {}", e);
         }
@@ -452,7 +452,7 @@ async fn notify_cloud_sync_disabled() {
     log::info!("通知前端云同步已被禁用");
 
     // 通过Tauri事件系统通知前端
-    if let Some(app_handle) = CONTEXT.try_get::<tauri::AppHandle>() {
+    if let Some(app_handle) = try_app_context().and_then(|context| context.try_app_handle()) {
         if let Err(e) = app_handle.emit("cloud-sync-disabled", ()) {
             log::error!("发送云同步禁用事件失败: {}", e);
         }

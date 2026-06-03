@@ -3,13 +3,14 @@ use rbatis::RBatis;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
+use std::sync::Arc;
 
 use crate::{
+    app_context::AppContext,
     biz::{
         clip_record::ClipRecord, content_processor::ContentProcessor,
         content_search::search_ids_by_content,
     },
-    CONTEXT,
 };
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -105,9 +106,12 @@ pub struct FullContentResponse {
 
 /// 获取剪贴记录列表 - 使用轻量级 DTO，延迟加载图片信息
 #[tauri::command]
-pub async fn get_clip_records(param: QueryParam) -> Result<Vec<ClipRecordLiteDTO>, String> {
+pub async fn get_clip_records(
+    state: tauri::State<'_, Arc<AppContext>>,
+    param: QueryParam,
+) -> Result<Vec<ClipRecordLiteDTO>, String> {
     let offset = (param.page - 1) * param.size;
-    let rb: &RBatis = CONTEXT.get::<RBatis>();
+    let rb: &RBatis = state.db();
     // 执行数据库查询逻辑
     let query_result = match param.search.as_deref().filter(|s| !s.is_empty()) {
         Some(search) => {
@@ -316,8 +320,11 @@ pub fn get_image_info(relative_path: &str) -> Option<ImageInfo> {
 
 // 新增：获取图片文件路径的API（用于自定义协议）
 #[tauri::command]
-pub async fn get_image_path(param: GetImageParam) -> Result<ImagePathInfo, String> {
-    let rb: &RBatis = CONTEXT.get::<RBatis>();
+pub async fn get_image_path(
+    state: tauri::State<'_, Arc<AppContext>>,
+    param: GetImageParam,
+) -> Result<ImagePathInfo, String> {
+    let rb: &RBatis = state.db();
 
     let records = ClipRecord::select_by_id(rb, &param.record_id)
         .await
@@ -402,11 +409,12 @@ fn truncate_large_text(content: &str) -> (String, bool, Option<usize>) {
 /// 批量获取图片信息 - 前端按需调用此接口加载图片元数据
 #[tauri::command]
 pub async fn get_image_info_batch(
+    state: tauri::State<'_, Arc<AppContext>>,
     record_ids: Vec<String>,
 ) -> Result<std::collections::HashMap<String, ImageInfo>, String> {
     use std::collections::HashMap;
 
-    let rb: &RBatis = CONTEXT.get::<RBatis>();
+    let rb: &RBatis = state.db();
     let mut result = HashMap::new();
 
     for id in record_ids {
@@ -433,9 +441,10 @@ pub async fn get_image_info_batch(
 // 获取记录的完整文本内容
 #[tauri::command]
 pub async fn get_full_text_content(
+    state: tauri::State<'_, Arc<AppContext>>,
     param: GetFullContentParam,
 ) -> Result<FullContentResponse, String> {
-    let rb: &RBatis = CONTEXT.get::<RBatis>();
+    let rb: &RBatis = state.db();
 
     // 从数据库获取记录
     let records = ClipRecord::select_by_id(rb, &param.record_id)

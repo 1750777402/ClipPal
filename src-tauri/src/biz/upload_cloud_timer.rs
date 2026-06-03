@@ -1,11 +1,12 @@
 use clipboard_listener::ClipType;
 use rbatis::RBatis;
 use std::path::PathBuf;
-use tauri::{AppHandle, Emitter};
+use tauri::Emitter;
 use tokio::task;
 use tokio::time::{sleep, Duration};
 
 use crate::api::cloud_sync_api::{get_upload_file_url, sync_upload_success, FileCloudSyncParam};
+use crate::app_context::app_context;
 use crate::biz::clip_record::{ClipRecord, SKIP_SYNC, SYNCHRONIZED, SYNCHRONIZING};
 use crate::biz::system_setting::check_cloud_sync_enabled;
 use crate::biz::vip_checker::VipChecker;
@@ -13,7 +14,6 @@ use crate::errors::{AppError, AppResult};
 use crate::utils::file_dir::get_resources_dir;
 use crate::utils::retry_helper::{retry_with_config, RetryConfig};
 use crate::utils::token_manager::has_valid_auth;
-use crate::CONTEXT;
 
 /// 这个定时任务是云同步上传记录时，文件类型的内容上传到云端的任务
 
@@ -59,7 +59,8 @@ pub fn start_upload_cloud_timer() {
 /// 处理一个文件同步任务
 /// 每次只处理一条SYNCHRONIZING状态的记录
 async fn process_one_file_sync() -> AppResult<()> {
-    let rb: &RBatis = CONTEXT.get::<RBatis>();
+    let context = app_context()?;
+    let rb: &RBatis = context.db();
 
     // 查找一条sync_flag为SYNCHRONIZING的记录，但是需要是本地自己的记录，而不是云端同步下来的
     let pending_records = ClipRecord::select_by_sync_flag_limit(rb, SYNCHRONIZING, 0, 1).await?;
@@ -101,7 +102,8 @@ async fn process_image_sync(record: &ClipRecord) -> AppResult<()> {
 
     if image_filename.is_empty() {
         // 文件名为空，直接标记为已同步
-        let rb: &RBatis = CONTEXT.get::<RBatis>();
+        let context = app_context()?;
+        let rb: &RBatis = context.db();
         let ids = vec![record.id.clone()];
         let current_time = current_timestamp();
         ClipRecord::update_sync_flag(rb, &ids, SYNCHRONIZED, current_time).await?;
@@ -173,7 +175,8 @@ async fn process_file_sync(record: &ClipRecord) -> AppResult<()> {
                 return mark_as_skip_sync(&record.id, "所有文件都超过大小限制或不存在").await;
             } else {
                 // 所有文件都不存在，直接标记为已同步
-                let rb: &RBatis = CONTEXT.get::<RBatis>();
+                let context = app_context()?;
+                let rb: &RBatis = context.db();
                 let ids = vec![record.id.clone()];
                 let current_time = current_timestamp();
                 ClipRecord::update_sync_flag(rb, &ids, SYNCHRONIZED, current_time).await?;
@@ -213,7 +216,8 @@ async fn process_file_sync(record: &ClipRecord) -> AppResult<()> {
 
         // 只有所有文件都上传成功后，才更新记录状态为已同步
         if upload_success && !uploaded_files.is_empty() {
-            let rb: &RBatis = CONTEXT.get::<RBatis>();
+            let context = app_context()?;
+            let rb: &RBatis = context.db();
             let ids = vec![record.id.clone()];
             let current_time = current_timestamp();
 
@@ -242,7 +246,8 @@ async fn process_file_sync(record: &ClipRecord) -> AppResult<()> {
         Ok(())
     } else {
         // local_file_path字段为None，直接标记为已同步
-        let rb: &RBatis = CONTEXT.get::<RBatis>();
+        let context = app_context()?;
+        let rb: &RBatis = context.db();
         let ids = vec![record.id.clone()];
         let current_time = current_timestamp();
         ClipRecord::update_sync_flag(rb, &ids, SYNCHRONIZED, current_time).await?;
@@ -389,7 +394,8 @@ async fn upload_file_and_update_status(
     }
 
     // 步骤4: 只有所有步骤都成功后，才更新本地状态
-    let rb: &RBatis = CONTEXT.get::<RBatis>();
+    let context = app_context()?;
+    let rb: &RBatis = context.db();
     let ids = vec![record_id.to_string()];
     let current_time = current_timestamp();
 
@@ -449,7 +455,8 @@ async fn upload_file_and_update_status(
 
 /// 标记记录为跳过同步状态
 async fn mark_as_skip_sync(record_id: &str, reason: &str) -> AppResult<()> {
-    let rb: &RBatis = CONTEXT.get::<RBatis>();
+    let context = app_context()?;
+    let rb: &RBatis = context.db();
     let ids = vec![record_id.to_string()];
     let current_time = current_timestamp();
 
@@ -470,10 +477,14 @@ async fn notify_frontend_sync_status(ids: Vec<String>, sync_flag: i32) {
         "clip_ids": ids,
         "sync_flag": sync_flag
     });
-    let app_handle = CONTEXT.get::<AppHandle>();
-    let _ = app_handle
-        .emit("sync_status_update_batch", payload)
-        .map_err(|e| AppError::General(format!("批量通知前端文件同步状态失败: {}", e)));
+    match app_context().and_then(|context| context.app_handle()) {
+        Ok(app_handle) => {
+            let _ = app_handle
+                .emit("sync_status_update_batch", payload)
+                .map_err(|e| AppError::General(format!("批量通知前端文件同步状态失败: {}", e)));
+        }
+        Err(e) => log::warn!("批量通知前端文件同步状态失败: {}", e),
+    }
 }
 
 /// 直接上传文件到OSS（使用预签名URL）

@@ -7,11 +7,11 @@ use std::{
 };
 
 use serde::{Deserialize, Serialize};
-use tauri::AppHandle;
 use tauri_plugin_autostart::ManagerExt;
 use tauri_plugin_global_shortcut::GlobalShortcutExt;
 
 use crate::{
+    app_context::{app_context, AppContext},
     biz::cloud_sync_timer::trigger_immediate_sync,
     biz::vip_checker::VipChecker,
     errors::{AppError, AppResult},
@@ -20,7 +20,6 @@ use crate::{
         file_dir::get_config_dir,
         lock_utils::lock_utils::{safe_read_lock, safe_write_lock},
     },
-    CONTEXT,
 };
 
 // 默认超过这个大小的内容，使用布隆过滤器进行搜索   不会进行contains
@@ -83,22 +82,7 @@ impl Default for Settings {
     }
 }
 
-/// 初始化系统设置
-pub fn init_settings() {
-    let settings = load_settings();
-    // 把系统配置存储到上下文中，使用 RwLock 允许并发读取
-    CONTEXT.set(Arc::new(RwLock::new(settings.clone())));
-
-    // 如果配置文件不存在，使用已加载的设置创建默认配置文件
-    create_default_config_if_not_exists(&settings);
-}
-
-/// 为新的 AppContext 创建设置缓存。
-///
-/// 这个函数不依赖旧的全局 CONTEXT，只负责：
-/// 1. 从配置文件加载设置；
-/// 2. 配置文件不存在时创建默认配置；
-/// 3. 返回可共享的设置缓存。
+/// 创建设置缓存。
 #[allow(dead_code)]
 pub fn load_settings_context() -> Arc<RwLock<Settings>> {
     let settings = load_settings();
@@ -143,7 +127,17 @@ pub fn load_settings() -> Settings {
 }
 
 #[tauri::command]
-pub async fn save_settings(settings: Settings) -> Result<(), String> {
+pub async fn save_settings(
+    state: tauri::State<'_, Arc<AppContext>>,
+    settings: Settings,
+) -> Result<(), String> {
+    save_settings_with_context(&state, settings).await
+}
+
+pub async fn save_settings_with_context(
+    app_context: &AppContext,
+    settings: Settings,
+) -> Result<(), String> {
     // 1. 验证设置的有效性
     validate_settings(&settings)
         .await
@@ -151,7 +145,7 @@ pub async fn save_settings(settings: Settings) -> Result<(), String> {
 
     // 2. 获取当前设置并立即释放锁
     let current_settings = {
-        let lock = CONTEXT.get::<Arc<RwLock<Settings>>>().clone();
+        let lock = app_context.settings();
         let current = safe_read_lock(&lock).map_err(|e| e.to_string())?;
         current.clone()
     };
@@ -161,7 +155,7 @@ pub async fn save_settings(settings: Settings) -> Result<(), String> {
 
     // 3.1 尝试更新全局快捷键
     if settings.shortcut_key != current_settings.shortcut_key {
-        match update_global_shortcut(&settings.shortcut_key).await {
+        match update_global_shortcut(app_context, &settings.shortcut_key).await {
             Ok(_) => applied_settings.push(("shortcut", true)),
             Err(e) => {
                 // 回滚已应用的设置
@@ -193,7 +187,7 @@ pub async fn save_settings(settings: Settings) -> Result<(), String> {
 
     // 3.3 尝试设置开机自启
     if settings.auto_start != current_settings.auto_start {
-        match set_auto_start(settings.auto_start == 1) {
+        match set_auto_start(app_context, settings.auto_start == 1) {
             Ok(_) => applied_settings.push(("autostart", true)),
             Err(e) => {
                 if let Err(rollback_err) = rollback_settings(&applied_settings).await {
@@ -219,7 +213,7 @@ pub async fn save_settings(settings: Settings) -> Result<(), String> {
     let need_trigger_sync =
         settings.cloud_sync != current_settings.cloud_sync && settings.cloud_sync == 1;
     {
-        let lock = CONTEXT.get::<Arc<RwLock<Settings>>>().clone();
+        let lock = app_context.settings();
         let mut current = safe_write_lock(&lock).map_err(|e| e.to_string())?;
         *current = settings;
     }
@@ -300,8 +294,8 @@ fn is_valid_shortcut_format(shortcut: &str) -> bool {
 }
 
 // 更新全局快捷键
-async fn update_global_shortcut(shortcut: &str) -> AppResult<()> {
-    let app_handle = CONTEXT.get::<AppHandle>();
+async fn update_global_shortcut(app_context: &AppContext, shortcut: &str) -> AppResult<()> {
+    let app_handle = app_context.app_handle()?;
 
     // 先严格解析，确保失败时不会把现有快捷键卸载掉。
     let shortcut_obj = parse_shortcut_strict(shortcut)
@@ -340,8 +334,8 @@ async fn update_global_shortcut(shortcut: &str) -> AppResult<()> {
 }
 
 // 设置开机自启
-fn set_auto_start(auto_start: bool) -> AppResult<()> {
-    let app_handle = CONTEXT.get::<AppHandle>();
+fn set_auto_start(app_context: &AppContext, auto_start: bool) -> AppResult<()> {
+    let app_handle = app_context.app_handle()?;
     let autostart_manager = app_handle.autolaunch();
 
     match if auto_start {
@@ -372,11 +366,12 @@ pub fn save_settings_to_file(settings: &Settings) -> AppResult<()> {
 
 // 回滚设置
 async fn rollback_settings(applied_settings: &[(&str, bool)]) -> AppResult<()> {
-    let app_handle = CONTEXT.get::<AppHandle>();
+    let context = app_context()?;
+    let app_handle = context.app_handle()?;
 
     // 在 await 点之前获取当前设置
     let current_settings = {
-        let lock = CONTEXT.get::<Arc<RwLock<Settings>>>().clone();
+        let lock = context.settings();
         let current = safe_read_lock(&lock)?;
         current.clone()
     };
@@ -414,7 +409,7 @@ async fn rollback_settings(applied_settings: &[(&str, bool)]) -> AppResult<()> {
             }
             "autostart" => {
                 // 恢复原开机自启设置
-                if let Err(e) = set_auto_start(current_settings.auto_start == 1) {
+                if let Err(e) = set_auto_start(&context, current_settings.auto_start == 1) {
                     log::error!("恢复开机自启设置失败: {}", e);
                 }
             }
@@ -427,7 +422,10 @@ async fn rollback_settings(applied_settings: &[(&str, bool)]) -> AppResult<()> {
 
 // 验证快捷键是否可用
 #[tauri::command]
-pub async fn validate_shortcut(shortcut: String) -> Result<bool, String> {
+pub async fn validate_shortcut(
+    state: tauri::State<'_, Arc<AppContext>>,
+    shortcut: String,
+) -> Result<bool, String> {
     // 1. 验证格式
     if !is_valid_shortcut_format(&shortcut) {
         return Ok(false);
@@ -435,7 +433,7 @@ pub async fn validate_shortcut(shortcut: String) -> Result<bool, String> {
 
     // 2. 获取当前设置的快捷键
     let current_shortcut = {
-        let lock = CONTEXT.get::<Arc<RwLock<Settings>>>().clone();
+        let lock = state.settings();
         let result = match safe_read_lock(&lock) {
             Ok(current) => current.shortcut_key.clone(),
             Err(_) => String::new(),
@@ -458,7 +456,10 @@ pub async fn validate_shortcut(shortcut: String) -> Result<bool, String> {
 
 /// 检查是否开启了云同步功能
 pub async fn check_cloud_sync_enabled() -> bool {
-    let settings_lock = CONTEXT.get::<Arc<RwLock<Settings>>>();
+    let Ok(context) = app_context() else {
+        return false;
+    };
+    let settings_lock = context.settings();
     if let Ok(settings) = safe_read_lock(&settings_lock) {
         return settings.cloud_sync == 1;
     }
@@ -469,7 +470,8 @@ pub async fn check_cloud_sync_enabled() -> bool {
 pub async fn disable_cloud_sync() -> Result<(), String> {
     log::info!("禁用云同步功能");
 
-    let settings_lock = CONTEXT.get::<Arc<RwLock<Settings>>>();
+    let context = app_context().map_err(|e| e.to_string())?;
+    let settings_lock = context.settings();
 
     // 直接更新内存中的设置，避免递归调用
     {

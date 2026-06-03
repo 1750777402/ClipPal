@@ -1,12 +1,12 @@
 use crate::{
     api::vip_api::{user_vip_check, UserVipInfoResponse},
+    app_context::app_context,
     biz::{
         clip_record::{ClipRecord, NOT_SYNCHRONIZED, SKIP_SYNC},
-        system_setting::{load_settings, save_settings, save_settings_to_file, Settings},
+        system_setting::{load_settings, save_settings_to_file, save_settings_with_context},
     },
     errors::{AppError, AppResult},
     utils::secure_store::{VipInfo, VipType, SECURE_STORE},
-    CONTEXT,
 };
 use log;
 use rbatis::RBatis;
@@ -274,8 +274,6 @@ impl VipChecker {
 
     /// 强制执行本地记录条数限制（仅更新本地设置，避免递归）
     async fn enforce_local_records_limit(vip_response: &UserVipInfoResponse) -> AppResult<()> {
-        use std::sync::Arc;
-
         let mut settings = load_settings();
         let current_max = settings.max_records;
         let server_max = vip_response.max_records;
@@ -290,17 +288,10 @@ impl VipChecker {
             settings.max_records = server_max;
 
             // 更新内存设置
-            let settings_lock = CONTEXT.get::<Arc<std::sync::RwLock<Settings>>>();
-            match settings_lock.write() {
-                Ok(mut guard) => {
-                    *guard = settings.clone();
-                    log::info!("VIP记录数限制已应用到内存设置");
-                }
-                Err(e) => {
-                    log::error!("更新内存设置失败: {}", e);
-                    return Err(AppError::Config("更新内存设置失败".to_string()));
-                }
-            }
+            app_context()?.update_settings(|current| {
+                *current = settings.clone();
+            })?;
+            log::info!("VIP记录数限制已应用到内存设置");
 
             // 持久化到磁盘
             if let Err(e) = save_settings_to_file(&settings) {
@@ -321,7 +312,8 @@ impl VipChecker {
     async fn update_skipped_records_after_vip_change(
         vip_response: &UserVipInfoResponse,
     ) -> AppResult<()> {
-        let rb: &RBatis = CONTEXT.get::<RBatis>();
+        let context = app_context()?;
+        let rb: &RBatis = context.db();
 
         // 获取新的文件大小限制（KB转字节）
         let new_max_file_size = vip_response.max_file_size * 1024;
@@ -531,13 +523,15 @@ impl VipChecker {
                 max_allowed
             );
             settings.max_records = max_allowed;
-            save_settings(settings)
+            let context = crate::app_context::app_context()?;
+            save_settings_with_context(&context, settings)
                 .await
                 .map_err(|e| AppError::Config(format!("保存设置失败: {}", e)))?;
         }
 
         // 检查数据库中的实际记录数，如果超过限制则进行清理
-        let rb: &RBatis = CONTEXT.get::<RBatis>();
+        let context = app_context()?;
+        let rb: &RBatis = context.db();
         let current_count = ClipRecord::count_all_records(rb)
             .await
             .map_err(|e| AppError::Config(format!("查询记录总数失败: {}", e)))?;

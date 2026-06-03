@@ -1,8 +1,9 @@
 use serde::{Deserialize, Serialize};
-use tauri::AppHandle;
 use tauri_plugin_updater::UpdaterExt;
 
-use crate::CONTEXT;
+use std::sync::Arc;
+
+use crate::app_context::AppContext;
 
 /// 更新信息结构体
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -35,8 +36,10 @@ pub struct UpdateProgress {
 
 /// 检查软件版本更新
 #[tauri::command]
-pub async fn check_soft_version() -> Result<UpdateInfo, String> {
-    let app_handle = CONTEXT.get::<AppHandle>();
+pub async fn check_soft_version(
+    state: tauri::State<'_, Arc<AppContext>>,
+) -> Result<UpdateInfo, String> {
+    let app_handle = state.app_handle().map_err(|e| e.to_string())?;
     let updater_res = app_handle.updater();
 
     match updater_res {
@@ -90,8 +93,10 @@ pub async fn check_soft_version() -> Result<UpdateInfo, String> {
 
 /// 下载并安装更新
 #[tauri::command]
-pub async fn download_and_install_update() -> Result<bool, String> {
-    let app_handle = CONTEXT.get::<AppHandle>();
+pub async fn download_and_install_update(
+    state: tauri::State<'_, Arc<AppContext>>,
+) -> Result<bool, String> {
+    let app_handle = state.app_handle().map_err(|e| e.to_string())?;
     let updater_res = app_handle.updater();
 
     match updater_res {

@@ -15,6 +15,7 @@ use crate::{
 };
 
 const DEFAULT_CLIP_RECORD_QUEUE_CAPACITY: usize = 1000;
+static APP_CONTEXT: OnceLock<Arc<AppContext>> = OnceLock::new();
 
 /// 应用运行期共享上下文。
 ///
@@ -32,8 +33,6 @@ const DEFAULT_CLIP_RECORD_QUEUE_CAPACITY: usize = 1000;
 /// - 用户操作后才会变化的状态，用 `StateSlot<T>`；
 /// - 某个领域自己的底层资源，按领域拆到独立的子 Context。
 ///
-/// 当前项目还保留旧的全局 `CONTEXT` 作为兼容层。
-/// 新代码优先使用 `AppContext`，旧代码可以逐步迁移。
 pub struct AppContext {
     /// 应用启动阶段必须完成初始化的核心资源。
     core: CoreContext,
@@ -298,38 +297,15 @@ impl Default for WindowContext {
 
 #[allow(dead_code)]
 impl AppContext {
-    /// 创建一个新的应用上下文。
+    /// 创建应用上下文。
     ///
-    /// 这个构造函数适合完全使用 `AppContext` 管理资源的新代码路径。
-    /// 它会自己创建同步锁、剪贴板队列、窗口状态等运行资源。
+    /// 构造时会创建同步锁、剪贴板队列、窗口状态等运行资源。
     pub fn new(db: RBatis, settings: Arc<RwLock<Settings>>) -> Self {
         Self {
             core: CoreContext { db, settings },
             runtime: RuntimeContext::default(),
             clipboard: ClipboardContext::default(),
             sync: SyncContext::default(),
-            window: WindowContext::default(),
-        }
-    }
-
-    /// 使用外部已经创建好的底层资源创建应用上下文。
-    ///
-    /// 当前项目还在从旧的全局 `CONTEXT` 迁移到 `AppContext`。
-    /// 为了保证迁移期间只有一份 `settings`、`sync_lock` 和 `record_queue`，
-    /// `lib.rs` 会先创建这些资源，再同时交给旧 `CONTEXT` 和新的 `AppContext`。
-    ///
-    /// 等旧 `CONTEXT` 完全移除后，可以优先使用 `new`。
-    pub fn from_existing_parts(
-        db: RBatis,
-        settings: Arc<RwLock<Settings>>,
-        sync_lock: GlobalSyncLock,
-        record_queue: AsyncQueue<ClipRecord>,
-    ) -> Self {
-        Self {
-            core: CoreContext { db, settings },
-            runtime: RuntimeContext::default(),
-            clipboard: ClipboardContext { record_queue },
-            sync: SyncContext { lock: sync_lock },
             window: WindowContext::default(),
         }
     }
@@ -451,8 +427,6 @@ impl AppContext {
     }
 
     /// 获取主窗口焦点计数器。
-    ///
-    /// 返回 `Arc`，保证旧 `CONTEXT` 兼容层和新 `AppContext` 使用同一份状态。
     pub fn window_focus_count(&self) -> Arc<WindowFocusCount> {
         self.window.focus_count.clone()
     }
@@ -463,4 +437,28 @@ impl AppContext {
     pub fn window_hide_flag(&self) -> Arc<WindowHideFlag> {
         self.window.hide_flag.clone()
     }
+}
+
+/// 设置应用级上下文。
+///
+/// 应用启动时设置一次，后续模块通过 `app_context()` 获取同一份运行资源。
+pub fn set_app_context(context: Arc<AppContext>) -> AppResult<()> {
+    APP_CONTEXT
+        .set(context)
+        .map_err(|_| AppError::General("AppContext 已初始化，不能重复设置".to_string()))
+}
+
+/// 获取应用级上下文。
+#[allow(dead_code)]
+pub fn app_context() -> AppResult<Arc<AppContext>> {
+    APP_CONTEXT
+        .get()
+        .cloned()
+        .ok_or_else(|| AppError::General("AppContext 尚未初始化".to_string()))
+}
+
+/// 尝试获取应用级上下文。
+#[allow(dead_code)]
+pub fn try_app_context() -> Option<Arc<AppContext>> {
+    APP_CONTEXT.get().cloned()
 }

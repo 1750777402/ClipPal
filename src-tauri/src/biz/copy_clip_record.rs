@@ -2,27 +2,23 @@ use clipboard_listener::ClipType;
 
 use rbatis::RBatis;
 use serde::{Deserialize, Serialize};
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 use tauri::{AppHandle, Manager};
 use tauri_plugin_clipboard_pal::desktop::ClipboardPal;
 use tauri_plugin_dialog::DialogExt;
 
 use crate::{
+    app_context::AppContext,
     auto_paste,
     biz::{
-        clip_async_queue::AsyncQueue,
-        clip_record::ClipRecord,
-        content_processor::ContentProcessor,
+        clip_record::ClipRecord, content_processor::ContentProcessor,
         content_search::remove_ids_from_index,
-        system_setting::{check_cloud_sync_enabled, Settings},
     },
     utils::{
         aes_util::decrypt_content,
-        lock_utils::lock_utils::safe_read_lock,
         path_utils::{generate_file_not_found_error, str_to_safe_string},
     },
-    window::{WindowHideFlag, WindowHideGuard},
-    CONTEXT,
+    window::WindowHideGuard,
 };
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
@@ -31,14 +27,17 @@ pub struct CopyClipRecord {
 }
 
 #[tauri::command]
-pub async fn copy_clip_record(param: CopyClipRecord) -> Result<String, String> {
-    let rb: &RBatis = CONTEXT.get::<RBatis>();
+pub async fn copy_clip_record(
+    state: tauri::State<'_, Arc<AppContext>>,
+    param: CopyClipRecord,
+) -> Result<String, String> {
+    let rb: &RBatis = state.db();
     let record = match ClipRecord::select_by_id(rb, param.record_id.as_str()).await {
         Ok(data) => data[0].clone(),
         Err(_) => return Err("粘贴记录查询失败".to_string()),
     };
 
-    let app_handle = CONTEXT.get::<AppHandle>();
+    let app_handle = state.app_handle().map_err(|e| e.to_string())?;
     let clipboard = app_handle.state::<ClipboardPal>();
     let clip_type: ClipType = record.r#type.parse().unwrap_or(ClipType::Text);
 
@@ -124,10 +123,8 @@ pub async fn copy_clip_record(param: CopyClipRecord) -> Result<String, String> {
 
     // 检查是否启用自动粘贴功能
     let auto_paste_enabled = {
-        let settings_lock = CONTEXT.get::<Arc<RwLock<Settings>>>();
-        match safe_read_lock(&settings_lock) {
-            Ok(settings) => {
-                let enabled = settings.auto_paste == 1;
+        match state.with_settings(|settings| settings.auto_paste == 1) {
+            Ok(enabled) => {
                 log::debug!(
                     "自动粘贴功能状态: {}",
                     if enabled { "已启用" } else { "未启用" }
@@ -183,14 +180,17 @@ pub async fn copy_clip_record(param: CopyClipRecord) -> Result<String, String> {
 
 /// 只复制到剪贴板，不触发自动粘贴功能
 #[tauri::command]
-pub async fn copy_clip_record_no_paste(param: CopyClipRecord) -> Result<String, String> {
-    let rb: &RBatis = CONTEXT.get::<RBatis>();
+pub async fn copy_clip_record_no_paste(
+    state: tauri::State<'_, Arc<AppContext>>,
+    param: CopyClipRecord,
+) -> Result<String, String> {
+    let rb: &RBatis = state.db();
     let record = match ClipRecord::select_by_id(rb, param.record_id.as_str()).await {
         Ok(data) => data[0].clone(),
         Err(_) => return Err("粘贴记录查询失败".to_string()),
     };
 
-    let app_handle = CONTEXT.get::<AppHandle>();
+    let app_handle = state.app_handle().map_err(|e| e.to_string())?;
     let clipboard = app_handle.state::<ClipboardPal>();
     let clip_type: ClipType = record.r#type.parse().unwrap_or(ClipType::Text);
 
@@ -286,16 +286,22 @@ pub struct PinnedClipRecord {
 }
 
 #[tauri::command]
-pub async fn set_pinned(param: PinnedClipRecord) -> Result<String, String> {
-    let rb: &RBatis = CONTEXT.get::<RBatis>();
+pub async fn set_pinned(
+    state: tauri::State<'_, Arc<AppContext>>,
+    param: PinnedClipRecord,
+) -> Result<String, String> {
+    let rb: &RBatis = state.db();
     let _ = ClipRecord::update_pinned(rb, &param.record_id, param.pinned_flag).await;
     Ok(String::new())
 }
 
 /// 删除一条记录
 #[tauri::command]
-pub async fn del_record(param: CopyClipRecord) -> Result<String, String> {
-    let rb: &RBatis = CONTEXT.get::<RBatis>();
+pub async fn del_record(
+    state: tauri::State<'_, Arc<AppContext>>,
+    param: CopyClipRecord,
+) -> Result<String, String> {
+    let rb: &RBatis = state.db();
     let ids = vec![param.record_id.clone()];
 
     let record_result = ClipRecord::select_by_id(rb, &param.record_id).await;
@@ -306,8 +312,11 @@ pub async fn del_record(param: CopyClipRecord) -> Result<String, String> {
                 let res = ClipRecord::update_del_by_ids(rb, &ids).await;
                 if let Ok(_) = res {
                     // 如果有删除记录，发送到异步队列   前提是开启了云同步开关
-                    if check_cloud_sync_enabled().await {
-                        let async_queue = CONTEXT.get::<AsyncQueue<ClipRecord>>();
+                    let cloud_sync_enabled = state
+                        .with_settings(|settings| settings.cloud_sync == 1)
+                        .unwrap_or(false);
+                    if cloud_sync_enabled {
+                        let async_queue = state.clip_record_queue();
                         if !async_queue.is_full() {
                             let send_res = async_queue.send_delete(records[0].clone()).await;
                             if let Err(e) = send_res {
@@ -334,8 +343,11 @@ pub async fn del_record(param: CopyClipRecord) -> Result<String, String> {
 }
 
 #[tauri::command]
-pub async fn image_save_as(param: CopyClipRecord) -> Result<String, String> {
-    let rb: &RBatis = CONTEXT.get::<RBatis>();
+pub async fn image_save_as(
+    state: tauri::State<'_, Arc<AppContext>>,
+    param: CopyClipRecord,
+) -> Result<String, String> {
+    let rb: &RBatis = state.db();
     let record_res = ClipRecord::select_by_id(rb, param.record_id.as_str()).await;
     match record_res {
         Ok(records) => {
@@ -351,20 +363,16 @@ pub async fn image_save_as(param: CopyClipRecord) -> Result<String, String> {
                 return Err("图片资源丢失".to_string());
             }
 
-            let window_hide_flag = CONTEXT.get::<Arc<WindowHideFlag>>();
-            // 用Arc包裹WindowHideGuard，延长生命周期到回调闭包
-            let guard = Arc::new(WindowHideGuard::new(window_hide_flag.as_ref()));
-            let app_handle = CONTEXT.get::<AppHandle>();
+            let app_handle = state.app_handle().map_err(|e| e.to_string())?;
             let abs_path_clone = abs_path.clone();
-            let guard_clone = guard.clone();
+            let guard_flag = state.window_hide_flag();
             app_handle
                 .dialog()
                 .file()
                 .add_filter("图片", &["png"])
                 .set_file_name(format!("clip_{}", record.id))
                 .save_file(move |file_path| {
-                    // guard_clone在闭包内，作用域结束时自动drop，恢复窗口可隐藏
-                    let _guard = guard_clone;
+                    let _guard = WindowHideGuard::new(guard_flag.as_ref());
                     if let Some(select_path) = file_path {
                         let select_path = select_path.as_path();
                         if let Some(select_path) = select_path {
@@ -395,8 +403,11 @@ pub struct CopySingleFileRecord {
 }
 
 #[tauri::command]
-pub async fn copy_single_file(param: CopySingleFileRecord) -> Result<String, String> {
-    let rb: &RBatis = CONTEXT.get::<RBatis>();
+pub async fn copy_single_file(
+    state: tauri::State<'_, Arc<AppContext>>,
+    param: CopySingleFileRecord,
+) -> Result<String, String> {
+    let rb: &RBatis = state.db();
     let record = match ClipRecord::select_by_id(rb, param.record_id.as_str()).await {
         Ok(data) => data.get(0).cloned().ok_or("记录不存在".to_string())?,
         Err(_) => return Err("粘贴记录查询失败".to_string()),
@@ -407,7 +418,7 @@ pub async fn copy_single_file(param: CopySingleFileRecord) -> Result<String, Str
         return Err("只支持文件类型的单个文件复制".to_string());
     }
 
-    let app_handle = CONTEXT.get::<AppHandle>();
+    let app_handle = state.app_handle().map_err(|e| e.to_string())?;
     let clipboard = app_handle.state::<ClipboardPal>();
 
     // 获取显示名称列表和实际路径列表

@@ -3,19 +3,18 @@
 use async_channel::{bounded, Receiver, Sender, TryRecvError};
 use rbatis::RBatis;
 use std::sync::Arc;
-use tauri::{AppHandle, Emitter};
+use tauri::Emitter;
 use tokio::task;
 use tokio::time::{sleep, Duration};
 
 use crate::api::cloud_sync_api::{sync_single_clip_record, ClipRecordParam, SingleCloudSyncParam};
+use crate::app_context::app_context;
 use crate::biz::clip_record::{
     ClipRecord, NOT_SYNCHRONIZED, SKIP_SYNC, SYNCHRONIZED, SYNCHRONIZING,
 };
 use crate::biz::vip_checker::VipChecker;
 use crate::errors::{AppError, AppResult};
 use crate::utils::file_dir::get_resources_dir;
-use crate::utils::lock_utils::GlobalSyncLock;
-use crate::CONTEXT;
 use clipboard_listener::ClipType;
 use std::path::PathBuf;
 
@@ -78,11 +77,14 @@ impl<T: Clone + Send + 'static> AsyncQueue<T> {
 
 pub fn consume_clip_record_queue(queue: AsyncQueue<ClipRecord>) {
     task::spawn(async move {
-        let sync_lock: &GlobalSyncLock = CONTEXT.get::<GlobalSyncLock>();
+        let Ok(context) = app_context() else {
+            log::error!("AppContext 尚未初始化，无法消费同步队列");
+            return;
+        };
 
         loop {
             // 先尝试拿锁，拿不到就等待一会儿再重试
-            if let Some(_guard) = sync_lock.try_lock() {
+            if let Some(_guard) = context.sync_lock().try_lock() {
                 log::debug!("开始处理同步队列");
 
                 // 循环接收并处理队列数据
@@ -111,7 +113,7 @@ pub fn consume_clip_record_queue(queue: AsyncQueue<ClipRecord>) {
                                         r#type: 2,
                                         clip: item.clone().into(),
                                     };
-                                    let rb: &RBatis = CONTEXT.get::<RBatis>();
+                                    let rb: &RBatis = context.db();
                                     let record = ClipRecord::select_by_id(rb, &item.id).await;
                                     match record {
                                         Ok(rec) => {
@@ -158,7 +160,8 @@ async fn handle_sync_inner(param: SingleCloudSyncParam) -> AppResult<i32> {
     // 先检查文件类型是否应该跳过同步（技术限制）
     if should_skip_sync(&param.clip, &record_type).await {
         log::debug!("记录 {} ({}) 不支持云同步", record_id, record_type);
-        let rb: &RBatis = CONTEXT.get::<RBatis>();
+        let context = app_context()?;
+        let rb: &RBatis = context.db();
         update_sync_status(rb, &record_id, SKIP_SYNC, 0).await?;
         return Ok(SKIP_SYNC);
     }
@@ -195,7 +198,8 @@ async fn handle_sync_inner(param: SingleCloudSyncParam) -> AppResult<i32> {
     // 执行实际同步
     match sync_single_clip_record(&param).await {
         Ok(Some(success)) => {
-            let rb: &RBatis = CONTEXT.get::<RBatis>();
+            let context = app_context()?;
+            let rb: &RBatis = context.db();
             let final_status = determine_final_sync_status(&record_type, &param.clip).await;
 
             update_sync_status(rb, &record_id, final_status, success.timestamp).await?;
@@ -228,10 +232,14 @@ async fn notify_frontend_sync_status_with_flag(ids: Vec<String>, sync_flag: i32)
         "clip_ids": ids,
         "sync_flag": sync_flag
     });
-    let app_handle = CONTEXT.get::<AppHandle>();
-    let _ = app_handle
-        .emit("sync_status_update_batch", payload)
-        .map_err(|e| AppError::General(format!("批量通知前端失败: {}", e)));
+    match app_context().and_then(|context| context.app_handle()) {
+        Ok(app_handle) => {
+            let _ = app_handle
+                .emit("sync_status_update_batch", payload)
+                .map_err(|e| AppError::General(format!("批量通知前端失败: {}", e)));
+        }
+        Err(e) => log::warn!("批量通知前端失败: {}", e),
+    }
 }
 
 /// 判断记录是否应该跳过同步

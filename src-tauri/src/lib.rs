@@ -20,8 +20,6 @@ use crate::{
     updater::{check_soft_version, download_and_install_update},
 };
 
-use state::TypeMap;
-
 mod api;
 mod app_context;
 mod auto_paste;
@@ -38,11 +36,6 @@ mod tray;
 mod updater;
 mod utils;
 mod window;
-
-// 全局上下文兼容层。
-//
-// 新代码优先使用 `AppContext`。这里仅保留给尚未迁移的模块读取运行期资源。
-pub static CONTEXT: TypeMap![Send + Sync] = <TypeMap![Send + Sync]>::new();
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
