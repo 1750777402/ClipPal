@@ -154,3 +154,13 @@ where
         Err(error) => fail(error),
     }
 }
+
+pub fn string_result<T>(result: Result<T, String>) -> CommandResponse<T>
+where
+    T: Serialize,
+{
+    match result {
+        Ok(data) => ok(data),
+        Err(error) => fail(AppError::General(error)),
+    }
+}

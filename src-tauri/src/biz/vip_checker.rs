@@ -3,7 +3,7 @@ use crate::{
     app_context::app_context,
     biz::{
         clip_record::{ClipRecord, NOT_SYNCHRONIZED, SKIP_SYNC},
-        system_setting::{load_settings, save_settings_to_file, save_settings_with_context},
+        system_setting::{load_settings_value, save_settings_to_file, save_settings_with_context},
     },
     errors::{AppError, AppResult},
     utils::secure_store::{VipInfo, VipType, SECURE_STORE},
@@ -274,7 +274,7 @@ impl VipChecker {
 
     /// 强制执行本地记录条数限制（仅更新本地设置，避免递归）
     async fn enforce_local_records_limit(vip_response: &UserVipInfoResponse) -> AppResult<()> {
-        let mut settings = load_settings();
+        let mut settings = load_settings_value();
         let current_max = settings.max_records;
         let server_max = vip_response.max_records;
 
@@ -513,7 +513,7 @@ impl VipChecker {
     pub async fn enforce_local_records_limit_from_db() -> AppResult<()> {
         // 获取当前VIP状态和限制
         let max_allowed = Self::get_max_records_limit().await?;
-        let mut settings = load_settings();
+        let mut settings = load_settings_value();
 
         // 如果当前设置超过允许的最大值，强制调整
         if settings.max_records > max_allowed {

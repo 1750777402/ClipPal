@@ -539,7 +539,7 @@ const handleCloudSyncClick = async () => {
   const newValue = cloudSyncEnabled.value ? 0 : 1;
   settings.cloud_sync = newValue;
   
-  const saveResponse = await settingsApi.saveSettings({ settings });
+  const saveResponse = await settingsApi.saveSettings(settings);
   if (isSuccess(saveResponse)) {
     cloudSyncEnabled.value = newValue === 1;
     smartRefresh();

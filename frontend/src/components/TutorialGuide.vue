@@ -117,7 +117,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onBeforeUnmount, nextTick, watch } from 'vue'
-import { invoke } from '@tauri-apps/api/core'
+import { isSuccess, settingsApi } from '../utils/api'
 
 interface TutorialStep {
   id: string
@@ -210,7 +210,9 @@ const progressPercentage = computed(() => {
 // 检查是否需要显示引导
 const checkShouldShowTutorial = async () => {
   try {
-    const settings = await invoke<Settings>('load_settings')
+    const response = await settingsApi.loadSettings()
+    if (!isSuccess(response)) return
+    const settings = response.data as Settings
     if (settings.tutorial_completed === 0) {
       isVisible.value = true
       updateHighlight()
@@ -367,9 +369,11 @@ const previousStep = () => {
 // 完成引导
 const completeGuide = async () => {
   try {
-    const currentSettings = await invoke<Settings>('load_settings')
+    const loadResponse = await settingsApi.loadSettings()
+    if (!isSuccess(loadResponse)) return
+    const currentSettings = loadResponse.data as Settings
     currentSettings.tutorial_completed = 1
-    await invoke('save_settings', { settings: currentSettings })
+    await settingsApi.saveSettings(currentSettings)
     isVisible.value = false
   } catch (error) {
     console.error('完成引导失败:', error)
@@ -384,9 +388,11 @@ const handleSkip = async () => {
 // 重置引导（开发用）
 const resetTutorial = async () => {
   try {
-    const currentSettings = await invoke<Settings>('load_settings')
+    const loadResponse = await settingsApi.loadSettings()
+    if (!isSuccess(loadResponse)) return
+    const currentSettings = loadResponse.data as Settings
     currentSettings.tutorial_completed = 0
-    await invoke('save_settings', { settings: currentSettings })
+    await settingsApi.saveSettings(currentSettings)
     await checkShouldShowTutorial()
   } catch (error) {
     console.error('重置引导失败:', error)

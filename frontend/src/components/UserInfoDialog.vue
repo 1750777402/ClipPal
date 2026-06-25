@@ -93,7 +93,7 @@
 
 <script setup lang="ts">
 import { ref, nextTick, inject } from 'vue'
-import { invoke } from '@tauri-apps/api/core'
+import { apiInvoke, isSuccess } from '../utils/api'
 import type { UserInfo } from '../utils/userStore'
 import { useUserStore } from '../utils/userStore'
 
@@ -158,11 +158,11 @@ const saveNickname = async () => {
   try {
     isUpdating.value = true
     
-    const result = await invoke('update_user_info', {
+    const response = await apiInvoke<boolean>('update_user_info', {
       nickName: trimmedNickname
-    }) as boolean
+    })
     
-    if (result) {
+    if (isSuccess(response) && response.data) {
       showMessageBar('昵称更新成功', 'info')
       
       // 刷新前端用户信息显示

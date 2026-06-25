@@ -3,7 +3,10 @@ use tauri_plugin_updater::UpdaterExt;
 
 use std::sync::Arc;
 
-use crate::app_context::AppContext;
+use crate::{
+    app_context::AppContext,
+    response::{string_result, CommandResponse},
+};
 
 /// 更新信息结构体
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -38,7 +41,8 @@ pub struct UpdateProgress {
 #[tauri::command]
 pub async fn check_soft_version(
     state: tauri::State<'_, Arc<AppContext>>,
-) -> Result<UpdateInfo, String> {
+) -> Result<CommandResponse<UpdateInfo>, String> {
+    Ok(string_result(async {
     let app_handle = state.app_handle().map_err(|e| e.to_string())?;
     let updater_res = app_handle.updater();
 
@@ -88,14 +92,15 @@ pub async fn check_soft_version(
             log::error!("获取更新器失败: {}", e);
             Err("无法获取更新器实例".to_string())
         }
-    }
+    }}.await))
 }
 
 /// 下载并安装更新
 #[tauri::command]
 pub async fn download_and_install_update(
     state: tauri::State<'_, Arc<AppContext>>,
-) -> Result<bool, String> {
+) -> Result<CommandResponse<bool>, String> {
+    Ok(string_result(async {
     let app_handle = state.app_handle().map_err(|e| e.to_string())?;
     let updater_res = app_handle.updater();
 
@@ -145,5 +150,5 @@ pub async fn download_and_install_update(
             log::error!("获取更新器失败: {}", e);
             Err("无法获取更新器实例".to_string())
         }
-    }
+    }}.await))
 }

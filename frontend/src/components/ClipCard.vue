@@ -223,9 +223,9 @@
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import { formatDistanceToNow } from 'date-fns';
 import { zhCN } from 'date-fns/locale';
-import { invoke, convertFileSrc } from '@tauri-apps/api/core';
+import { convertFileSrc } from '@tauri-apps/api/core';
 import SmartContentDisplay from './SmartContentDisplay.vue';
-import { clipApi, settingsApi, isSuccess } from '../utils/api';
+import { apiInvoke, clipApi, settingsApi, isSuccess } from '../utils/api';
 
 // 导入全局类型
 import type { ClipRecord } from '../types/global';
@@ -316,7 +316,7 @@ const loadImage = async () => {
         // 获取图片文件路径并转换为asset协议URL
         const pathResponse = await clipApi.getImagePath(props.record.id);
         if (isSuccess(pathResponse) && pathResponse.data) {
-            imageProtocolUrl.value = pathResponse.data.protocol_url || convertFileSrc(pathResponse.data.file_path);
+            imageProtocolUrl.value = convertFileSrc(pathResponse.data.file_path) || pathResponse.data.protocol_url;
             isImageLoaded.value = true;
         } else {
             imageError.value = true;
@@ -420,9 +420,15 @@ const loadFullContentForDisplay = async (): Promise<string> => {
         return fullTextContent.value;
     }
     
-    const result = await invoke('get_full_text_content', {
+    const response = await apiInvoke<{ content: string }>('get_full_text_content', {
         param: { record_id: props.record.id }
-    }) as { content: string };
+    });
+
+    if (!isSuccess(response)) {
+        throw new Error(response.error || '加载完整内容失败');
+    }
+
+    const result = response.data;
     
     fullTextContent.value = result.content;
     hasLoadedFullContent.value = true;

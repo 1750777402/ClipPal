@@ -331,7 +331,7 @@ const handleConfirm = async () => {
   
   isSaving.value = true;
   try {
-    const response = await settingsApi.saveSettings({ settings: settings.value });
+    const response = await settingsApi.saveSettings(settings.value);
     if (!isSuccess(response)) {
       // 使用顶部消息栏显示具体的错误信息
       const errorMsg = response.error || '设置保存失败';

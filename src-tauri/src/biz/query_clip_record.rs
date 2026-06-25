@@ -11,6 +11,8 @@ use crate::{
         clip_record::ClipRecord, content_processor::ContentProcessor,
         content_search::search_ids_by_content,
     },
+    errors::{AppError, AppResult},
+    response::{command_result, string_result, CommandResponse},
 };
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -24,31 +26,19 @@ pub struct QueryParam {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ClipRecordDTO {
     pub id: String,
-    // 类型
     pub r#type: String,
-    // 内容 - 对于图片类型，这里只存储文件路径，不转换为base64
     pub content: String,
-    // os类型
     pub os_type: String,
-    // 创建时间
     pub created: u64,
-    // 是否置顶
     pub pinned_flag: i32,
-    // 文件内容属性
     pub file_info: Vec<FileInfo>,
-    // 图片预览信息（仅用于图片类型）
     pub image_info: Option<ImageInfo>,
-    // 是否已同步标识
     pub sync_flag: Option<i32>,
-    // 数据来源标识
     pub cloud_source: Option<i32>,
-    // 内容是否被截断
     pub content_truncated: bool,
-    // 原始内容长度（字节）
     pub original_content_length: Option<usize>,
 }
 
-/// 轻量级 DTO - 用于列表查询，延迟加载图片信息
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ClipRecordLiteDTO {
     pub id: String,
@@ -62,27 +52,20 @@ pub struct ClipRecordLiteDTO {
     pub cloud_source: Option<i32>,
     pub content_truncated: bool,
     pub original_content_length: Option<usize>,
-    // 标记是否有图片（用于前端判断是否需要加载图片信息）
     pub has_image: bool,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct FileInfo {
-    // 文件路径
     pub path: String,
-    // 文件大小
     pub size: i32,
-    // 文件类型
     pub r#type: String,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ImageInfo {
-    // 图片文件路径（相对路径）
     pub path: String,
-    // 图片文件大小（字节）
     pub size: u64,
-    // 图片尺寸信息（可选）
     pub width: Option<u32>,
     pub height: Option<u32>,
 }
@@ -104,15 +87,16 @@ pub struct FullContentResponse {
     pub content_length: usize,
 }
 
-/// 获取剪贴记录列表 - 使用轻量级 DTO，延迟加载图片信息
 #[tauri::command]
 pub async fn get_clip_records(
     state: tauri::State<'_, Arc<AppContext>>,
     param: QueryParam,
-) -> Result<Vec<ClipRecordLiteDTO>, String> {
+) -> Result<CommandResponse<Vec<ClipRecordLiteDTO>>, String> {
+    Ok(command_result(query_clip_records(state.db(), param).await))
+}
+
+async fn query_clip_records(rb: &RBatis, param: QueryParam) -> AppResult<Vec<ClipRecordLiteDTO>> {
     let offset = (param.page - 1) * param.size;
-    let rb: &RBatis = state.db();
-    // 执行数据库查询逻辑
     let query_result = match param.search.as_deref().filter(|s| !s.is_empty()) {
         Some(search) => {
             let res_ids = search_ids_by_content(search).await;
@@ -120,13 +104,15 @@ pub async fn get_clip_records(
         }
         None => ClipRecord::select_order_by_limit(rb, param.size, offset).await,
     };
+
     let all_data = match query_result {
         Ok(data) => data,
         Err(e) => {
-            log::error!("查询粘贴记录失败: {:?}", e);
-            return Err("查询粘贴记录失败".to_string());
+            log::error!("查询剪贴记录失败: {:?}", e);
+            return Err(AppError::Database(e));
         }
     };
+
     if all_data.is_empty() {
         return Ok(vec![]);
     }
@@ -143,7 +129,7 @@ pub async fn get_clip_records(
                     .to_string();
                 let content =
                     ContentProcessor::process_by_clip_type(&item.r#type, item.content.clone());
-                return ClipRecordLiteDTO {
+                ClipRecordLiteDTO {
                     id: item.id.clone(),
                     r#type: item.r#type.clone(),
                     content,
@@ -156,11 +142,10 @@ pub async fn get_clip_records(
                     content_truncated: false,
                     original_content_length: None,
                     has_image: false,
-                };
+                }
             } else if item.r#type == ClipType::Image.to_string() {
-                // 对于图片类型，不获取图片信息，只返回路径和标记
                 let image_path = item.content.as_str().unwrap_or_default();
-                return ClipRecordLiteDTO {
+                ClipRecordLiteDTO {
                     id: item.id.clone(),
                     r#type: item.r#type.clone(),
                     content: image_path.to_string(),
@@ -172,16 +157,15 @@ pub async fn get_clip_records(
                     cloud_source: item.cloud_source,
                     content_truncated: false,
                     original_content_length: None,
-                    has_image: true, // 标记为图片，前端按需加载
-                };
+                    has_image: true,
+                }
             } else {
-                // 处理文本类型，如果内容过大则截断
                 let processed_content =
                     ContentProcessor::process_by_clip_type(&item.r#type, item.content.clone());
                 let (truncated_content, is_truncated, original_length) =
                     truncate_large_text(&processed_content);
 
-                return ClipRecordLiteDTO {
+                ClipRecordLiteDTO {
                     id: item.id.clone(),
                     r#type: item.r#type.clone(),
                     content: truncated_content,
@@ -194,24 +178,15 @@ pub async fn get_clip_records(
                     content_truncated: is_truncated,
                     original_content_length: original_length,
                     has_image: false,
-                };
+                }
             }
         })
         .collect())
 }
 
-/// 使用content（显示名称）和local_file_path（实际路径）获取文件信息
 pub fn get_file_info_with_paths(content_names: String, local_paths: String) -> Vec<FileInfo> {
     let display_names = content_names.split(":::").collect::<Vec<&str>>();
     let actual_paths = local_paths.split(":::").collect::<Vec<&str>>();
-
-    log::debug!(
-        "正在处理文件信息: 显示名称={:?}, 实际路径={:?}",
-        display_names,
-        actual_paths
-    );
-
-    // 确保显示名称和实际路径数量匹配
     let min_len = display_names.len().min(actual_paths.len());
 
     (0..min_len)
@@ -220,70 +195,43 @@ pub fn get_file_info_with_paths(content_names: String, local_paths: String) -> V
             let actual_path = actual_paths[i].trim();
 
             if display_name.is_empty() || actual_path.is_empty() {
-                log::debug!(
-                    "跳过空路径或空名称: display={}, path={}",
-                    display_name,
-                    actual_path
-                );
                 return None;
             }
 
             let path_buf = Path::new(actual_path);
-
-            // 从显示名称获取文件扩展名
             let file_type = Path::new(display_name)
                 .extension()
                 .and_then(|ext| ext.to_str())
-                .unwrap_or("未知")
+                .unwrap_or("unknown")
                 .to_lowercase();
 
             if !path_buf.exists() {
-                log::warn!(
-                    "文件不存在，但仍显示基本信息: display={}, path={}",
-                    display_name,
-                    actual_path
-                );
-                // 文件不存在时仍然显示基本信息，方便用户了解原始文件
                 return Some(FileInfo {
-                    path: display_name.to_string(), // 使用显示名称而不是实际路径
-                    size: -1, // 使用-1表示文件不存在，前端可以据此显示特殊状态
+                    path: display_name.to_string(),
+                    size: -1,
                     r#type: file_type,
                 });
             }
 
-            // 获取文件元数据
             let metadata = match fs::metadata(path_buf) {
                 Ok(meta) => meta,
-                Err(e) => {
-                    log::warn!(
-                        "读取文件元数据失败，但仍显示基本信息: display={}, path={}, 错误: {}",
-                        display_name,
-                        actual_path,
-                        e
-                    );
-                    // 读取元数据失败时仍然显示基本信息
+                Err(_) => {
                     return Some(FileInfo {
                         path: display_name.to_string(),
-                        size: -2, // 使用-2表示文件存在但无法读取元数据
+                        size: -2,
                         r#type: file_type,
                     });
                 }
             };
 
-            // 获取文件大小，处理大文件的情况
             let size = if metadata.len() > i32::MAX as u64 {
-                log::warn!(
-                    "文件大小超过i32范围: {} 字节，文件: {}",
-                    metadata.len(),
-                    display_name
-                );
-                i32::MAX // 对于超大文件，使用i32最大值
+                i32::MAX
             } else {
                 metadata.len() as i32
             };
 
             Some(FileInfo {
-                path: display_name.to_string(), // 返回显示名称
+                path: display_name.to_string(),
                 size,
                 r#type: file_type,
             })
@@ -291,7 +239,6 @@ pub fn get_file_info_with_paths(content_names: String, local_paths: String) -> V
         .collect()
 }
 
-// 获取图片元数据信息
 pub fn get_image_info(relative_path: &str) -> Option<ImageInfo> {
     if relative_path.is_empty() {
         return None;
@@ -305,69 +252,60 @@ pub fn get_image_info(relative_path: &str) -> Option<ImageInfo> {
     }
 
     let metadata = fs::metadata(&abs_path).ok()?;
-    let size = metadata.len();
-
-    // 可以考虑使用image crate获取图片尺寸，但为了性能考虑暂时不获取
-    // let dimensions = image::image_dimensions(&abs_path).ok();
 
     Some(ImageInfo {
         path: relative_path.to_string(),
-        size,
-        width: None,  // dimensions.map(|(w, _)| w),
-        height: None, // dimensions.map(|(_, h)| h),
+        size: metadata.len(),
+        width: None,
+        height: None,
     })
 }
 
-// 新增：获取图片文件路径的API（用于自定义协议）
 #[tauri::command]
 pub async fn get_image_path(
     state: tauri::State<'_, Arc<AppContext>>,
     param: GetImageParam,
-) -> Result<ImagePathInfo, String> {
-    let rb: &RBatis = state.db();
+) -> Result<CommandResponse<ImagePathInfo>, String> {
+    Ok(string_result(async {
+        let records = ClipRecord::select_by_id(state.db(), &param.record_id)
+            .await
+            .map_err(|e| format!("数据库查询失败: {}", e))?;
 
-    let records = ClipRecord::select_by_id(rb, &param.record_id)
-        .await
-        .map_err(|e| format!("数据库查询失败: {}", e))?;
+        let clip_record = records.first().ok_or("记录不存在")?;
 
-    let clip_record = records.first().ok_or("记录不存在")?;
-
-    // 检查是否是图片类型
-    if clip_record.r#type != "Image" {
-        return Err("记录不是图片类型".to_string());
-    }
-
-    // 首先检查 local_file_path 字段（用于云端下载的文件）
-    if let Some(cache_file_path) = &clip_record.local_file_path {
-        if std::path::Path::new(cache_file_path).exists() {
-            // 使用Tauri内置的asset协议
-            return Ok(ImagePathInfo {
-                id: clip_record.id.clone(),
-                file_path: cache_file_path.to_string(),
-                protocol_url: format!("asset://localhost/{}", cache_file_path.replace("\\", "/")),
-            });
+        if clip_record.r#type != "Image" {
+            return Err("记录不是图片类型".to_string());
         }
-    }
 
-    // 检查 content 字段中的图片文件名（本地图片的标准存储方式）
-    if let Some(filename) = clip_record.content.as_str() {
-        use crate::utils::file_dir::get_resources_dir;
-
-        if let Some(resources_dir) = get_resources_dir() {
-            let image_path = resources_dir.join(filename);
-            if image_path.exists() {
-                let absolute_path = image_path.to_string_lossy().to_string();
-                // 使用Tauri内置的asset协议
+        if let Some(cache_file_path) = &clip_record.local_file_path {
+            if std::path::Path::new(cache_file_path).exists() {
                 return Ok(ImagePathInfo {
                     id: clip_record.id.clone(),
-                    file_path: absolute_path.clone(),
-                    protocol_url: format!("asset://localhost/{}", absolute_path.replace("\\", "/")),
+                    file_path: cache_file_path.to_string(),
+                    protocol_url: String::new(),
                 });
             }
         }
-    }
 
-    Err("图片文件不存在".to_string())
+        if let Some(filename) = clip_record.content.as_str() {
+            use crate::utils::file_dir::get_resources_dir;
+
+            if let Some(resources_dir) = get_resources_dir() {
+                let image_path = resources_dir.join(filename);
+                if image_path.exists() {
+                    let absolute_path = image_path.to_string_lossy().to_string();
+                    return Ok(ImagePathInfo {
+                        id: clip_record.id.clone(),
+                        file_path: absolute_path.clone(),
+                        protocol_url: String::new(),
+                    });
+                }
+            }
+        }
+
+        Err("图片文件不存在".to_string())
+    }
+    .await))
 }
 
 #[derive(Serialize)]
@@ -377,22 +315,17 @@ pub struct ImagePathInfo {
     pub protocol_url: String,
 }
 
-/// 截断大文本，返回 (截断后内容, 是否被截断, 原始长度)
 fn truncate_large_text(content: &str) -> (String, bool, Option<usize>) {
-    const MAX_PREVIEW_SIZE: usize = 8 * 1024; // 8KB - 约100-150行代码或2-3页文档
-
+    const MAX_PREVIEW_SIZE: usize = 8 * 1024;
     if content.len() <= MAX_PREVIEW_SIZE {
         (content.to_string(), false, None)
     } else {
-        // 简单按字节截断，但确保不会截断到 UTF-8 字符中间
         let mut end_pos = MAX_PREVIEW_SIZE;
 
-        // 向前查找安全的截断位置（UTF-8 字符边界）
         while end_pos > 0 && !content.is_char_boundary(end_pos) {
             end_pos -= 1;
         }
 
-        // 如果找不到合适的边界，至少保留一些内容
         if end_pos == 0 {
             end_pos = content
                 .char_indices()
@@ -406,65 +339,63 @@ fn truncate_large_text(content: &str) -> (String, bool, Option<usize>) {
     }
 }
 
-/// 批量获取图片信息 - 前端按需调用此接口加载图片元数据
 #[tauri::command]
 pub async fn get_image_info_batch(
     state: tauri::State<'_, Arc<AppContext>>,
     record_ids: Vec<String>,
-) -> Result<std::collections::HashMap<String, ImageInfo>, String> {
-    use std::collections::HashMap;
+) -> Result<CommandResponse<std::collections::HashMap<String, ImageInfo>>, String> {
+    Ok(string_result(async {
+        use std::collections::HashMap;
 
-    let rb: &RBatis = state.db();
-    let mut result = HashMap::new();
+        let mut result = HashMap::new();
 
-    for id in record_ids {
-        match ClipRecord::select_by_id(rb, &id).await {
-            Ok(records) => {
-                if let Some(record) = records.first() {
-                    if record.r#type == ClipType::Image.to_string() {
-                        let image_path = record.content.as_str().unwrap_or_default();
-                        if let Some(info) = get_image_info(image_path) {
-                            result.insert(id, info);
+        for id in record_ids {
+            match ClipRecord::select_by_id(state.db(), &id).await {
+                Ok(records) => {
+                    if let Some(record) = records.first() {
+                        if record.r#type == ClipType::Image.to_string() {
+                            let image_path = record.content.as_str().unwrap_or_default();
+                            if let Some(info) = get_image_info(image_path) {
+                                result.insert(id, info);
+                            }
                         }
                     }
                 }
-            }
-            Err(e) => {
-                log::warn!("获取图片信息失败，记录ID: {}, 错误: {}", id, e);
+                Err(e) => {
+                    log::warn!("获取图片信息失败，记录ID: {}, 错误: {}", id, e);
+                }
             }
         }
-    }
 
-    Ok(result)
+        Ok(result)
+    }
+    .await))
 }
 
-// 获取记录的完整文本内容
 #[tauri::command]
 pub async fn get_full_text_content(
     state: tauri::State<'_, Arc<AppContext>>,
     param: GetFullContentParam,
-) -> Result<FullContentResponse, String> {
-    let rb: &RBatis = state.db();
+) -> Result<CommandResponse<FullContentResponse>, String> {
+    Ok(string_result(async {
+        let records = ClipRecord::select_by_id(state.db(), &param.record_id)
+            .await
+            .map_err(|e| format!("查询记录失败: {}", e))?;
 
-    // 从数据库获取记录
-    let records = ClipRecord::select_by_id(rb, &param.record_id)
-        .await
-        .map_err(|e| format!("查询记录失败: {}", e))?;
+        let record = records.first().ok_or("记录不存在")?;
 
-    let record = records.first().ok_or("记录不存在")?;
+        if record.r#type != ClipType::Text.to_string() {
+            return Err("记录类型不是文本".to_string());
+        }
 
-    // 验证是否为文本类型
-    if record.r#type != ClipType::Text.to_string() {
-        return Err("记录类型不是文本".to_string());
+        let full_content =
+            ContentProcessor::process_by_clip_type(&record.r#type, record.content.clone());
+
+        Ok(FullContentResponse {
+            id: param.record_id,
+            content: full_content.clone(),
+            content_length: full_content.len(),
+        })
     }
-
-    // 处理完整内容（解密等）
-    let full_content =
-        ContentProcessor::process_by_clip_type(&record.r#type, record.content.clone());
-
-    Ok(FullContentResponse {
-        id: param.record_id,
-        content: full_content.clone(),
-        content_length: full_content.len(),
-    })
+    .await))
 }

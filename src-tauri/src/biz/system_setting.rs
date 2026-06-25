@@ -16,40 +16,27 @@ use crate::{
     biz::vip_checker::VipChecker,
     errors::{AppError, AppResult},
     global_shortcut::parse_shortcut_strict,
+    response::{ok, string_result, CommandResponse},
     utils::{
         file_dir::get_config_dir,
         lock_utils::lock_utils::{safe_read_lock, safe_write_lock},
     },
 };
 
-// 默认超过这个大小的内容，使用布隆过滤器进行搜索   不会进行contains
-pub static DEFAULT_BLOOM_FILTER_TRUST_THRESHOLD: usize = 1 * 1024 * 1024;
-
-// 默认小于这个大小的内容，直接使用contains进行搜索
+pub static DEFAULT_BLOOM_FILTER_TRUST_THRESHOLD: usize = 1024 * 1024;
 pub static DEFAULT_DIRECT_CONTAINS_THRESHOLD: usize = 128 * 1024;
-
-// 定时任务间隔（秒）
 pub static SYNC_INTERVAL_SECONDS: u32 = 30;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Settings {
-    // 最大记录条数
     pub max_records: u32,
-    // 是否自动启动 0 关闭 1 开启
     pub auto_start: u32,
-    // 快捷键组合
     pub shortcut_key: String,
-    // 是否开启云同步 0 关闭 1 开启
     pub cloud_sync: u32,
-    // 是否开启自动粘贴 0 关闭 1 开启
     pub auto_paste: u32,
-    // 是否已完成新手引导 0 未完成 1 已完成
     pub tutorial_completed: u32,
-    // 搜索索引最大内容大小（字节）
     pub bloom_filter_trust_threshold: Option<usize>,
-    // 直接使用contains搜索的内容大小阈值（字节）
     pub direct_contains_threshold: Option<usize>,
-    // 拉取云端记录的定时任务间隔时间
     pub cloud_sync_interval: u32,
 }
 
@@ -58,71 +45,56 @@ unsafe impl Sync for Settings {}
 
 impl Default for Settings {
     fn default() -> Self {
-        // macOS 和 Windows 使用相同的默认快捷键
-        #[cfg(target_os = "macos")]
-        let default_shortcut = String::from("Ctrl+`"); // macOS 使用 Control 键
-
-        #[cfg(target_os = "windows")]
-        let default_shortcut = String::from("Ctrl+`"); // Windows 使用 Ctrl 键
-
-        #[cfg(not(any(target_os = "macos", target_os = "windows")))]
-        let default_shortcut = String::from("Ctrl+`"); // 其他平台默认 Ctrl
-
         Self {
             max_records: 200,
             auto_start: 0,
-            shortcut_key: default_shortcut,
+            shortcut_key: String::from("Ctrl+`"),
             cloud_sync: 0,
-            auto_paste: 1,         // 默认开启自动粘贴
-            tutorial_completed: 0, // 默认未完成引导
-            bloom_filter_trust_threshold: Some(DEFAULT_BLOOM_FILTER_TRUST_THRESHOLD), // 默认1MB
-            direct_contains_threshold: Some(DEFAULT_DIRECT_CONTAINS_THRESHOLD), // 默认128KB
-            cloud_sync_interval: SYNC_INTERVAL_SECONDS, // 默认30秒
+            auto_paste: 1,
+            tutorial_completed: 0,
+            bloom_filter_trust_threshold: Some(DEFAULT_BLOOM_FILTER_TRUST_THRESHOLD),
+            direct_contains_threshold: Some(DEFAULT_DIRECT_CONTAINS_THRESHOLD),
+            cloud_sync_interval: SYNC_INTERVAL_SECONDS,
         }
     }
 }
 
-/// 创建设置缓存。
 #[allow(dead_code)]
 pub fn load_settings_context() -> Arc<RwLock<Settings>> {
-    let settings = load_settings();
+    let settings = load_settings_value();
     create_default_config_if_not_exists(&settings);
     Arc::new(RwLock::new(settings))
 }
 
-/// 如果配置文件不存在，创建默认配置文件
 fn create_default_config_if_not_exists(settings: &Settings) {
     if let Some(path) = get_settings_file_path() {
         if !path.exists() {
             if let Err(e) = save_settings_to_file(settings) {
                 log::warn!("创建默认配置文件失败: {}", e);
-            } else {
-                log::info!("已创建默认配置文件");
             }
         }
     }
 }
 
 pub fn get_settings_file_path() -> Option<PathBuf> {
-    let config_dir = get_config_dir();
-    if let Some(config_dir) = config_dir {
-        Some(config_dir.join("settings.json"))
-    } else {
-        None
-    }
+    get_config_dir().map(|config_dir| config_dir.join("settings.json"))
 }
 
 #[tauri::command]
-pub fn load_settings() -> Settings {
+pub fn load_settings() -> CommandResponse<Settings> {
+    ok(load_settings_value())
+}
+
+pub fn load_settings_value() -> Settings {
     if let Some(path) = get_settings_file_path() {
         if path.exists() {
-            let data = fs::read_to_string(&path).unwrap_or_default();
-            if let Ok(settings) = serde_json::from_str(&data) {
-                return settings;
+            if let Ok(data) = fs::read_to_string(&path) {
+                if let Ok(settings) = serde_json::from_str(&data) {
+                    return settings;
+                }
             }
         }
     }
-    // 如果文件不存在或解析失败，返回默认设置
     Settings::default()
 }
 
@@ -130,155 +102,107 @@ pub fn load_settings() -> Settings {
 pub async fn save_settings(
     state: tauri::State<'_, Arc<AppContext>>,
     settings: Settings,
-) -> Result<(), String> {
-    save_settings_with_context(&state, settings).await
+) -> Result<CommandResponse<()>, String> {
+    Ok(string_result(save_settings_with_context(&state, settings).await))
 }
 
 pub async fn save_settings_with_context(
     app_context: &AppContext,
     settings: Settings,
 ) -> Result<(), String> {
-    // 1. 验证设置的有效性
     validate_settings(&settings)
         .await
         .map_err(|e| e.to_string())?;
 
-    // 2. 获取当前设置并立即释放锁
     let current_settings = {
         let lock = app_context.settings();
         let current = safe_read_lock(&lock).map_err(|e| e.to_string())?;
         current.clone()
     };
 
-    // 3. 尝试应用新设置（按顺序执行，失败时回滚）
     let mut applied_settings = Vec::new();
 
-    // 3.1 尝试更新全局快捷键
     if settings.shortcut_key != current_settings.shortcut_key {
         match update_global_shortcut(app_context, &settings.shortcut_key).await {
-            Ok(_) => applied_settings.push(("shortcut", true)),
+            Ok(_) => applied_settings.push("shortcut"),
             Err(e) => {
-                // 回滚已应用的设置
-                if let Err(rollback_err) = rollback_settings(&applied_settings).await {
-                    log::error!("回滚设置失败: {}", rollback_err);
-                }
+                let _ = rollback_settings(&current_settings, &applied_settings).await;
                 return Err(format!("快捷键设置失败: {}", e));
             }
         }
     }
 
-    // 3.2 验证云同步权限
     if settings.cloud_sync != current_settings.cloud_sync && settings.cloud_sync == 1 {
-        // 用户尝试开启云同步，需要验证登录状态
         match validate_cloud_sync_permission().await {
-            Ok(_) => {
-                log::info!("云同步权限验证通过，允许开启云同步");
-                applied_settings.push(("cloud_sync", true));
-            }
+            Ok(_) => applied_settings.push("cloud_sync"),
             Err(e) => {
-                // 权限验证失败，回滚已应用的设置
-                if let Err(rollback_err) = rollback_settings(&applied_settings).await {
-                    log::error!("回滚设置失败: {}", rollback_err);
-                }
+                let _ = rollback_settings(&current_settings, &applied_settings).await;
                 return Err(format!("开启云同步失败: {}", e));
             }
         }
     }
 
-    // 3.3 尝试设置开机自启
     if settings.auto_start != current_settings.auto_start {
         match set_auto_start(app_context, settings.auto_start == 1) {
-            Ok(_) => applied_settings.push(("autostart", true)),
+            Ok(_) => applied_settings.push("autostart"),
             Err(e) => {
-                if let Err(rollback_err) = rollback_settings(&applied_settings).await {
-                    log::error!("回滚设置失败: {}", rollback_err);
-                }
-                return Err(format!("开机自启设置失败: {}", e));
+                let _ = rollback_settings(&current_settings, &applied_settings).await;
+                return Err(format!("开机自启动设置失败: {}", e));
             }
         }
     }
 
-    // 3.4 保存到文件
-    match save_settings_to_file(&settings) {
-        Ok(_) => applied_settings.push(("file", true)),
-        Err(e) => {
-            if let Err(rollback_err) = rollback_settings(&applied_settings).await {
-                log::error!("回滚设置失败: {}", rollback_err);
-            }
-            return Err(format!("文件保存失败: {}", e));
-        }
+    if let Err(e) = save_settings_to_file(&settings) {
+        let _ = rollback_settings(&current_settings, &applied_settings).await;
+        return Err(format!("保存配置失败: {}", e));
     }
 
-    // 4. 先更新上下文中的设置
     let need_trigger_sync =
         settings.cloud_sync != current_settings.cloud_sync && settings.cloud_sync == 1;
+
     {
         let lock = app_context.settings();
         let mut current = safe_write_lock(&lock).map_err(|e| e.to_string())?;
         *current = settings;
     }
 
-    // 5. 检查是否需要触发立即云同步（在设置更新后）
     if need_trigger_sync {
         if let Err(e) = trigger_immediate_sync() {
             log::warn!("触发立即云同步失败: {}", e);
-            // 不返回错误，因为设置保存成功了，只是立即同步失败
         }
     }
 
     Ok(())
 }
 
-// 验证设置的有效性（使用VIP感知的限制）
 async fn validate_settings(settings: &Settings) -> AppResult<()> {
-    // 1. 获取VIP允许的最大记录数限制（仅使用缓存，避免网络调用）
-    let max_allowed = match VipChecker::get_cached_max_records_limit() {
-        Ok(limit) => limit,
-        Err(_) => {
-            // 如果缓存读取失败，使用保守的默认限制
-            log::warn!("无法获取VIP缓存限制，使用默认验证");
-            300 // 免费用户默认限制
-        }
-    };
+    let max_allowed = VipChecker::get_cached_max_records_limit().unwrap_or(300);
 
-    // 2. 验证记录条数
     if settings.max_records < 50 {
-        return Err(AppError::Config("记录条数不能少于50条".to_string()));
+        return Err(AppError::Config("记录条数不能少于 50".to_string()));
     }
 
     if settings.max_records > max_allowed {
-        // 根据不同的限制给出更友好的提示
-        let vip_hint = if max_allowed <= 300 {
-            format!(
-                "您当前为免费用户，最多支持{}条记录。升级VIP可获得更多存储空间",
-                max_allowed
-            )
-        } else if max_allowed <= 1000 {
-            format!("您当前VIP等级最多支持{}条记录", max_allowed)
-        } else {
-            format!("记录条数不能超过{}条", max_allowed)
-        };
-
-        return Err(AppError::Config(vip_hint));
+        return Err(AppError::Config(format!(
+            "记录条数不能超过 {}",
+            max_allowed
+        )));
     }
 
-    // 3. 验证快捷键
     if settings.shortcut_key.is_empty() {
         return Err(AppError::Config("快捷键不能为空".to_string()));
     }
 
-    // 4. 验证快捷键格式和支持情况
-    if let Err(error) = parse_shortcut_strict(&settings.shortcut_key) {
-        return Err(AppError::Config(format!(
+    parse_shortcut_strict(&settings.shortcut_key).map_err(|e| {
+        AppError::Config(format!(
             "快捷键格式错误，请使用如 Ctrl+Shift+C 的组合键。{}",
-            error
-        )));
-    }
+            e
+        ))
+    })?;
 
     Ok(())
 }
 
-// 验证快捷键格式
 fn is_valid_shortcut_format(shortcut: &str) -> bool {
     let parts: Vec<&str> = shortcut.split('+').collect();
     if parts.len() < 2 || parts.len() > 4 {
@@ -293,26 +217,16 @@ fn is_valid_shortcut_format(shortcut: &str) -> bool {
     modifier_count >= 1 && modifier_count < parts.len()
 }
 
-// 更新全局快捷键
 async fn update_global_shortcut(app_context: &AppContext, shortcut: &str) -> AppResult<()> {
     let app_handle = app_context.app_handle()?;
-
-    // 先严格解析，确保失败时不会把现有快捷键卸载掉。
     let shortcut_obj = parse_shortcut_strict(shortcut)
         .map_err(|e| AppError::GlobalShortcut(format!("快捷键格式无效: {}", e)))?;
 
-    // 先取消注册所有快捷键
     let _ = app_handle.global_shortcut().unregister_all();
 
-    // 注册新的快捷键
     match app_handle.global_shortcut().on_shortcut(shortcut_obj, {
         let app_handle_clone = app_handle.clone();
-        move |_app, shortcut_triggered, event| {
-            log::debug!(
-                "快捷键触发: {:?}, 状态: {:?}",
-                shortcut_triggered,
-                event.state()
-            );
+        move |_app, _shortcut_triggered, event| {
             if event.state() == tauri_plugin_global_shortcut::ShortcutState::Pressed {
                 use tauri::Manager;
                 if let Some(window) = app_handle_clone.get_webview_window("main") {
@@ -322,18 +236,11 @@ async fn update_global_shortcut(app_context: &AppContext, shortcut: &str) -> App
             }
         }
     }) {
-        Ok(_) => {
-            log::info!("更新全局快捷键成功:{}", shortcut);
-            Ok(())
-        }
-        Err(e) => {
-            log::error!("更新全局快捷键失败:{:?}", e);
-            Err(AppError::GlobalShortcut(format!("快捷键注册失败: {}", e)))
-        }
+        Ok(_) => Ok(()),
+        Err(e) => Err(AppError::GlobalShortcut(format!("快捷键注册失败: {}", e))),
     }
 }
 
-// 设置开机自启
 fn set_auto_start(app_context: &AppContext, auto_start: bool) -> AppResult<()> {
     let app_handle = app_context.app_handle()?;
     let autostart_manager = app_handle.autolaunch();
@@ -344,11 +251,10 @@ fn set_auto_start(app_context: &AppContext, auto_start: bool) -> AppResult<()> {
         autostart_manager.disable()
     } {
         Ok(_) => Ok(()),
-        Err(e) => Err(AppError::Config(format!("开机自启设置失败: {}", e))),
+        Err(e) => Err(AppError::Config(format!("开机自启动设置失败: {}", e))),
     }
 }
 
-// 保存设置到文件
 pub fn save_settings_to_file(settings: &Settings) -> AppResult<()> {
     let path = get_settings_file_path()
         .ok_or_else(|| AppError::Config("无法获取配置文件路径".to_string()))?;
@@ -364,54 +270,16 @@ pub fn save_settings_to_file(settings: &Settings) -> AppResult<()> {
     Ok(())
 }
 
-// 回滚设置
-async fn rollback_settings(applied_settings: &[(&str, bool)]) -> AppResult<()> {
+async fn rollback_settings(previous_settings: &Settings, applied_settings: &[&str]) -> AppResult<()> {
     let context = app_context()?;
-    let app_handle = context.app_handle()?;
 
-    // 在 await 点之前获取当前设置
-    let current_settings = {
-        let lock = context.settings();
-        let current = safe_read_lock(&lock)?;
-        current.clone()
-    };
-
-    for (setting_type, _) in applied_settings {
+    for setting_type in applied_settings {
         match *setting_type {
             "shortcut" => {
-                // 恢复原快捷键
-                let shortcut_obj = match parse_shortcut_strict(&current_settings.shortcut_key) {
-                    Ok(shortcut) => shortcut,
-                    Err(error) => {
-                        log::error!("恢复快捷键失败，原快捷键无效: {}", error);
-                        continue;
-                    }
-                };
-                if let Err(e) = app_handle.global_shortcut().on_shortcut(shortcut_obj, {
-                    let app_handle_clone = app_handle.clone();
-                    move |_app, shortcut_triggered, event| {
-                        log::debug!(
-                            "恢复快捷键触发: {:?}, 状态: {:?}",
-                            shortcut_triggered,
-                            event.state()
-                        );
-                        if event.state() == tauri_plugin_global_shortcut::ShortcutState::Pressed {
-                            use tauri::Manager;
-                            if let Some(window) = app_handle_clone.get_webview_window("main") {
-                                let _ = window.show();
-                                let _ = window.set_focus();
-                            }
-                        }
-                    }
-                }) {
-                    log::error!("恢复快捷键失败: {}", e);
-                }
+                let _ = update_global_shortcut(&context, &previous_settings.shortcut_key).await;
             }
             "autostart" => {
-                // 恢复原开机自启设置
-                if let Err(e) = set_auto_start(&context, current_settings.auto_start == 1) {
-                    log::error!("恢复开机自启设置失败: {}", e);
-                }
+                let _ = set_auto_start(&context, previous_settings.auto_start == 1);
             }
             _ => {}
         }
@@ -420,41 +288,35 @@ async fn rollback_settings(applied_settings: &[(&str, bool)]) -> AppResult<()> {
     Ok(())
 }
 
-// 验证快捷键是否可用
 #[tauri::command]
 pub async fn validate_shortcut(
     state: tauri::State<'_, Arc<AppContext>>,
     shortcut: String,
-) -> Result<bool, String> {
-    // 1. 验证格式
-    if !is_valid_shortcut_format(&shortcut) {
-        return Ok(false);
-    }
+) -> Result<CommandResponse<bool>, String> {
+    Ok(string_result(async {
+        if !is_valid_shortcut_format(&shortcut) {
+            return Ok(false);
+        }
 
-    // 2. 获取当前设置的快捷键
-    let current_shortcut = {
-        let lock = state.settings();
-        let result = match safe_read_lock(&lock) {
-            Ok(current) => current.shortcut_key.clone(),
-            Err(_) => String::new(),
+        let current_shortcut = {
+            let lock = state.settings();
+            let result = match safe_read_lock(&lock) {
+                Ok(current) => current.shortcut_key.clone(),
+                Err(_) => String::new(),
+            };
+            result
         };
-        result
-    };
 
-    // 3. 如果和当前设置一样，直接返回true（允许保存相同快捷键）
-    if shortcut == current_shortcut {
-        return Ok(true);
+        if shortcut == current_shortcut {
+            return Ok(true);
+        }
+
+        parse_shortcut_strict(&shortcut)?;
+        Ok(true)
     }
-
-    // 4. 严格解析快捷键字符串验证其有效性
-    parse_shortcut_strict(&shortcut)?;
-
-    // 5. 格式验证通过，返回true
-    // 实际的冲突检测将在注册时进行
-    Ok(true)
+    .await))
 }
 
-/// 检查是否开启了云同步功能
 pub async fn check_cloud_sync_enabled() -> bool {
     let Ok(context) = app_context() else {
         return false;
@@ -466,74 +328,42 @@ pub async fn check_cloud_sync_enabled() -> bool {
     false
 }
 
-/// 禁用云同步功能（用户退出登录或认证失效时调用）
 pub async fn disable_cloud_sync() -> Result<(), String> {
     log::info!("禁用云同步功能");
 
     let context = app_context().map_err(|e| e.to_string())?;
     let settings_lock = context.settings();
 
-    // 直接更新内存中的设置，避免递归调用
     {
-        let mut current_settings = match safe_write_lock(&settings_lock) {
-            Ok(settings) => settings,
-            Err(e) => {
-                return Err(format!("获取设置锁失败: {}", e));
-            }
-        };
-
-        // 如果已经是关闭状态，无需修改
+        let mut current_settings = safe_write_lock(&settings_lock).map_err(|e| e.to_string())?;
         if current_settings.cloud_sync == 0 {
-            log::debug!("云同步已经处于关闭状态");
             return Ok(());
         }
-
-        // 设置云同步为关闭状态
         current_settings.cloud_sync = 0;
     }
 
-    // 直接保存到文件，避免通过save_settings的验证链
     let settings_for_file = {
-        let current_settings = match safe_read_lock(&settings_lock) {
-            Ok(settings) => settings.clone(),
-            Err(e) => {
-                return Err(format!("获取设置失败: {}", e));
-            }
-        };
-        current_settings
+        let current_settings = safe_read_lock(&settings_lock).map_err(|e| e.to_string())?;
+        current_settings.clone()
     };
 
-    match save_settings_to_file(&settings_for_file) {
-        Ok(_) => {
-            log::info!("云同步功能已被禁用");
-            Ok(())
-        }
-        Err(e) => Err(format!("保存设置失败: {}", e)),
-    }
+    save_settings_to_file(&settings_for_file).map_err(|e| e.to_string())
 }
 
-/// 验证云同步权限 - 检查用户登录状态和VIP权限
 async fn validate_cloud_sync_permission() -> Result<(), String> {
     use crate::utils::token_manager::has_valid_auth;
 
     if !has_valid_auth() {
-        log::warn!("用户未登录，无法开启云同步功能");
         return Err("请先登录账号才能开启云同步功能".to_string());
     }
 
-    // 检查VIP云同步权限
     match VipChecker::check_cloud_sync_permission().await {
         Ok((allowed, message)) => {
             if !allowed {
-                log::warn!("云同步权限检查失败: {}", message);
                 return Err(message);
             }
-            log::info!("云同步权限检查通过: {}", message);
             Ok(())
         }
-        Err(e) => {
-            log::error!("云同步权限检查出错: {}", e);
-            Err("权限检查失败，请稍后重试".to_string())
-        }
+        Err(e) => Err(format!("权限检查失败: {}", e)),
     }
 }

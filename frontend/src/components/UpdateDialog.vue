@@ -79,7 +79,7 @@
 
 <script setup lang="ts">
 import { ref, computed } from 'vue'
-import { invoke } from '@tauri-apps/api/core'
+import { apiInvoke, isSuccess } from '../utils/api'
 import { UpdateInfo } from '../types/global'
 
 interface Props {
@@ -133,7 +133,11 @@ const handleRetry = () => {
 const checkUpdate = async () => {
   updateState.value = 'checking'
   try {
-    const result = await invoke<UpdateInfo>('check_soft_version')
+    const response = await apiInvoke<UpdateInfo>('check_soft_version')
+    if (!isSuccess(response)) {
+      throw new Error(response.error || '检查更新失败')
+    }
+    const result = response.data
     updateInfo.value = result
 
     if (result.has_update) {
@@ -172,7 +176,11 @@ const handleUpdate = async () => {
       }
     }, 500)
 
-    const result = await invoke<boolean>('download_and_install_update')
+    const response = await apiInvoke<boolean>('download_and_install_update')
+    if (!isSuccess(response)) {
+      throw new Error(response.error || '下载安装更新失败')
+    }
+    const result = response.data
     
     clearInterval(progressInterval)
     downloadProgress.value = 100

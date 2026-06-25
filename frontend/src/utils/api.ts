@@ -55,6 +55,31 @@ export interface ApiResponse<T> {
   severity: ErrorSeverity;
 }
 
+interface CommandErrorBody {
+  code: string;
+  message: string;
+  severity: ErrorSeverity;
+}
+
+interface CommandResponse<T> {
+  success: boolean;
+  data: T | null;
+  error: CommandErrorBody | null;
+}
+
+function isCommandResponse<T>(value: unknown): value is CommandResponse<T> {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+
+  const response = value as Partial<CommandResponse<T>>;
+  return (
+    typeof response.success === 'boolean' &&
+    'data' in response &&
+    'error' in response
+  );
+}
+
 // 错误处理钩子类型
 type ErrorHandler = (error: string, severity: ErrorSeverity, command: string) => void;
 
@@ -69,6 +94,34 @@ export function setErrorHandler(handler: ErrorHandler) {
 export async function apiInvoke<T>(command: string, args?: any): Promise<ApiResponse<T>> {
   try {
     const result = await invoke(command, args);
+
+    if (isCommandResponse<T>(result)) {
+      if (result.success) {
+        return {
+          success: true,
+          data: result.data as T,
+          severity: ErrorSeverity.SILENT
+        };
+      }
+
+      const errorMessage = result.error?.message || '操作失败';
+      const severity = result.error?.severity || ERROR_SEVERITY_MAP[command] || ErrorSeverity.INFO;
+
+      if (globalErrorHandler && severity !== ErrorSeverity.SILENT) {
+        globalErrorHandler(errorMessage, severity, command);
+      }
+
+      if (import.meta.env.DEV) {
+        console.error(`API Error [${command}]:`, errorMessage, result.error);
+      }
+
+      return {
+        success: false,
+        error: errorMessage,
+        severity
+      };
+    }
+
     return {
       success: true,
       data: result as T,
@@ -169,7 +222,7 @@ export const settingsApi = {
 
   // 保存设置
   async saveSettings(settings: any) {
-    return apiInvoke<void>('save_settings', settings);
+    return apiInvoke<void>('save_settings', { settings });
   },
 
   // 验证快捷键
@@ -257,7 +310,7 @@ export const userApi = {
     email?: string;
     avatar?: string;
   }) {
-    return apiInvoke<{ userInfo: any; message?: string }>('update_user_info', { param: params });
+    return apiInvoke<boolean>('update_user_info', { nickName: params.nickname ?? '' });
   },
 
   // 检查用户名是否可用

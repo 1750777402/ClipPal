@@ -98,7 +98,7 @@ pub fn consume_clip_record_queue(queue: AsyncQueue<ClipRecord>) {
                                         r#type: 1,
                                         clip: item.clone().into(),
                                     };
-                                    let res = handle_sync_inner(param.clone()).await;
+                                    let res = handle_sync_task(param.clone()).await;
                                     if let Ok(final_status) = res {
                                         // 根据实际处理结果通知前端
                                         notify_frontend_sync_status_with_flag(
@@ -129,7 +129,7 @@ pub fn consume_clip_record_queue(queue: AsyncQueue<ClipRecord>) {
                                             )
                                         }
                                     };
-                                    let _ = handle_sync_inner(param).await;
+                                    let _ = handle_sync_task(param).await;
                                 }
                             };
                         }
@@ -153,7 +153,7 @@ pub fn consume_clip_record_queue(queue: AsyncQueue<ClipRecord>) {
     });
 }
 
-async fn handle_sync_inner(param: SingleCloudSyncParam) -> AppResult<i32> {
+async fn handle_sync_task(param: SingleCloudSyncParam) -> AppResult<i32> {
     let record_id = param.clip.id.clone().unwrap_or_default();
     let record_type = param.clip.r#type.clone().unwrap_or_default();
 
