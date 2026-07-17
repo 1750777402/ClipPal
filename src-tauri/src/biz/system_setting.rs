@@ -80,7 +80,7 @@ pub fn get_settings_file_path() -> Option<PathBuf> {
     get_config_dir().map(|config_dir| config_dir.join("settings.json"))
 }
 
-#[tauri::command]
+#[allow(dead_code)]
 pub fn load_settings() -> CommandResponse<Settings> {
     ok(load_settings_value())
 }
@@ -98,12 +98,14 @@ pub fn load_settings_value() -> Settings {
     Settings::default()
 }
 
-#[tauri::command]
+#[allow(dead_code)]
 pub async fn save_settings(
     state: tauri::State<'_, Arc<AppContext>>,
     settings: Settings,
 ) -> Result<CommandResponse<()>, String> {
-    Ok(string_result(save_settings_with_context(&state, settings).await))
+    Ok(string_result(
+        save_settings_with_context(&state, settings).await,
+    ))
 }
 
 pub async fn save_settings_with_context(
@@ -175,7 +177,7 @@ pub async fn save_settings_with_context(
     Ok(())
 }
 
-async fn validate_settings(settings: &Settings) -> AppResult<()> {
+pub(crate) async fn validate_settings(settings: &Settings) -> AppResult<()> {
     let max_allowed = VipChecker::get_cached_max_records_limit().unwrap_or(300);
 
     if settings.max_records < 50 {
@@ -203,7 +205,7 @@ async fn validate_settings(settings: &Settings) -> AppResult<()> {
     Ok(())
 }
 
-fn is_valid_shortcut_format(shortcut: &str) -> bool {
+pub(crate) fn is_valid_shortcut_format(shortcut: &str) -> bool {
     let parts: Vec<&str> = shortcut.split('+').collect();
     if parts.len() < 2 || parts.len() > 4 {
         return false;
@@ -217,7 +219,10 @@ fn is_valid_shortcut_format(shortcut: &str) -> bool {
     modifier_count >= 1 && modifier_count < parts.len()
 }
 
-async fn update_global_shortcut(app_context: &AppContext, shortcut: &str) -> AppResult<()> {
+pub(crate) async fn update_global_shortcut(
+    app_context: &AppContext,
+    shortcut: &str,
+) -> AppResult<()> {
     let app_handle = app_context.app_handle()?;
     let shortcut_obj = parse_shortcut_strict(shortcut)
         .map_err(|e| AppError::GlobalShortcut(format!("快捷键格式无效: {}", e)))?;
@@ -241,7 +246,7 @@ async fn update_global_shortcut(app_context: &AppContext, shortcut: &str) -> App
     }
 }
 
-fn set_auto_start(app_context: &AppContext, auto_start: bool) -> AppResult<()> {
+pub(crate) fn set_auto_start(app_context: &AppContext, auto_start: bool) -> AppResult<()> {
     let app_handle = app_context.app_handle()?;
     let autostart_manager = app_handle.autolaunch();
 
@@ -270,7 +275,10 @@ pub fn save_settings_to_file(settings: &Settings) -> AppResult<()> {
     Ok(())
 }
 
-async fn rollback_settings(previous_settings: &Settings, applied_settings: &[&str]) -> AppResult<()> {
+pub(crate) async fn rollback_settings(
+    previous_settings: &Settings,
+    applied_settings: &[&str],
+) -> AppResult<()> {
     let context = app_context()?;
 
     for setting_type in applied_settings {
@@ -288,33 +296,35 @@ async fn rollback_settings(previous_settings: &Settings, applied_settings: &[&st
     Ok(())
 }
 
-#[tauri::command]
+#[allow(dead_code)]
 pub async fn validate_shortcut(
     state: tauri::State<'_, Arc<AppContext>>,
     shortcut: String,
 ) -> Result<CommandResponse<bool>, String> {
-    Ok(string_result(async {
-        if !is_valid_shortcut_format(&shortcut) {
-            return Ok(false);
-        }
+    Ok(string_result(
+        async {
+            if !is_valid_shortcut_format(&shortcut) {
+                return Ok(false);
+            }
 
-        let current_shortcut = {
-            let lock = state.settings();
-            let result = match safe_read_lock(&lock) {
-                Ok(current) => current.shortcut_key.clone(),
-                Err(_) => String::new(),
+            let current_shortcut = {
+                let lock = state.settings();
+                let result = match safe_read_lock(&lock) {
+                    Ok(current) => current.shortcut_key.clone(),
+                    Err(_) => String::new(),
+                };
+                result
             };
-            result
-        };
 
-        if shortcut == current_shortcut {
-            return Ok(true);
+            if shortcut == current_shortcut {
+                return Ok(true);
+            }
+
+            parse_shortcut_strict(&shortcut)?;
+            Ok(true)
         }
-
-        parse_shortcut_strict(&shortcut)?;
-        Ok(true)
-    }
-    .await))
+        .await,
+    ))
 }
 
 pub async fn check_cloud_sync_enabled() -> bool {
@@ -350,7 +360,7 @@ pub async fn disable_cloud_sync() -> Result<(), String> {
     save_settings_to_file(&settings_for_file).map_err(|e| e.to_string())
 }
 
-async fn validate_cloud_sync_permission() -> Result<(), String> {
+pub(crate) async fn validate_cloud_sync_permission() -> Result<(), String> {
     use crate::utils::token_manager::has_valid_auth;
 
     if !has_valid_auth() {

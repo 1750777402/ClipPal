@@ -12,7 +12,6 @@ export enum ErrorSeverity {
 const ERROR_SEVERITY_MAP: Record<string, ErrorSeverity> = {
   // 数据查询相关 - 静默处理
   'get_clip_records': ErrorSeverity.SILENT,
-  'get_image_base64': ErrorSeverity.SILENT,
 
   // 用户操作相关 - 需要提示
   'copy_clip_record': ErrorSeverity.CRITICAL,
@@ -154,13 +153,6 @@ export const clipApi = {
   // 查询剪贴记录
   async getClipRecords(params: { page: number; size: number; search?: string }) {
     return apiInvoke<any[]>('get_clip_records', { param: params });
-  },
-
-  // 获取图片base64
-  async getImageBase64(recordId: string) {
-    return apiInvoke<{ id: string; base64_data: string }>('get_image_base64', {
-      param: { record_id: recordId }
-    });
   },
 
   // 获取图片文件路径（自定义协议）
@@ -360,7 +352,6 @@ export function getFriendlyErrorMessage(error: string, command: string): string 
 
     // 剪贴板记录查询
     'get_clip_records': '获取剪贴板记录失败',
-    'get_image_base64': '获取图片数据失败',
 
     // 剪贴板记录操作
     'copy_clip_record': '复制失败',

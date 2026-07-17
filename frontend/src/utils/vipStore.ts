@@ -297,17 +297,6 @@ export const vipStore = {
     }
   },
 
-  // 模拟VIP升级（测试用）
-  async simulateUpgrade(vipType: 'Monthly' | 'Quarterly' | 'Yearly', days: number): Promise<boolean> {
-    try {
-      const response = await apiInvoke('simulate_vip_upgrade', { vip_type: vipType, days })
-      return isSuccess(response)
-    } catch (error) {
-      console.error('模拟VIP升级失败:', error)
-      return false
-    }
-  },
-
   // 设置事件监听器
   async setupEventListeners(): Promise<void> {
     try {

@@ -15,14 +15,14 @@ struct VipStatusChangedPayload {
     max_records: u32,
 }
 
-#[tauri::command]
+#[allow(dead_code)]
 pub async fn get_vip_status() -> Result<CommandResponse<Option<VipInfo>>, String> {
     Ok(string_result(
         VipChecker::get_local_vip_info().map_err(|e| e.to_string()),
     ))
 }
 
-#[tauri::command]
+#[allow(dead_code)]
 pub async fn check_vip_permission() -> Result<CommandResponse<(bool, String)>, String> {
     Ok(string_result(
         VipChecker::check_cloud_sync_permission()
@@ -31,7 +31,7 @@ pub async fn check_vip_permission() -> Result<CommandResponse<(bool, String)>, S
     ))
 }
 
-#[tauri::command]
+#[allow(dead_code)]
 pub async fn get_vip_limits() -> Result<CommandResponse<serde_json::Value>, String> {
     Ok(string_result(
         async {
@@ -61,7 +61,7 @@ pub async fn get_vip_limits() -> Result<CommandResponse<serde_json::Value>, Stri
     ))
 }
 
-#[tauri::command]
+#[allow(dead_code)]
 pub async fn open_vip_purchase_page(app_handle: AppHandle) -> Result<CommandResponse<()>, String> {
     Ok(string_result({
         let url = "https://jingchuanyuexiang.com";
@@ -75,7 +75,7 @@ pub async fn open_vip_purchase_page(app_handle: AppHandle) -> Result<CommandResp
     }))
 }
 
-#[tauri::command]
+#[allow(dead_code)]
 pub async fn refresh_vip_status(app_handle: AppHandle) -> Result<CommandResponse<bool>, String> {
     Ok(string_result(
         async {
@@ -107,7 +107,7 @@ pub async fn refresh_vip_status(app_handle: AppHandle) -> Result<CommandResponse
     ))
 }
 
-#[tauri::command]
+#[allow(dead_code)]
 pub async fn get_server_config() -> Result<
     CommandResponse<
         Option<std::collections::HashMap<VipType, crate::api::vip_api::ServerConfigResponse>>,
@@ -121,7 +121,7 @@ pub async fn get_server_config() -> Result<
     ))
 }
 
-#[tauri::command]
+#[allow(dead_code)]
 pub async fn get_pay_url(
     param: vip_api::PayParam,
 ) -> Result<CommandResponse<Option<vip_api::PayCodrUrlResponse>>, String> {
@@ -132,7 +132,7 @@ pub async fn get_pay_url(
     ))
 }
 
-#[tauri::command]
+#[allow(dead_code)]
 pub async fn get_pay_result(
     param: vip_api::QueryPayParam,
 ) -> Result<CommandResponse<Option<vip_api::QueryPayResponse>>, String> {
