@@ -4,8 +4,10 @@ use rbatis::RBatis;
 use tauri::{AppHandle, WebviewWindow};
 
 use crate::{
-    biz::{clip_async_queue::AsyncQueue, clip_record::ClipRecord, system_setting::Settings},
+    biz::clip_async_queue::AsyncQueue,
+    domain::{clip::ClipRecord, settings::Settings},
     errors::{AppError, AppResult},
+    infra::{repositories::AppRepositories, search::SearchEngine},
     utils::lock_utils::{
         create_global_sync_lock,
         lock_utils::{safe_read_lock, safe_write_lock},
@@ -205,6 +207,12 @@ pub struct CoreContext {
     /// 这是后端业务数据访问的基础依赖。
     db: RBatis,
 
+    /// 应用数据访问接口。
+    repositories: AppRepositories,
+
+    /// 剪贴记录搜索引擎。
+    search_engine: Arc<dyn SearchEngine>,
+
     /// 系统设置缓存。
     ///
     /// 使用 `Arc<RwLock<Settings>>` 是为了让多个模块共享同一份设置：
@@ -224,6 +232,7 @@ pub struct RuntimeContext {
 }
 
 impl Default for RuntimeContext {
+    /// 创建尚未注入 AppHandle 的运行期上下文；AppHandle 会在 Tauri setup 阶段设置。
     fn default() -> Self {
         Self {
             app_handle: InitCell::new("AppHandle"),
@@ -241,6 +250,7 @@ pub struct ClipboardContext {
 }
 
 impl Default for ClipboardContext {
+    /// 创建具有默认容量的剪贴记录异步队列。
     fn default() -> Self {
         Self {
             record_queue: AsyncQueue::new(DEFAULT_CLIP_RECORD_QUEUE_CAPACITY),
@@ -258,6 +268,7 @@ pub struct SyncContext {
 }
 
 impl Default for SyncContext {
+    /// 创建供全部云同步任务共享的全局互斥锁。
     fn default() -> Self {
         Self {
             lock: create_global_sync_lock(),
@@ -286,6 +297,7 @@ pub struct WindowContext {
 }
 
 impl Default for WindowContext {
+    /// 创建窗口焦点、隐藏标记和待初始化主窗口句柄。
     fn default() -> Self {
         Self {
             focus_count: Arc::new(WindowFocusCount::default()),
@@ -300,9 +312,19 @@ impl AppContext {
     /// 创建应用上下文。
     ///
     /// 构造时会创建同步锁、剪贴板队列、窗口状态等运行资源。
-    pub fn new(db: RBatis, settings: Arc<RwLock<Settings>>) -> Self {
+    pub fn new(
+        db: RBatis,
+        settings: Arc<RwLock<Settings>>,
+        repositories: AppRepositories,
+        search_engine: Arc<dyn SearchEngine>,
+    ) -> Self {
         Self {
-            core: CoreContext { db, settings },
+            core: CoreContext {
+                db,
+                repositories,
+                search_engine,
+                settings,
+            },
             runtime: RuntimeContext::default(),
             clipboard: ClipboardContext::default(),
             sync: SyncContext::default(),
@@ -342,6 +364,16 @@ impl AppContext {
     /// 返回引用，避免不必要地克隆 RBatis。
     pub fn db(&self) -> &RBatis {
         &self.core.db
+    }
+
+    /// 获取应用数据访问接口。
+    pub fn repositories(&self) -> &AppRepositories {
+        &self.core.repositories
+    }
+
+    /// 获取剪贴记录搜索引擎。
+    pub fn search_engine(&self) -> &dyn SearchEngine {
+        self.core.search_engine.as_ref()
     }
 
     /// 获取系统设置缓存。

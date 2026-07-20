@@ -84,6 +84,7 @@ impl AppError {
 
 /// String 类型的错误转换
 impl From<AppError> for String {
+    /// 将统一应用错误转换为边界层可直接返回的字符串消息。
     fn from(err: AppError) -> Self {
         err.to_string()
     }
@@ -91,6 +92,7 @@ impl From<AppError> for String {
 
 /// 锁操作的安全包装
 impl<T> From<PoisonError<T>> for AppError {
+    /// 将标准库锁中毒错误转换为统一锁错误。
     fn from(err: PoisonError<T>) -> Self {
         AppError::Lock(format!("锁已中毒: {}", err))
     }
@@ -98,6 +100,7 @@ impl<T> From<PoisonError<T>> for AppError {
 
 /// HttpError 转换为 AppError
 impl From<crate::utils::http_client::HttpError> for AppError {
+    /// 将项目 HTTP Client 错误转换为统一 HTTP 错误。
     fn from(err: crate::utils::http_client::HttpError) -> Self {
         AppError::Http(err.to_string())
     }
@@ -105,6 +108,7 @@ impl From<crate::utils::http_client::HttpError> for AppError {
 
 /// anyhow::Error 转换为 AppError
 impl From<anyhow::Error> for AppError {
+    /// 将缺少专用分类的 anyhow 错误收敛为通用错误。
     fn from(err: anyhow::Error) -> Self {
         AppError::General(err.to_string())
     }
@@ -112,6 +116,7 @@ impl From<anyhow::Error> for AppError {
 
 /// serde_json::Error 转换为 AppError
 impl From<serde_json::Error> for AppError {
+    /// 将 JSON 序列化或反序列化错误转换为统一序列化错误。
     fn from(err: serde_json::Error) -> Self {
         AppError::Serde(err.to_string())
     }
@@ -119,6 +124,7 @@ impl From<serde_json::Error> for AppError {
 
 /// base64::DecodeError 转换为 AppError
 impl From<base64::DecodeError> for AppError {
+    /// 将 Base64 解码失败归类为加解密错误。
     fn from(err: base64::DecodeError) -> Self {
         AppError::Crypto(format!("Base64解码错误: {}", err))
     }

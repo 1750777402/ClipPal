@@ -11,8 +11,15 @@ use crate::{
         content_search::initialize_search_index, system_setting::load_settings_context,
     },
     errors::AppResult,
+    infra::{
+        db,
+        repositories::{
+            AppRepositories, DefaultVipRepository, FileSettingsRepository, HttpAuthRepository,
+            SqliteClipRecordRepository,
+        },
+        search::InMemorySearchEngine,
+    },
     log_config::init_logging,
-    sqlite_storage,
 };
 
 /// 启动后续阶段需要共享的核心资源。
@@ -51,8 +58,21 @@ pub async fn init_core() -> AppResult<BootstrapCore> {
         Arc::new(EventManager::default());
     clipboard_event_manager.add_event_listener(Arc::new(ClipboardEventTigger));
 
-    let db = sqlite_storage::init_sqlite().await?;
-    let app_context = Arc::new(AppContext::new(db.clone(), settings));
+    let db = db::connect().await?;
+    // 所有 Repository implementation 在启动阶段只创建一次，service 运行时只依赖 trait。
+    let repositories = AppRepositories::new(
+        Arc::new(SqliteClipRecordRepository::new(db.clone())),
+        Arc::new(FileSettingsRepository),
+        Arc::new(HttpAuthRepository::default()),
+        Arc::new(DefaultVipRepository::default()),
+    );
+    // 搜索引擎与仓储一并注入 AppContext，避免 service 访问全局实现对象。
+    let app_context = Arc::new(AppContext::new(
+        db.clone(),
+        settings,
+        repositories,
+        Arc::new(InMemorySearchEngine),
+    ));
     crate::app_context::set_app_context(app_context.clone())?;
 
     initialize_search_index_from_database(&db).await;
@@ -68,6 +88,7 @@ pub async fn init_core() -> AppResult<BootstrapCore> {
 ///
 /// 搜索索引初始化失败不阻断应用启动。
 async fn initialize_search_index_from_database(db: &RBatis) {
+    // 启动时加载全部记录建立内存索引；失败只影响搜索，不阻断应用启动。
     let all_clips = ClipRecord::select_order_by(db).await.unwrap_or_else(|e| {
         log::error!("获取剪贴板记录失败: {}", e);
         vec![]

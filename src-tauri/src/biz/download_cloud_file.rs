@@ -10,8 +10,8 @@ use crate::{
     api::cloud_sync_api::{get_dowload_url, DownloadCloudFileParam},
     app_context::app_context,
     biz::clip_record::{ClipRecord, SKIP_SYNC, SYNCHRONIZING},
-    biz::query_clip_record::get_file_info_with_paths,
     errors::{AppError, AppResult},
+    services::clip_record_service::get_file_info_with_paths,
     utils::{
         file_dir::get_resources_dir,
         file_ext::extract_full_extension_from_str,

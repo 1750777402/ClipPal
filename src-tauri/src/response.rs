@@ -155,6 +155,9 @@ where
     }
 }
 
+/// 将仍返回 `Result<T, String>` 的应用服务结果转换为统一 command 响应。
+///
+/// 字符串错误在边界处归类为通用错误，避免业务层依赖前端响应结构。
 pub fn string_result<T>(result: Result<T, String>) -> CommandResponse<T>
 where
     T: Serialize,

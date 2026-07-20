@@ -5,13 +5,12 @@ use tauri::Emitter;
 use tauri_plugin_opener::OpenerExt;
 
 use crate::{
-    api::vip_api::{
-        PayCodrUrlResponse, PayParam, QueryPayParam, QueryPayResponse, ServerConfigResponse,
-    },
     app_context::AppContext,
-    biz::vip_checker::VipChecker,
-    infra::http::vip_client::{HttpVipClient, VipClient},
-    utils::secure_store::{VipInfo, VipType},
+    domain::vip::{
+        PayCodrUrlResponse, PayParam, QueryPayParam, QueryPayResponse, ServerConfigResponse,
+        VipInfo, VipLimits, VipType,
+    },
+    infra::repositories::VipRepository,
 };
 
 #[derive(Serialize, Clone)]
@@ -22,59 +21,36 @@ struct VipStatusChangedPayload {
     max_records: u32,
 }
 
-pub struct VipService<'a, C> {
+/// VIP 应用服务，负责编排权益仓储、购买页面和前端状态变更事件。
+pub struct VipService<'a> {
     context: &'a AppContext,
-    client: C,
+    repository: &'a dyn VipRepository,
 }
 
-impl<'a> VipService<'a, HttpVipClient> {
+impl<'a> VipService<'a> {
+    /// 从应用上下文取得 VIP 仓储，创建轻量服务实例。
     pub fn from_context(context: &'a AppContext) -> Self {
         Self {
             context,
-            client: HttpVipClient,
+            repository: context.repositories().vip(),
         }
     }
-}
-
-impl<C> VipService<'_, C>
-where
-    C: VipClient,
-{
+    /// 读取本地缓存的 VIP 信息，不触发网络刷新。
     pub fn get_vip_status(&self) -> Result<Option<VipInfo>, String> {
-        VipChecker::get_local_vip_info().map_err(|error| error.to_string())
+        self.repository.get_local_info()
     }
 
+    /// 检查当前账号是否允许使用云同步，并返回判断原因。
     pub async fn check_vip_permission(&self) -> Result<(bool, String), String> {
-        VipChecker::check_cloud_sync_permission()
-            .await
-            .map_err(|error| error.to_string())
+        self.repository.check_cloud_sync_permission().await
     }
 
-    pub async fn get_vip_limits(&self) -> Result<serde_json::Value, String> {
-        let is_vip = VipChecker::is_vip_user()
-            .await
-            .map_err(|error| error.to_string())?;
-
-        let (max_records, max_file_size) =
-            if let Ok(Some(vip_info)) = VipChecker::get_local_vip_info() {
-                (vip_info.max_records, vip_info.max_file_size * 1024)
-            } else {
-                (300, 0)
-            };
-
-        let can_cloud_sync = VipChecker::check_cloud_sync_permission_with_vip_status(Some(is_vip))
-            .await
-            .map_err(|error| error.to_string())?
-            .0;
-
-        Ok(serde_json::json!({
-            "isVip": is_vip,
-            "maxRecords": max_records,
-            "maxFileSize": max_file_size,
-            "canCloudSync": can_cloud_sync
-        }))
+    /// 获取当前权益限制，包括记录数、文件大小和云同步能力。
+    pub async fn get_vip_limits(&self) -> Result<VipLimits, String> {
+        self.repository.get_limits().await
     }
 
+    /// 使用系统浏览器打开固定的 VIP 购买页面。
     pub fn open_vip_purchase_page(&self) -> Result<(), String> {
         let app_handle = self
             .context
@@ -86,11 +62,14 @@ where
             .map_err(|error| format!("打开浏览器失败: {}", error))
     }
 
+    /// 从服务端刷新 VIP 状态；刷新成功且数据变化时向前端发送状态事件。
     pub async fn refresh_vip_status(&self) -> Result<bool, String> {
-        match VipChecker::refresh_vip_from_server().await {
+        // 仓储负责服务端校验、本地加密缓存和权益限制更新。
+        match self.repository.refresh().await {
             Ok(updated) => {
                 if updated {
-                    if let Ok(Some(info)) = VipChecker::get_local_vip_info() {
+                    // 仅在能够读取到最新本地状态时构造完整事件载荷。
+                    if let Ok(Some(info)) = self.repository.get_local_info() {
                         let payload = VipStatusChangedPayload {
                             is_vip: info.vip_flag,
                             vip_type: Some(info.vip_type),
@@ -112,20 +91,23 @@ where
         }
     }
 
+    /// 获取服务端配置的各类 VIP 价格和限制。
     pub async fn get_server_config(
         &self,
     ) -> Result<Option<HashMap<VipType, ServerConfigResponse>>, String> {
-        self.client.get_server_config().await
+        self.repository.get_server_config().await
     }
 
+    /// 创建支付订单并返回二维码信息。
     pub async fn get_pay_url(&self, param: PayParam) -> Result<Option<PayCodrUrlResponse>, String> {
-        self.client.get_pay_url(&param).await
+        self.repository.get_pay_url(&param).await
     }
 
+    /// 查询指定支付订单的当前状态。
     pub async fn get_pay_result(
         &self,
         param: QueryPayParam,
     ) -> Result<Option<QueryPayResponse>, String> {
-        self.client.get_pay_result(&param).await
+        self.repository.get_pay_result(&param).await
     }
 }

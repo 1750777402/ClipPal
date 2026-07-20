@@ -1,12 +1,10 @@
 use log;
 use std::{
     fs,
-    marker::{Send, Sync},
     path::PathBuf,
     sync::{Arc, RwLock},
 };
 
-use serde::{Deserialize, Serialize};
 use tauri_plugin_autostart::ManagerExt;
 use tauri_plugin_global_shortcut::GlobalShortcutExt;
 
@@ -16,50 +14,17 @@ use crate::{
     biz::vip_checker::VipChecker,
     errors::{AppError, AppResult},
     global_shortcut::parse_shortcut_strict,
-    response::{ok, string_result, CommandResponse},
     utils::{
         file_dir::get_config_dir,
         lock_utils::lock_utils::{safe_read_lock, safe_write_lock},
     },
 };
 
-pub static DEFAULT_BLOOM_FILTER_TRUST_THRESHOLD: usize = 1024 * 1024;
-pub static DEFAULT_DIRECT_CONTAINS_THRESHOLD: usize = 128 * 1024;
-pub static SYNC_INTERVAL_SECONDS: u32 = 30;
+pub use crate::domain::settings::{
+    Settings, DEFAULT_BLOOM_FILTER_TRUST_THRESHOLD, DEFAULT_DIRECT_CONTAINS_THRESHOLD,
+    SYNC_INTERVAL_SECONDS,
+};
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct Settings {
-    pub max_records: u32,
-    pub auto_start: u32,
-    pub shortcut_key: String,
-    pub cloud_sync: u32,
-    pub auto_paste: u32,
-    pub tutorial_completed: u32,
-    pub bloom_filter_trust_threshold: Option<usize>,
-    pub direct_contains_threshold: Option<usize>,
-    pub cloud_sync_interval: u32,
-}
-
-unsafe impl Send for Settings {}
-unsafe impl Sync for Settings {}
-
-impl Default for Settings {
-    fn default() -> Self {
-        Self {
-            max_records: 200,
-            auto_start: 0,
-            shortcut_key: String::from("Ctrl+`"),
-            cloud_sync: 0,
-            auto_paste: 1,
-            tutorial_completed: 0,
-            bloom_filter_trust_threshold: Some(DEFAULT_BLOOM_FILTER_TRUST_THRESHOLD),
-            direct_contains_threshold: Some(DEFAULT_DIRECT_CONTAINS_THRESHOLD),
-            cloud_sync_interval: SYNC_INTERVAL_SECONDS,
-        }
-    }
-}
-
-#[allow(dead_code)]
 pub fn load_settings_context() -> Arc<RwLock<Settings>> {
     let settings = load_settings_value();
     create_default_config_if_not_exists(&settings);
@@ -80,11 +45,6 @@ pub fn get_settings_file_path() -> Option<PathBuf> {
     get_config_dir().map(|config_dir| config_dir.join("settings.json"))
 }
 
-#[allow(dead_code)]
-pub fn load_settings() -> CommandResponse<Settings> {
-    ok(load_settings_value())
-}
-
 pub fn load_settings_value() -> Settings {
     if let Some(path) = get_settings_file_path() {
         if path.exists() {
@@ -96,16 +56,6 @@ pub fn load_settings_value() -> Settings {
         }
     }
     Settings::default()
-}
-
-#[allow(dead_code)]
-pub async fn save_settings(
-    state: tauri::State<'_, Arc<AppContext>>,
-    settings: Settings,
-) -> Result<CommandResponse<()>, String> {
-    Ok(string_result(
-        save_settings_with_context(&state, settings).await,
-    ))
 }
 
 pub async fn save_settings_with_context(
@@ -294,37 +244,6 @@ pub(crate) async fn rollback_settings(
     }
 
     Ok(())
-}
-
-#[allow(dead_code)]
-pub async fn validate_shortcut(
-    state: tauri::State<'_, Arc<AppContext>>,
-    shortcut: String,
-) -> Result<CommandResponse<bool>, String> {
-    Ok(string_result(
-        async {
-            if !is_valid_shortcut_format(&shortcut) {
-                return Ok(false);
-            }
-
-            let current_shortcut = {
-                let lock = state.settings();
-                let result = match safe_read_lock(&lock) {
-                    Ok(current) => current.shortcut_key.clone(),
-                    Err(_) => String::new(),
-                };
-                result
-            };
-
-            if shortcut == current_shortcut {
-                return Ok(true);
-            }
-
-            parse_shortcut_strict(&shortcut)?;
-            Ok(true)
-        }
-        .await,
-    ))
 }
 
 pub async fn check_cloud_sync_enabled() -> bool {

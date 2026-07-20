@@ -1,0 +1,6 @@
+mod settings;
+
+pub use settings::{
+    Settings, DEFAULT_BLOOM_FILTER_TRUST_THRESHOLD, DEFAULT_DIRECT_CONTAINS_THRESHOLD,
+    SYNC_INTERVAL_SECONDS,
+};

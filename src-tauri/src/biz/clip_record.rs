@@ -1,50 +1,11 @@
 #![allow(dead_code)]
 
+pub use crate::domain::clip::{
+    ClipRecord, NOT_SYNCHRONIZED, SKIP_SYNC, SYNCHRONIZED, SYNCHRONIZING,
+};
 use crate::errors::{AppError, AppResult};
 use rbatis::{crud, impl_select, Error, RBatis};
 use rbs::to_value;
-use serde::{Deserialize, Serialize};
-use serde_json::Value;
-
-pub static NOT_SYNCHRONIZED: i32 = 0; // 未同步
-pub static SYNCHRONIZING: i32 = 1; // 同步中
-pub static SYNCHRONIZED: i32 = 2; // 已同步
-pub static SKIP_SYNC: i32 = 3; // 不支持同步（多文件、超大文件等）
-
-#[derive(Clone, Debug, Serialize, Deserialize, Default)]
-pub struct ClipRecord {
-    pub id: String,
-    // 类型
-    pub r#type: String,
-    // 内容
-    pub content: Value,
-    // 内容md5值
-    pub md5_str: String,
-    // 本地文件地址
-    pub local_file_path: Option<String>,
-    // 时间戳
-    pub created: u64,
-    // os类型
-    pub os_type: String,
-    // 排序字段
-    pub sort: i32,
-    // 是否置顶
-    pub pinned_flag: i32,
-    // 是否已同步云端  0:未同步，1:同步中，2:已同步
-    pub sync_flag: Option<i32>,
-    // 同步时间
-    pub sync_time: Option<u64>,
-    // 设备标识
-    pub device_id: Option<String>,
-    // 云同步版本号（预留字段）
-    pub version: Option<i32>,
-    // 是否逻辑删除 0:未删除 1:已删除
-    pub del_flag: Option<i32>,
-    // 是否是云端同步下来的数据
-    pub cloud_source: Option<i32>,
-    // 跳过云同步的原因类型  跳过后是否可以再次尝试同步 （None：不是跳过的，1：不支持再次同步，2：vip限制，可再次同步）
-    pub skip_type: Option<i32>,
-}
 
 crud!(ClipRecord {}, "clip_record");
 impl_select!(ClipRecord{select_by_id(id: &str) =>"`where id = #{id}`"});

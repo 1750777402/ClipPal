@@ -11,6 +11,7 @@ use crate::{
 };
 
 #[tauri::command]
+/// 查询剪贴记录列表，将分页与搜索参数交给剪贴记录服务，并统一包装查询结果。
 pub async fn get_clip_records(
     state: tauri::State<'_, Arc<AppContext>>,
     param: QueryParam,
@@ -20,6 +21,7 @@ pub async fn get_clip_records(
 }
 
 #[tauri::command]
+/// 获取指定图片记录的本地路径，供前端通过安全路径加载图片资源。
 pub async fn get_image_path(
     state: tauri::State<'_, Arc<AppContext>>,
     param: GetImageParam,
@@ -31,6 +33,7 @@ pub async fn get_image_path(
 }
 
 #[tauri::command]
+/// 批量读取图片记录的文件信息，减少前端逐条调用产生的 IPC 开销。
 pub async fn get_image_info_batch(
     state: tauri::State<'_, Arc<AppContext>>,
     record_ids: Vec<String>,
@@ -42,6 +45,7 @@ pub async fn get_image_info_batch(
 }
 
 #[tauri::command]
+/// 获取被列表预览截断的完整文本内容，并返回原始内容长度。
 pub async fn get_full_text_content(
     state: tauri::State<'_, Arc<AppContext>>,
     param: GetFullContentParam,
@@ -53,6 +57,7 @@ pub async fn get_full_text_content(
 }
 
 #[tauri::command]
+/// 修改记录置顶状态，由服务层执行业务操作并返回统一响应。
 pub async fn set_pinned(
     state: tauri::State<'_, Arc<AppContext>>,
     param: PinnedClipRecordParam,
@@ -66,6 +71,7 @@ pub async fn set_pinned(
 }
 
 #[tauri::command]
+/// 逻辑删除指定剪贴记录，并由服务层处理搜索索引和云同步队列。
 pub async fn del_record(
     state: tauri::State<'_, Arc<AppContext>>,
     param: ClipRecordIdParam,

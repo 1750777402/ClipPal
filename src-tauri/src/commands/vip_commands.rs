@@ -1,16 +1,17 @@
 use std::{collections::HashMap, sync::Arc};
 
 use crate::{
-    api::vip_api::{
-        PayCodrUrlResponse, PayParam, QueryPayParam, QueryPayResponse, ServerConfigResponse,
-    },
     app_context::AppContext,
+    domain::vip::{
+        PayCodrUrlResponse, PayParam, QueryPayParam, QueryPayResponse, ServerConfigResponse,
+        VipInfo, VipLimits, VipType,
+    },
     response::{string_result, CommandResponse},
     services::vip_service::VipService,
-    utils::secure_store::{VipInfo, VipType},
 };
 
 #[tauri::command]
+/// 读取本地缓存的 VIP 状态，用于前端快速展示账户权益。
 pub async fn get_vip_status(
     state: tauri::State<'_, Arc<AppContext>>,
 ) -> Result<CommandResponse<Option<VipInfo>>, String> {
@@ -19,6 +20,7 @@ pub async fn get_vip_status(
 }
 
 #[tauri::command]
+/// 检查当前用户是否具备云同步权限，并返回判断原因。
 pub async fn check_vip_permission(
     state: tauri::State<'_, Arc<AppContext>>,
 ) -> Result<CommandResponse<(bool, String)>, String> {
@@ -27,14 +29,16 @@ pub async fn check_vip_permission(
 }
 
 #[tauri::command]
+/// 计算当前用户可用的记录数、文件大小和云同步限制。
 pub async fn get_vip_limits(
     state: tauri::State<'_, Arc<AppContext>>,
-) -> Result<CommandResponse<serde_json::Value>, String> {
+) -> Result<CommandResponse<VipLimits>, String> {
     let service = VipService::from_context(state.inner().as_ref());
     Ok(string_result(service.get_vip_limits().await))
 }
 
 #[tauri::command]
+/// 使用系统浏览器打开 VIP 购买页面。
 pub async fn open_vip_purchase_page(
     state: tauri::State<'_, Arc<AppContext>>,
 ) -> Result<CommandResponse<()>, String> {
@@ -43,6 +47,7 @@ pub async fn open_vip_purchase_page(
 }
 
 #[tauri::command]
+/// 从服务端刷新 VIP 状态，并在状态更新后通知前端。
 pub async fn refresh_vip_status(
     state: tauri::State<'_, Arc<AppContext>>,
 ) -> Result<CommandResponse<bool>, String> {
@@ -51,6 +56,7 @@ pub async fn refresh_vip_status(
 }
 
 #[tauri::command]
+/// 获取服务端下发的各 VIP 类型价格和权益配置。
 pub async fn get_server_config(
     state: tauri::State<'_, Arc<AppContext>>,
 ) -> Result<CommandResponse<Option<HashMap<VipType, ServerConfigResponse>>>, String> {
@@ -59,6 +65,7 @@ pub async fn get_server_config(
 }
 
 #[tauri::command]
+/// 创建支付订单并获取用于展示的支付二维码地址。
 pub async fn get_pay_url(
     state: tauri::State<'_, Arc<AppContext>>,
     param: PayParam,
@@ -68,6 +75,7 @@ pub async fn get_pay_url(
 }
 
 #[tauri::command]
+/// 根据订单号查询支付状态，供前端轮询支付结果。
 pub async fn get_pay_result(
     state: tauri::State<'_, Arc<AppContext>>,
     param: QueryPayParam,

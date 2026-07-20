@@ -3,23 +3,32 @@ use crate::{
     utils::secure_store::SECURE_STORE,
 };
 
+/// 认证安全存储接口，隔离仓储与加密文件存储的具体实现。
 pub trait AuthStore: Send + Sync {
+    /// 保存登录接口返回的访问令牌、刷新令牌、用户资料和过期时间。
     fn store_auth_data(&self, response: &AuthResponse) -> Result<(), String>;
 
+    /// 读取本地访问令牌。
     fn access_token(&self) -> Option<String>;
 
+    /// 读取并反序列化本地用户资料。
     fn user_info(&self) -> Option<ApiUserInfo>;
 
+    /// 清除所有认证相关本地数据。
     fn clear_auth_data(&self) -> Result<(), String>;
 
+    /// 只更新本地用户资料中的昵称字段。
     fn update_user_nickname(&self, nickname: &str) -> Result<(), String>;
 }
 
 #[derive(Default)]
+/// 基于应用加密存储文件的认证数据实现。
 pub struct SecureAuthStore;
 
 impl AuthStore for SecureAuthStore {
+    /// 在写锁保护下顺序保存完整认证响应；任一字段失败都会向上返回错误。
     fn store_auth_data(&self, response: &AuthResponse) -> Result<(), String> {
+        // 全部认证字段共享同一个 SecureStore，写锁保证并发写入不会交叉。
         let mut store = SECURE_STORE
             .write()
             .map_err(|error| format!("获取存储写锁失败: {}", error))?;
@@ -43,6 +52,7 @@ impl AuthStore for SecureAuthStore {
         Ok(())
     }
 
+    /// 从安全存储读取访问令牌；锁或文件读取失败时记录日志并返回空。
     fn access_token(&self) -> Option<String> {
         match SECURE_STORE.write() {
             Ok(mut store) => store.get_jwt_token().ok().flatten(),
@@ -53,6 +63,7 @@ impl AuthStore for SecureAuthStore {
         }
     }
 
+    /// 读取 JSON 用户资料并反序列化为认证 API 模型。
     fn user_info(&self) -> Option<ApiUserInfo> {
         match SECURE_STORE.write() {
             Ok(mut store) => match store.get_user_info() {
@@ -66,6 +77,7 @@ impl AuthStore for SecureAuthStore {
         }
     }
 
+    /// 清除令牌、用户资料和过期时间并持久化。
     fn clear_auth_data(&self) -> Result<(), String> {
         let mut store = SECURE_STORE
             .write()
@@ -75,6 +87,7 @@ impl AuthStore for SecureAuthStore {
             .map_err(|error| format!("清除认证数据失败: {}", error))
     }
 
+    /// 基于现有用户 JSON 更新昵称后重新写入安全存储。
     fn update_user_nickname(&self, nickname: &str) -> Result<(), String> {
         let mut store = SECURE_STORE
             .write()

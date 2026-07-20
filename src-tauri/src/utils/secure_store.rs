@@ -1,5 +1,6 @@
 #![allow(dead_code)]
 
+pub use crate::domain::vip::{VipInfo, VipType};
 use crate::errors::{AppError, AppResult};
 use crate::utils::aes_util::{decrypt_content, encrypt_content};
 use crate::utils::file_dir::get_data_dir;
@@ -169,31 +170,6 @@ impl SecureStore {
         self.data.token_expires = None;
         self.save()
     }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct VipInfo {
-    pub vip_flag: bool,
-    pub vip_type: VipType,
-    pub expire_time: Option<u64>,      // 到期时间戳(毫秒)
-    pub max_records: u32,              // 最大记录数限制
-    pub max_file_size: u64,            // 最大文件大小限制(KB)
-    pub features: Option<Vec<String>>, // VIP功能列表
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
-pub enum VipType {
-    Free,      // 免费用户
-    Monthly,   // 月付费
-    Quarterly, // 季度付费
-    Yearly,    // 年付费
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ServerConfig {
-    pub max_file_size: u64,   // 服务器控制的文件大小限制
-    pub free_sync_limit: u32, // 免费用户云同步限制
-    pub vip_sync_limit: u32,  // VIP用户云同步限制
 }
 
 impl SecureStore {

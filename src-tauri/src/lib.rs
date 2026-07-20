@@ -15,6 +15,7 @@ mod biz;
 mod bootstrap;
 mod clip_board_listener;
 mod commands;
+pub mod domain;
 mod dto;
 mod errors;
 mod global_shortcut;
@@ -26,20 +27,26 @@ mod services;
 mod sqlite_storage;
 mod system;
 mod tray;
-mod updater;
 mod utils;
 mod window;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
+/// 组装并运行 ClipPal Tauri 应用。
+///
+/// 该入口只负责初始化核心依赖、注册插件和 command、连接生命周期事件，
+/// 具体业务由 service、domain、repository 和 system 模块承担。
 pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
+    // 在构建 Tauri 应用前完成数据库、仓储、搜索引擎和共享上下文初始化。
     let core = bootstrap::init_core().await?;
     let app_context = core.app_context.clone();
     let core_for_setup = core.clone();
     let core_for_run = core.clone();
 
+    // AppContext 作为 Tauri managed state 注入，所有 command 从同一上下文获取依赖。
     bootstrap::register_plugins(tauri::Builder::default())
         .manage(app_context)
         .setup(move |app| Ok(bootstrap::setup_app(app, core_for_setup.clone())?))
+        // command 注册表是前端调用后端的唯一 IPC 边界。
         .invoke_handler(tauri::generate_handler![
             get_clip_records,
             get_image_path,
@@ -81,6 +88,7 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
             log::error!("应用构建失败: {}", e);
             std::process::exit(1);
         })
+        // 将 Tauri RunEvent 交给 bootstrap 统一处理 Ready 和退出清理。
         .run(move |_, event| {
             bootstrap::handle_run_event(event, core_for_run.clone());
         });
