@@ -4,12 +4,9 @@ use tauri_plugin_clipboard_pal::desktop::ClipboardPal;
 use tauri_plugin_dialog::DialogExt;
 
 use crate::{
-    app_context::AppContext,
-    auto_paste,
-    dto::clip_dto::CopySingleFileParam,
-    infra::repositories::ClipRecordRepository,
-    system::clipboard::{create_named_temp_files, show_accessibility_dialog, write_record},
-    utils::path_utils::str_to_safe_string,
+    app_context::AppContext, dto::clip_dto::CopySingleFileParam,
+    infra::repositories::ClipRecordRepository, services::auto_paste_service::AutoPasteService,
+    system::clipboard::create_named_temp_files, utils::path_utils::str_to_safe_string,
     window::WindowHideGuard,
 };
 
@@ -40,9 +37,6 @@ impl<'a> ClipboardService<'a> {
             .await
             .map_err(|_| "剪贴记录查询失败".to_string())?
             .ok_or_else(|| "记录不存在".to_string())?;
-        // 根据记录类型写入文本、图片或文件 URI。
-        write_record(self.context, &record).await?;
-
         // 自动粘贴必须同时满足 command 允许和用户设置已开启两个条件。
         let auto_paste_enabled = allow_auto_paste
             && self
@@ -50,23 +44,11 @@ impl<'a> ClipboardService<'a> {
                 .with_settings(|settings| settings.auto_paste == 1)
                 .unwrap_or(false);
 
+        let auto_paste_service = AutoPasteService::from_context(self.context);
         if auto_paste_enabled {
-            let app_handle = self
-                .context
-                .app_handle()
-                .map_err(|error| error.to_string())?;
-            // 等待剪贴板内容稳定后再模拟粘贴，避免目标应用读取到旧内容。
-            std::thread::spawn(move || {
-                std::thread::sleep(std::time::Duration::from_millis(100));
-                if let Err(error) = auto_paste::auto_paste_to_previous_window() {
-                    if error.to_string().contains("权限") {
-                        let app_handle_for_dialog = app_handle.clone();
-                        let _ = app_handle.run_on_main_thread(move || {
-                            show_accessibility_dialog(&app_handle_for_dialog);
-                        });
-                    }
-                }
-            });
+            auto_paste_service.copy_and_paste(&record).await?;
+        } else {
+            auto_paste_service.copy_only(&record).await?;
         }
 
         Ok(String::new())
@@ -167,13 +149,22 @@ impl<'a> ClipboardService<'a> {
             ));
         }
 
+        // 单文件复制也参与同一串行队列，避免覆盖正在等待发送的自动粘贴内容。
+        let _operation = self
+            .context
+            .auto_paste_state()
+            .operation_lock()
+            .lock()
+            .await;
+
         // 优先创建保留显示名称的临时硬链接，失败时退回真实文件路径。
         match create_named_temp_files(&[param.file_path], &[actual_file_path.clone()]).await {
             Ok(temp_files) => {
-                let _ = clipboard.write_files_uris(temp_files);
+                clipboard.write_files_uris(temp_files)?;
             }
-            Err(_) => {
-                let _ = clipboard.write_files_uris(vec![actual_file_path.clone()]);
+            Err(error) => {
+                log::warn!("创建单文件临时副本失败，使用真实路径: {}", error);
+                clipboard.write_files_uris(vec![actual_file_path.clone()])?;
             }
         }
 

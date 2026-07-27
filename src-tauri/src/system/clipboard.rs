@@ -23,7 +23,7 @@ pub async fn write_record(context: &AppContext, record: &ClipRecord) -> Result<(
                 ContentProcessor::process_text_content(record.content.clone()).as_str(),
             )
             .map_err(|_| "文本解密失败".to_string())?;
-            let _ = clipboard.write_text(content);
+            clipboard.write_text(content)?;
         }
         ClipType::Image => {
             // 图片记录保存资源目录相对路径，系统剪贴板需要实际二进制数据。
@@ -34,7 +34,7 @@ pub async fn write_record(context: &AppContext, record: &ClipRecord) -> Result<(
                         return Err("图片资源不存在，无法复制".to_string());
                     }
                     if let Ok(image_bytes) = std::fs::read(absolute_path) {
-                        let _ = clipboard.write_image_binary(image_bytes);
+                        clipboard.write_image_binary(image_bytes)?;
                     } else {
                         return Err("图片资源读取失败，无法复制".to_string());
                     }
@@ -80,10 +80,11 @@ pub async fn write_record(context: &AppContext, record: &ClipRecord) -> Result<(
             // 临时文件用于恢复原始显示名称；创建失败时退回真实路径。
             match create_named_temp_files(&display_list, &actual_list).await {
                 Ok(temp_files) => {
-                    let _ = clipboard.write_files_uris(temp_files);
+                    clipboard.write_files_uris(temp_files)?;
                 }
-                Err(_) => {
-                    let _ = clipboard.write_files_uris(actual_list);
+                Err(error) => {
+                    log::warn!("创建带显示名称的临时文件失败，使用真实路径: {}", error);
+                    clipboard.write_files_uris(actual_list)?;
                 }
             }
         }

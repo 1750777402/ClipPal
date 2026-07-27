@@ -10,7 +10,6 @@ use crate::commands::{
 
 mod api;
 mod app_context;
-mod auto_paste;
 mod biz;
 mod bootstrap;
 mod clip_board_listener;

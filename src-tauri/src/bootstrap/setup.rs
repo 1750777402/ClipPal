@@ -7,7 +7,9 @@ use crate::{
         update_checker::check_update_on_startup,
     },
     bootstrap::core::BootstrapCore,
-    clip_board_listener, global_shortcut, menu, tray, window,
+    clip_board_listener, global_shortcut, menu,
+    services::auto_paste_service::AutoPasteService,
+    tray, window,
 };
 
 /// 执行 Tauri `.setup()` 阶段初始化。
@@ -38,7 +40,12 @@ pub fn setup_app(app: &mut App, core: BootstrapCore) -> tauri::Result<()> {
 fn init_desktop_shell(app: &mut App, core: &BootstrapCore) -> tauri::Result<()> {
     let _ = menu::init_menu(app);
 
-    tray::create_tray(app.handle(), core.app_context.window_focus_count())?;
+    tray::create_tray(app.handle(), core.app_context.clone())?;
+
+    // 普通启动会直接显示主窗口，因此也要在显示前捕获当时的前台应用。
+    if let Err(error) = AutoPasteService::from_context(core.app_context.as_ref()).capture_target() {
+        log::warn!("启动时保存自动粘贴目标窗口失败: {}", error);
+    }
 
     let _ = window::init_main_window(
         app,

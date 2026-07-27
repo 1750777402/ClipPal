@@ -1,4 +1,4 @@
-use std::sync::{Arc, OnceLock, RwLock};
+use std::sync::{Arc, Mutex, OnceLock, RwLock};
 
 use rbatis::RBatis;
 use tauri::{AppHandle, WebviewWindow};
@@ -46,7 +46,62 @@ pub struct AppContext {
     sync: SyncContext,
     /// 主窗口相关的运行状态。
     window: WindowContext,
+    /// 自动粘贴流程共享的运行状态。
+    auto_paste: AutoPasteState,
 }
+
+/// 自动粘贴的目标窗口。
+#[derive(Clone, Debug)]
+pub enum AutoPasteTarget {
+    #[cfg(windows)]
+    Windows {
+        hwnd: isize,
+        process_id: u32,
+        title: String,
+    },
+    #[cfg(target_os = "macos")]
+    MacOS {
+        process_id: i32,
+        bundle_id: Option<String>,
+        app_name: String,
+    },
+    #[cfg(not(any(windows, target_os = "macos")))]
+    Unsupported,
+}
+
+/// 自动粘贴流程需要跨入口共享的状态数据。
+pub struct AutoPasteState {
+    target: Mutex<Option<AutoPasteTarget>>,
+    operation_lock: tokio::sync::Mutex<()>,
+}
+
+impl Default for AutoPasteState {
+    fn default() -> Self {
+        Self {
+            target: Mutex::new(None),
+            operation_lock: tokio::sync::Mutex::new(()),
+        }
+    }
+}
+
+impl AutoPasteState {
+    /// 替换最近一次唤起 ClipPal 前捕获的目标窗口。
+    pub fn replace_target(&self, target: Option<AutoPasteTarget>) -> AppResult<()> {
+        *self.target.lock()? = target;
+        Ok(())
+    }
+
+    /// 获取目标窗口快照，避免在系统调用期间长期持有状态锁。
+    pub fn target(&self) -> AppResult<Option<AutoPasteTarget>> {
+        Ok(self.target.lock()?.clone())
+    }
+
+    /// 获取完整复制与自动粘贴流程使用的串行锁。
+    pub fn operation_lock(&self) -> &tokio::sync::Mutex<()> {
+        &self.operation_lock
+    }
+}
+
 
 /// 只初始化一次的运行期资源。
 ///
@@ -329,6 +384,7 @@ impl AppContext {
             clipboard: ClipboardContext::default(),
             sync: SyncContext::default(),
             window: WindowContext::default(),
+            auto_paste: AutoPasteState::default(),
         }
     }
 
@@ -357,6 +413,11 @@ impl AppContext {
     /// 获取窗口状态分组。
     pub fn window(&self) -> &WindowContext {
         &self.window
+    }
+
+    /// 获取自动粘贴共享状态。
+    pub fn auto_paste_state(&self) -> &AutoPasteState {
+        &self.auto_paste
     }
 
     /// 获取数据库连接。

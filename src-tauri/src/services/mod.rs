@@ -1,4 +1,5 @@
 pub mod auth_service;
+pub mod auto_paste_service;
 pub mod clip_record_service;
 pub mod clipboard_service;
 pub mod settings_service;

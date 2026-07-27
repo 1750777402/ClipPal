@@ -524,17 +524,62 @@ infra/repositories/sqlite_clip_record_repository.rs
 
 ### 6.4 云同步
 
-云同步后续可能会调整协议、服务端、冲突策略、上传下载策略。
+云同步采用“HTTP 负责写入和补拉，SSE 负责实时通知”的组合方案。SSE 是服务端到客户端的单向通道，不承担记录上传；本地新增或修改记录后，仍通过 HTTP 提交到云端，服务端持久化成功后再向该用户的全部在线客户端广播 SSE 事件。
 
-建议拆成几个接口：
+推荐链路：
+
+```text
+本地新增记录
+  -> 写入本地数据库和持久化 outbox
+  -> HTTP 幂等上传
+  -> 服务端持久化
+  -> SSE 广播变更事件
+  -> 各客户端去重并合并，必要时通过 HTTP 拉取完整内容
+```
+
+登录后的初始化链路：
+
+1. 从服务端分页拉取近期记录快照，同时取得服务端同步游标 `cursor`。
+2. 在本地事务中合并快照、删除墓碑和同步游标。
+3. 使用该 `cursor` 建立 SSE 连接；服务端必须能够重放游标之后的事件，避免“拉取结束到 SSE 建连之间”丢失消息。
+4. SSE 断开后使用最后成功提交的事件游标重连，并采用带抖动的指数退避。
+
+SSE 事件只携带同步所需的最小信息：
+
+```text
+event_id / cursor     服务端单调递增事件游标
+operation             upsert / delete
+record_id             记录 ID
+version               记录版本，用于幂等和冲突判断
+created_at            记录产生时间
+content_mode          inline / reference
+record_type           text / image / file
+content               可选，仅短内容内联
+checksum              可选，用于校验拉取结果
+```
+
+- 短文本可以直接内联在 SSE 事件中，阈值由服务端统一配置。
+- 长文本、图片和文件只广播记录元数据，客户端收到后通过 HTTP 获取完整记录或下载资源。
+- 本机上传成功后仍可能收到自己的 SSE 事件，客户端必须按 `record_id + version` 幂等去重。
+- 删除操作必须使用墓碑事件，不能只依赖服务端当前列表，否则离线客户端无法得知记录已删除。
+- 本地待上传任务应持久化到 SQLite outbox，不能只放在内存队列中，避免程序退出或断网时丢失。
+
+记录列表的合并和排序以记录产生时间 `created_at` 为主。同一记录发生重复通知或状态更新时，使用 `version` 判断新旧；产生时间相同的不同记录使用 `record_id` 作为稳定排序补充条件。SSE 断线续传使用服务端 `cursor`，不能使用客户端时间戳代替，因为不同设备的系统时间可能不一致。
+
+建议拆成以下接口：
 
 ```rust
 #[async_trait::async_trait]
 pub trait CloudSyncClient: Send + Sync {
-    async fn pull_records(&self, since: u64) -> AppResult<Vec<RemoteClipRecord>>;
-    async fn push_records(&self, records: Vec<ClipRecord>) -> AppResult<PushResult>;
+    async fn bootstrap(&self, cursor: Option<String>) -> AppResult<SyncSnapshot>;
+    async fn push_record(&self, record: &ClipRecord, idempotency_key: &str) -> AppResult<PushResult>;
+    async fn fetch_record(&self, id: &str, version: u64) -> AppResult<RemoteClipRecord>;
     async fn upload_file(&self, file: UploadFile) -> AppResult<RemoteFile>;
     async fn download_file(&self, file_id: &str) -> AppResult<Vec<u8>>;
+}
+
+pub trait SyncEventStream: Send + Sync {
+    async fn connect(&self, cursor: Option<String>) -> AppResult<SyncEventReceiver>;
 }
 
 pub trait SyncConflictResolver: Send + Sync {
@@ -542,9 +587,36 @@ pub trait SyncConflictResolver: Send + Sync {
 }
 ```
 
-使用的设计模式：Strategy、Template Method。
+`CloudSyncService` 负责编排初始化快照、outbox 上传、SSE 消费、HTTP 补拉和本地事务；HTTP、SSE、数据库和资源下载的具体实现放在 `infra`。SSE 连接使用当前有效 access token，token 刷新成功后应使用新 token 自动重连。
 
-### 6.5 VIP 权益
+使用的设计模式：Outbox、Strategy、Observer。
+
+### 6.5 本地会话与 VIP 权益
+
+本地身份认证和 VIP 信息更新都属于“服务端状态在本地的缓存与刷新”问题，应共享刷新机制，但不能把 access token、用户资料和 VIP 权益混成同一个领域对象。
+
+建议拆分为：
+
+```text
+SessionService             登录、登出、token 刷新、当前用户快照
+EntitlementService         VIP 权益刷新、缓存和业务规则
+AuthenticatedHttpClient    注入 token、识别失效响应、触发刷新并重试一次
+SessionStore               加密持久化 token 和用户资料
+EntitlementStore           持久化 VIP 快照及最后校验时间
+```
+
+统一处理流程：
+
+1. 普通请求使用内存中的会话快照，启动时从加密存储恢复。
+2. 服务端明确返回 access token 过期时，只允许一个请求执行 refresh token，其余并发请求等待同一刷新结果。
+3. token 刷新成功后原子更新内存和本地加密存储，原请求最多自动重试一次，防止无限重试。
+4. refresh token 也失效时清空本地会话、停止需要登录的后台任务，并统一发送 `auth-state-changed` 事件。
+5. 服务端返回 VIP 状态过期或权益版本落后时，调用权益查询接口刷新 `EntitlementSnapshot`，原子更新缓存后发送 `vip-status-changed` 事件。
+6. 支付成功、SSE 收到账户权益变化事件或用户主动刷新时，也进入同一个权益刷新入口，不再各自实现缓存更新逻辑。
+
+云同步开关属于用户偏好。短暂 token 过期或网络错误时应暂停同步并尝试恢复，不应直接永久关闭并覆盖用户设置；只有明确退出登录或产品规则要求时才修改该设置。
+
+本地 VIP 缓存至少需要保存 `checked_at`、`expires_at` 和服务端权益版本。网络不可用时可以用于界面展示，但涉及付费能力的最终判断应依据明确的离线策略，不能把“缓存存在”等同于“权益永久有效”。
 
 VIP 判断不建议散落在剪贴板处理、设置保存、同步处理里。可以抽成策略：
 
@@ -587,7 +659,11 @@ services/clip_record_service.rs
 services/clipboard_capture_service.rs
 ```
 
-职责：
+`clipboard-listener` 模块以及 `clipboard-listener -> ClipboardEventTigger::handle_event` 的触发链路是当前稳定的数据来源边界，不纳入本轮重构。不得修改监听模块、事件类型、注册方式和触发语义。
+
+后续如果整理 `handle_event` 收到事件之后的业务代码，只能在保持上述入口完全兼容的前提下向服务层委托，不能改变剪贴板事件的来源和触发时机。当前优先处理会话状态与云同步，不开展这部分迁移。
+
+业务处理职责：
 
 - 接收系统剪贴板事件
 - 判断文本、图片、文件类型
@@ -644,11 +720,15 @@ services/vip_service.rs
 职责：
 
 - 登录、登出、token 验证
-- 用户信息刷新
-- VIP 状态刷新
+- token 过期后的单飞刷新和单次请求重试
+- 用户信息快照和加密持久化
+- VIP 权益快照、版本和过期时间管理
+- 服务端失效响应、支付结果和实时事件触发的统一刷新
 - VIP 权益判断
 
-不建议让前端直接关心太多 VIP 规则。前端应该展示状态，核心限制规则由 Rust 后端判断。
+`AuthService` 和 `VipService` 可以保留面向 command 的接口，但底层应共享统一状态刷新协调器。所有 HTTP API 不应各自读取 token、刷新 token 或更新 VIP 缓存。
+
+不建议让前端直接关心太多 VIP 规则。前端只展示后端发布的状态快照，核心限制规则和缓存有效性由 Rust 后端判断。
 
 ## 8. 前端目标架构
 
@@ -834,38 +914,47 @@ frontend/src/
 - `clip_record.rs` 逐渐收缩为模型和少量领域方法。
 - command 中没有复杂数据库逻辑。
 
-### 阶段 5：拆分复制和监听流程
+### 阶段 5：收敛本地会话和 VIP 状态
 
-目标：降低 `copy_clip_record.rs` 和 `clip_record_sync.rs` 的复杂度。
+目标：统一 token、用户资料和 VIP 权益的本地存储、缓存失效和实时刷新流程。
 
 任务：
 
-- 新增 `ClipboardWriter`。
-- 新增 `ClipboardCopyService`。
-- 新增 `ClipboardCaptureService`。
-- 文件临时处理迁移到独立服务。
-- 自动粘贴迁移到独立 system service。
+- 建立 `SessionSnapshot` 和 `EntitlementSnapshot`。
+- 将 token 与用户资料存储收口到 `SessionStore`。
+- 将 VIP 本地缓存收口到 `EntitlementStore`。
+- 在统一 HTTP 客户端中处理 token 过期、单飞刷新和单次重试。
+- 将 VIP 过期、支付成功和实时权益事件收口到同一个刷新入口。
+- 删除业务模块中重复的 token/VIP 刷新和缓存更新逻辑。
 
 验收：
 
-- 复制记录的流程可以通过 service 阅读清楚。
-- 文本、图片、文件复制逻辑相互隔离。
+- 并发请求遇到 token 过期时只发起一次 refresh 请求。
+- token 和 VIP 状态更新都先完成本地原子提交，再通知前端和后台任务。
+- 任一 HTTP API 不再自行实现 token 或 VIP 刷新。
+- 短暂认证失败不会永久覆盖用户的云同步偏好。
 
-### 阶段 6：抽象搜索、同步、VIP 策略
+### 阶段 6：迁移 HTTP + SSE 云同步
 
-目标：为后续优化或替换方案留接口。
+目标：使用 HTTP 完成上传和补拉，使用 SSE 完成多客户端实时变更通知，并保证断线后可恢复。
 
 任务：
 
-- 新增 `SearchEngine` trait。
 - 新增 `CloudSyncClient` trait。
-- 新增 `EntitlementPolicy`。
-- 把当前实现作为默认实现接入。
+- 新增 `SyncEventStream` 和 SSE 默认实现。
+- 新增 SQLite outbox、同步游标和删除墓碑存储。
+- 登录后执行近期记录快照合并，再从快照游标建立 SSE。
+- 小记录走 SSE 内联，大记录收到事件后通过 HTTP 拉取。
+- 按 `record_id + version` 去重，按 `created_at` 合并和排序。
+- 接入断线重连、事件重放、心跳超时和指数退避。
 
 验收：
 
-- 替换搜索实现时不需要改 command 和前端。
-- 调整 VIP 权益规则时不需要在多个模块里重复改判断。
+- 本地新增记录即使断网或退出程序也不会丢失待上传任务。
+- 多个客户端可以实时收到新增、更新和删除事件。
+- SSE 断开期间的事件可以通过游标重放或快照补拉恢复。
+- 重复事件和本机回环事件不会产生重复记录。
+- token 刷新后 SSE 使用新 token 自动重连。
 
 ## 10. 设计模式学习点
 
@@ -1009,4 +1098,3 @@ frontend/src/
 5. 迁移 `get_clip_records` 作为第一个试点。
 
 完成这一小步后，再迁移复制、设置保存、登录、VIP 状态等 command。
-

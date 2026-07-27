@@ -1,4 +1,4 @@
-use crate::auto_paste;
+use crate::services::auto_paste_service::AutoPasteService;
 use crate::{app_context::AppContext, biz::system_setting::Settings};
 use std::sync::Arc;
 use tauri::{App, Manager};
@@ -30,12 +30,18 @@ pub fn init_global_shortcut(app: &App, app_context: Arc<AppContext>) -> tauri::R
             .global_shortcut()
             .on_shortcut(shortcut_obj, {
                 let app_handle = app.handle().clone();
+                let auto_paste_context = app_context.clone();
                 move |_app, shortcut, event| {
                     log::debug!("快捷键触发: {:?}, 状态: {:?}", shortcut, event.state());
                     if event.state() == tauri_plugin_global_shortcut::ShortcutState::Pressed {
                         if let Some(window) = app_handle.get_webview_window("main") {
                             // 在显示粘贴板窗口之前，先保存当前获得焦点的窗口
-                            auto_paste::save_foreground_window();
+                            if let Err(error) =
+                                AutoPasteService::from_context(auto_paste_context.as_ref())
+                                    .capture_target()
+                            {
+                                log::warn!("保存自动粘贴目标窗口失败: {}", error);
+                            }
 
                             let _ = window.show();
                             let _ = window.set_focus();

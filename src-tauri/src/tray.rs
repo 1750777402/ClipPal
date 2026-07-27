@@ -4,9 +4,9 @@ use tauri::image::Image;
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, TrayIconEvent};
 use tauri::Emitter;
-use tauri::{tray::TrayIconBuilder, Manager, Runtime};
+use tauri::{tray::TrayIconBuilder, Manager};
 
-use crate::{auto_paste, window::WindowFocusCount};
+use crate::{app_context::AppContext, services::auto_paste_service::AutoPasteService};
 
 /// 防抖控制结构
 #[derive(Debug)]
@@ -56,10 +56,7 @@ impl TrayClickDebounce {
     }
 }
 
-pub fn create_tray<R: Runtime>(
-    app: &tauri::AppHandle<R>,
-    window_focus_count: Arc<WindowFocusCount>,
-) -> tauri::Result<()> {
+pub fn create_tray(app: &tauri::AppHandle, app_context: Arc<AppContext>) -> tauri::Result<()> {
     // 为系统创建托盘图标
     let icon = Image::from_bytes(include_bytes!("../icons/icon_128x128.png"))?;
     let quit_i = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
@@ -68,6 +65,7 @@ pub fn create_tray<R: Runtime>(
 
     // 创建防抖控制器
     let debounce = TrayClickDebounce::new();
+    let window_focus_count = app_context.window_focus_count();
 
     let _ = TrayIconBuilder::with_id("tray")
         .tooltip("ClipPal")
@@ -99,6 +97,7 @@ pub fn create_tray<R: Runtime>(
         .on_tray_icon_event({
             let debounce = Arc::clone(&debounce);
             let window_focus_count = window_focus_count.clone();
+            let auto_paste_context = app_context.clone();
             move |tray, event| {
                 log::debug!("托盘图标事件触发: {:?}", event);
                 match event {
@@ -124,7 +123,7 @@ pub fn create_tray<R: Runtime>(
                                 let _ = window.hide();
                                 // 等待一小段时间让用户应用获得焦点，然后重新保存
                                 std::thread::sleep(std::time::Duration::from_millis(50));
-                                auto_paste::save_foreground_window();
+                                capture_auto_paste_target(auto_paste_context.as_ref());
 
                                 // 重新显示窗口
                                 let _ = window.show();
@@ -143,7 +142,7 @@ pub fn create_tray<R: Runtime>(
                                 });
                             } else {
                                 // 先尝试保存当前焦点窗口（在显示我们的窗口之前）
-                                auto_paste::save_foreground_window();
+                                capture_auto_paste_target(auto_paste_context.as_ref());
 
                                 // 显示并聚焦窗口
                                 let _ = window.show();
@@ -185,7 +184,7 @@ pub fn create_tray<R: Runtime>(
                                     debounce.finish_processing();
                                 } else {
                                     // 保存前台窗口
-                                    auto_paste::save_foreground_window();
+                                    capture_auto_paste_target(auto_paste_context.as_ref());
 
                                     // 显示并聚焦窗口
                                     let _ = window.show();
@@ -210,4 +209,10 @@ pub fn create_tray<R: Runtime>(
         })
         .build(app);
     Ok(())
+}
+
+fn capture_auto_paste_target(context: &AppContext) {
+    if let Err(error) = AutoPasteService::from_context(context).capture_target() {
+        log::warn!("保存自动粘贴目标窗口失败: {}", error);
+    }
 }
