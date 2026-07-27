@@ -4,9 +4,16 @@ use tauri_plugin_clipboard_pal::desktop::ClipboardPal;
 use tauri_plugin_dialog::DialogExt;
 
 use crate::{
-    app_context::AppContext, dto::clip_dto::CopySingleFileParam,
-    infra::repositories::ClipRecordRepository, services::auto_paste_service::AutoPasteService,
-    system::clipboard::create_named_temp_files, utils::path_utils::str_to_safe_string,
+    app_context::AppContext,
+    domain::clip::ClipRecord,
+    dto::clip_dto::CopySingleFileParam,
+    errors::{AppError, AppResult},
+    infra::repositories::ClipRecordRepository,
+    system::{
+        auto_paste,
+        clipboard::{create_named_temp_files, show_accessibility_dialog, write_record},
+    },
+    utils::path_utils::str_to_safe_string,
     window::WindowHideGuard,
 };
 
@@ -22,6 +29,18 @@ impl<'a> ClipboardService<'a> {
         Self {
             context,
             repository: context.repositories().clip_records(),
+        }
+    }
+
+    /// 捕获 ClipPal 获得焦点前的前台窗口，供后续自动粘贴恢复。
+    pub fn capture_auto_paste_target(&self) -> AppResult<()> {
+        let state = self.context.auto_paste_state();
+        match auto_paste::capture_target() {
+            Ok(target) => state.replace_target(target),
+            Err(error) => {
+                state.replace_target(None)?;
+                Err(error)
+            }
         }
     }
     /// 将完整记录写入系统剪贴板，并按调用参数和用户设置决定是否自动粘贴。
@@ -44,11 +63,10 @@ impl<'a> ClipboardService<'a> {
                 .with_settings(|settings| settings.auto_paste == 1)
                 .unwrap_or(false);
 
-        let auto_paste_service = AutoPasteService::from_context(self.context);
         if auto_paste_enabled {
-            auto_paste_service.copy_and_paste(&record).await?;
+            self.copy_and_paste(&record).await?;
         } else {
-            auto_paste_service.copy_only(&record).await?;
+            self.copy_only(&record).await?;
         }
 
         Ok(String::new())
@@ -169,5 +187,55 @@ impl<'a> ClipboardService<'a> {
         }
 
         Ok(String::new())
+    }
+
+    async fn copy_only(&self, record: &ClipRecord) -> Result<(), String> {
+        let _operation = self
+            .context
+            .auto_paste_state()
+            .operation_lock()
+            .lock()
+            .await;
+        write_record(self.context, record).await
+    }
+
+    async fn copy_and_paste(&self, record: &ClipRecord) -> Result<(), String> {
+        let state = self.context.auto_paste_state();
+        let _operation = state.operation_lock().lock().await;
+
+        write_record(self.context, record).await?;
+        let target = state
+            .target()
+            .map_err(String::from)?
+            .ok_or_else(|| "没有找到自动粘贴目标窗口，内容已复制".to_string())?;
+
+        let window = self.context.main_window().map_err(String::from)?;
+        if window.is_visible().unwrap_or(true) {
+            window
+                .hide()
+                .map_err(|error| format!("隐藏 ClipPal 窗口失败: {}", error))?;
+        }
+
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+        let paste_result = tokio::task::spawn_blocking(move || -> AppResult<()> {
+            auto_paste::restore_and_verify(&target)?;
+            auto_paste::send_paste_shortcut()
+        })
+        .await
+        .map_err(|error| AppError::AutoPaste(format!("自动粘贴任务执行失败: {}", error)))?;
+
+        if let Err(error) = &paste_result {
+            if error.to_string().contains("权限") {
+                if let Ok(app_handle) = self.context.app_handle() {
+                    let app_handle_for_dialog = app_handle.clone();
+                    let _ = app_handle.run_on_main_thread(move || {
+                        show_accessibility_dialog(&app_handle_for_dialog);
+                    });
+                }
+            }
+        }
+
+        paste_result.map_err(String::from)
     }
 }

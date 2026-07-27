@@ -1,9 +1,9 @@
 use crate::{
     biz::{
         clip_async_queue::consume_clip_record_queue, upload_cloud_timer::start_upload_cloud_timer,
-        vip_checker::VipChecker,
     },
     bootstrap::core::BootstrapCore,
+    services::vip_service::VipService,
     utils::token_manager,
 };
 
@@ -42,7 +42,10 @@ fn start_vip_initialization_task(core: BootstrapCore) {
     tokio::spawn(async move {
         if token_manager::has_valid_auth() {
             log::info!("用户已登录，开始初始化VIP状态并执行权益限制检查");
-            if let Err(e) = VipChecker::initialize_vip_and_enforce_limits().await {
+            if let Err(e) = VipService::from_context(core.app_context.as_ref())
+                .initialize_and_enforce_limits()
+                .await
+            {
                 log::error!("VIP状态初始化失败: {}", e);
             }
         } else {

@@ -6,7 +6,7 @@ use tauri::tray::{MouseButton, TrayIconEvent};
 use tauri::Emitter;
 use tauri::{tray::TrayIconBuilder, Manager};
 
-use crate::{app_context::AppContext, services::auto_paste_service::AutoPasteService};
+use crate::{app_context::AppContext, services::clipboard_service::ClipboardService};
 
 /// 防抖控制结构
 #[derive(Debug)]
@@ -212,7 +212,7 @@ pub fn create_tray(app: &tauri::AppHandle, app_context: Arc<AppContext>) -> taur
 }
 
 fn capture_auto_paste_target(context: &AppContext) {
-    if let Err(error) = AutoPasteService::from_context(context).capture_target() {
+    if let Err(error) = ClipboardService::from_context(context).capture_auto_paste_target() {
         log::warn!("保存自动粘贴目标窗口失败: {}", error);
     }
 }

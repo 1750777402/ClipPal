@@ -8,9 +8,8 @@ use tokio::time::{sleep, Duration};
 use crate::api::cloud_sync_api::{get_upload_file_url, sync_upload_success, FileCloudSyncParam};
 use crate::app_context::app_context;
 use crate::biz::clip_record::{ClipRecord, SKIP_SYNC, SYNCHRONIZED, SYNCHRONIZING};
-use crate::biz::system_setting::check_cloud_sync_enabled;
-use crate::biz::vip_checker::VipChecker;
 use crate::errors::{AppError, AppResult};
+use crate::services::vip_service::VipService;
 use crate::utils::file_dir::get_resources_dir;
 use crate::utils::retry_helper::{retry_with_config, RetryConfig};
 use crate::utils::token_manager::has_valid_auth;
@@ -32,7 +31,10 @@ pub fn start_upload_cloud_timer() {
 
         loop {
             // 检查云同步是否开启
-            if !check_cloud_sync_enabled().await {
+            if !app_context()
+                .and_then(|context| context.cloud_sync_enabled())
+                .unwrap_or(false)
+            {
                 log::debug!("云同步未开启，跳过文件同步任务");
                 sleep(Duration::from_secs(5)).await;
                 continue;
@@ -264,7 +266,11 @@ async fn check_file_size(file_path: &PathBuf) -> Result<(), String> {
     match std::fs::metadata(file_path) {
         Ok(metadata) => {
             let file_size = metadata.len();
-            match VipChecker::can_sync_file(file_size).await {
+            let context = app_context().map_err(|error| error.to_string())?;
+            match VipService::from_context(context.as_ref())
+                .can_sync_file(file_size)
+                .await
+            {
                 Ok((can_sync, message)) => {
                     if can_sync {
                         Ok(())

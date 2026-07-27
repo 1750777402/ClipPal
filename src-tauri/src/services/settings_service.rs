@@ -1,10 +1,14 @@
 use crate::{
     app_context::AppContext,
+    biz::cloud_sync_timer::trigger_immediate_sync,
     domain::settings::Settings,
+    errors::{AppError, AppResult},
     infra::repositories::SettingsRepository,
     system::settings::SettingsSystem,
-    utils::lock_utils::lock_utils::{safe_read_lock, safe_write_lock},
+    utils::token_manager::has_valid_auth,
 };
+
+use super::vip_service::VipService;
 
 /// 设置应用服务，负责配置校验、系统能力应用、持久化和内存缓存更新。
 pub struct SettingsService<'a> {
@@ -30,17 +34,15 @@ impl<'a> SettingsService<'a> {
     /// 保存完整设置，并保证系统设置、配置文件和内存缓存按顺序一致更新。
     pub async fn save_settings(&self, settings: Settings) -> Result<(), String> {
         // 先完成记录数、快捷键和权限等业务校验，校验失败时不产生任何副作用。
-        self.system
-            .validate(&settings)
+        self.validate_settings(&settings)
             .await
             .map_err(|error| error.to_string())?;
 
         // 保存变更前快照，后续系统能力应用失败时用于回滚。
-        let current_settings = {
-            let lock = self.context.settings();
-            let current = safe_read_lock(&lock).map_err(|error| error.to_string())?;
-            current.clone()
-        };
+        let current_settings = self
+            .context
+            .with_settings(Clone::clone)
+            .map_err(|error| error.to_string())?;
 
         // 记录已成功应用的系统设置，只回滚真正发生过的副作用。
         let mut applied_settings = Vec::new();
@@ -50,10 +52,7 @@ impl<'a> SettingsService<'a> {
             match self.system.update_shortcut(&settings.shortcut_key).await {
                 Ok(_) => applied_settings.push("shortcut"),
                 Err(error) => {
-                    let _ = self
-                        .system
-                        .rollback(&current_settings, &applied_settings)
-                        .await;
+                    let _ = self.rollback(&current_settings, &applied_settings).await;
                     return Err(format!("快捷键设置失败: {}", error));
                 }
             }
@@ -61,13 +60,10 @@ impl<'a> SettingsService<'a> {
 
         // 开启云同步前验证登录和 VIP 权限；关闭云同步不需要额外权限。
         if settings.cloud_sync != current_settings.cloud_sync && settings.cloud_sync == 1 {
-            match self.system.validate_cloud_sync_permission().await {
+            match self.validate_cloud_sync_permission().await {
                 Ok(_) => applied_settings.push("cloud_sync"),
                 Err(error) => {
-                    let _ = self
-                        .system
-                        .rollback(&current_settings, &applied_settings)
-                        .await;
+                    let _ = self.rollback(&current_settings, &applied_settings).await;
                     return Err(format!("开启云同步失败: {}", error));
                 }
             }
@@ -78,10 +74,7 @@ impl<'a> SettingsService<'a> {
             match self.system.set_auto_start(settings.auto_start == 1) {
                 Ok(_) => applied_settings.push("autostart"),
                 Err(error) => {
-                    let _ = self
-                        .system
-                        .rollback(&current_settings, &applied_settings)
-                        .await;
+                    let _ = self.rollback(&current_settings, &applied_settings).await;
                     return Err(format!("开机自启动设置失败: {}", error));
                 }
             }
@@ -89,10 +82,7 @@ impl<'a> SettingsService<'a> {
 
         // 所有系统副作用成功后再写文件，避免持久化不可应用的设置。
         if let Err(error) = self.repository.save(&settings) {
-            let _ = self
-                .system
-                .rollback(&current_settings, &applied_settings)
-                .await;
+            let _ = self.rollback(&current_settings, &applied_settings).await;
             return Err(format!("保存配置失败: {}", error));
         }
 
@@ -100,15 +90,13 @@ impl<'a> SettingsService<'a> {
             settings.cloud_sync != current_settings.cloud_sync && settings.cloud_sync == 1;
 
         // 配置文件写入成功后更新共享内存，使后台任务立即读取到新值。
-        {
-            let lock = self.context.settings();
-            let mut current = safe_write_lock(&lock).map_err(|error| error.to_string())?;
-            *current = settings;
-        }
+        self.context
+            .update_settings(|current| *current = settings)
+            .map_err(|error| error.to_string())?;
 
         // 云同步刚被开启时主动唤醒同步任务，不等待下一次定时周期。
         if need_trigger_sync {
-            if let Err(error) = self.system.trigger_immediate_sync() {
+            if let Err(error) = trigger_immediate_sync() {
                 log::warn!("触发立即云同步失败: {}", error);
             }
         }
@@ -122,14 +110,10 @@ impl<'a> SettingsService<'a> {
             return Ok(false);
         }
 
-        let current_shortcut = {
-            let lock = self.context.settings();
-            let shortcut = match safe_read_lock(&lock) {
-                Ok(current) => current.shortcut_key.clone(),
-                Err(_) => String::new(),
-            };
-            shortcut
-        };
+        let current_shortcut = self
+            .context
+            .with_settings(|current| current.shortcut_key.clone())
+            .unwrap_or_default();
 
         if shortcut == current_shortcut {
             return Ok(true);
@@ -137,5 +121,83 @@ impl<'a> SettingsService<'a> {
 
         self.system.parse_shortcut(&shortcut)?;
         Ok(true)
+    }
+
+    /// 关闭云同步并同时更新配置文件和运行期设置缓存。
+    pub fn disable_cloud_sync(&self) -> Result<(), String> {
+        let mut settings = self
+            .context
+            .with_settings(Clone::clone)
+            .map_err(|error| error.to_string())?;
+        if settings.cloud_sync == 0 {
+            return Ok(());
+        }
+
+        settings.cloud_sync = 0;
+        self.repository
+            .save(&settings)
+            .map_err(|error| error.to_string())?;
+        self.context
+            .update_settings(|current| *current = settings)
+            .map_err(|error| error.to_string())
+    }
+
+    async fn validate_settings(&self, settings: &Settings) -> AppResult<()> {
+        let max_allowed = VipService::from_context(self.context)
+            .get_cached_max_records_limit()
+            .unwrap_or(300);
+
+        if settings.max_records < 50 {
+            return Err(AppError::Config("记录条数不能少于 50".to_string()));
+        }
+        if settings.max_records > max_allowed {
+            return Err(AppError::Config(format!(
+                "记录条数不能超过 {}",
+                max_allowed
+            )));
+        }
+        if settings.shortcut_key.is_empty() {
+            return Err(AppError::Config("快捷键不能为空".to_string()));
+        }
+
+        self.system
+            .parse_shortcut(&settings.shortcut_key)
+            .map_err(|error| {
+                AppError::Config(format!(
+                    "快捷键格式错误，请使用如 Ctrl+Shift+C 的组合键。{}",
+                    error
+                ))
+            })
+    }
+
+    async fn validate_cloud_sync_permission(&self) -> Result<(), String> {
+        if !has_valid_auth() {
+            return Err("请先登录账号才能开启云同步功能".to_string());
+        }
+
+        match VipService::from_context(self.context)
+            .check_vip_permission()
+            .await
+        {
+            Ok((true, _)) => Ok(()),
+            Ok((false, message)) => Err(message),
+            Err(error) => Err(format!("权限检查失败: {}", error)),
+        }
+    }
+
+    async fn rollback(&self, previous: &Settings, applied: &[&str]) -> AppResult<()> {
+        for setting_type in applied {
+            match *setting_type {
+                "shortcut" => {
+                    let _ = self.system.update_shortcut(&previous.shortcut_key).await;
+                }
+                "autostart" => {
+                    let _ = self.system.set_auto_start(previous.auto_start == 1);
+                }
+                _ => {}
+            }
+        }
+
+        Ok(())
     }
 }

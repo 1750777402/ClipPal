@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 use clipboard_listener::{ClipboardEvent, EventManager};
 use log::LevelFilter;
@@ -6,18 +6,17 @@ use rbatis::RBatis;
 
 use crate::{
     app_context::AppContext,
-    biz::{
-        clip_record::ClipRecord, clip_record_sync::ClipboardEventTigger,
-        content_search::initialize_search_index, system_setting::load_settings_context,
-    },
+    biz::{clip_record::ClipRecord, clip_record_sync::ClipboardEventTigger},
     errors::AppResult,
     infra::{
         db,
+        http::{HttpAuthClient, HttpVipClient},
         repositories::{
-            AppRepositories, DefaultVipRepository, FileSettingsRepository, HttpAuthRepository,
-            SqliteClipRecordRepository,
+            AppRepositories, FileSettingsRepository, SettingsRepository, SqliteClipRecordRepository,
         },
         search::InMemorySearchEngine,
+        security::SecureAuthStore,
+        storage::SecureVipStore,
     },
     log_config::init_logging,
 };
@@ -52,7 +51,8 @@ pub struct BootstrapCore {
 pub async fn init_core() -> AppResult<BootstrapCore> {
     init_logging(LevelFilter::Info);
 
-    let settings = load_settings_context();
+    let settings_repository = Arc::new(FileSettingsRepository);
+    let settings = Arc::new(RwLock::new(settings_repository.load()));
 
     let clipboard_event_manager: Arc<EventManager<ClipboardEvent>> =
         Arc::new(EventManager::default());
@@ -62,20 +62,23 @@ pub async fn init_core() -> AppResult<BootstrapCore> {
     // 所有 Repository implementation 在启动阶段只创建一次，service 运行时只依赖 trait。
     let repositories = AppRepositories::new(
         Arc::new(SqliteClipRecordRepository::new(db.clone())),
-        Arc::new(FileSettingsRepository),
-        Arc::new(HttpAuthRepository::default()),
-        Arc::new(DefaultVipRepository::default()),
+        settings_repository,
     );
     // 搜索引擎与仓储一并注入 AppContext，避免 service 访问全局实现对象。
+    let search_engine = Arc::new(InMemorySearchEngine::new(settings.clone()));
     let app_context = Arc::new(AppContext::new(
         db.clone(),
         settings,
         repositories,
-        Arc::new(InMemorySearchEngine),
+        Arc::new(HttpAuthClient),
+        Arc::new(HttpVipClient),
+        Arc::new(SecureAuthStore),
+        Arc::new(SecureVipStore),
+        search_engine,
     ));
     crate::app_context::set_app_context(app_context.clone())?;
 
-    initialize_search_index_from_database(&db).await;
+    initialize_search_index_from_database(&db, app_context.as_ref()).await;
 
     Ok(BootstrapCore {
         app_context,
@@ -87,14 +90,14 @@ pub async fn init_core() -> AppResult<BootstrapCore> {
 /// 从数据库加载已有剪贴记录并初始化搜索索引。
 ///
 /// 搜索索引初始化失败不阻断应用启动。
-async fn initialize_search_index_from_database(db: &RBatis) {
+async fn initialize_search_index_from_database(db: &RBatis, context: &AppContext) {
     // 启动时加载全部记录建立内存索引；失败只影响搜索，不阻断应用启动。
     let all_clips = ClipRecord::select_order_by(db).await.unwrap_or_else(|e| {
         log::error!("获取剪贴板记录失败: {}", e);
         vec![]
     });
 
-    if let Err(e) = initialize_search_index(all_clips).await {
+    if let Err(e) = context.search_engine().initialize(all_clips).await {
         log::error!("搜索索引初始化失败: {}", e);
     }
 }

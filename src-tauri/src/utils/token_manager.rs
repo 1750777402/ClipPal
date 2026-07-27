@@ -1,11 +1,4 @@
-use crate::{
-    api::user_auth_api::{
-        refresh_token as api_refresh_token, AuthResponse, RefreshTokenRequestParam,
-    },
-    app_context::try_app_context,
-    utils::secure_store::SECURE_STORE,
-};
-use serde_json;
+use crate::{app_context::try_app_context, services::settings_service::SettingsService};
 use std::sync::{Arc, OnceLock, RwLock};
 use tauri::Emitter;
 
@@ -82,27 +75,23 @@ impl TokenManager {
 
     /// 执行实际的令牌刷新
     async fn do_refresh_token(&self) -> Result<Option<String>, String> {
+        let context = try_app_context().ok_or_else(|| "AppContext 尚未初始化".to_string())?;
         let refresh_token = self
             .get_stored_refresh_token()
             .ok_or("没有有效的刷新令牌")?;
 
         log::info!("开始刷新访问令牌");
 
-        let request = RefreshTokenRequestParam {
-            refresh_token: refresh_token.clone(),
-        };
-
-        match api_refresh_token(&request).await {
-            Ok(Some(auth_response)) => {
+        match context.auth_client().refresh_session(&refresh_token).await {
+            Ok(Some(session)) => {
                 log::info!("令牌刷新成功");
 
-                // 更新存储的令牌信息
-                if let Err(e) = self.update_stored_tokens(&auth_response).await {
+                if let Err(e) = context.auth_store().save_session(&session) {
                     log::error!("更新存储的令牌失败: {}", e);
                     return Err(e);
                 }
 
-                Ok(Some(auth_response.access_token))
+                Ok(Some(session.access_token))
             }
             Ok(None) => {
                 log::warn!("令牌刷新返回空响应");
@@ -123,63 +112,20 @@ impl TokenManager {
         }
     }
 
-    /// 更新存储的令牌信息
-    async fn update_stored_tokens(&self, auth_response: &AuthResponse) -> Result<(), String> {
-        let mut store = SECURE_STORE
-            .write()
-            .map_err(|e| format!("获取存储写锁失败: {}", e))?;
-
-        // 更新访问令牌
-        store
-            .set_jwt_token(auth_response.access_token.clone())
-            .map_err(|e| format!("存储访问令牌失败: {}", e))?;
-
-        // 更新刷新令牌
-        store
-            .set_refresh_token(auth_response.refresh_token.clone())
-            .map_err(|e| format!("存储刷新令牌失败: {}", e))?;
-
-        // 更新过期时间
-        store
-            .set_token_expires(auth_response.expires_in.clone())
-            .map_err(|e| format!("存储过期时间失败: {}", e))?;
-
-        // 更新用户信息（如果有的话）
-        let user_info_json = serde_json::to_string(&auth_response.user_info)
-            .map_err(|e| format!("序列化用户信息失败: {}", e))?;
-        store
-            .set_user_info(user_info_json)
-            .map_err(|e| format!("存储用户信息失败: {}", e))?;
-
-        log::info!("令牌信息已更新");
-        Ok(())
-    }
-
     /// 获取存储的访问令牌
     fn get_stored_access_token(&self) -> Option<String> {
-        SECURE_STORE
-            .read()
-            .ok()
-            .and_then(|store| store.data().access_token.clone())
+        try_app_context().and_then(|context| context.auth_store().access_token())
     }
 
     /// 获取存储的刷新令牌
     fn get_stored_refresh_token(&self) -> Option<String> {
-        SECURE_STORE
-            .read()
-            .ok()
-            .and_then(|store| store.data().refresh_token.clone())
+        try_app_context().and_then(|context| context.auth_store().refresh_token())
     }
 
     /// 清除认证数据
     fn clear_auth_data(&self) -> Result<(), String> {
-        let mut store = SECURE_STORE
-            .write()
-            .map_err(|e| format!("获取存储写锁失败: {}", e))?;
-
-        store
-            .clear_auth_data()
-            .map_err(|e| format!("清除认证数据失败: {}", e))?;
+        let context = try_app_context().ok_or_else(|| "AppContext 尚未初始化".to_string())?;
+        context.auth_store().clear()?;
 
         log::info!("认证数据已清除");
         Ok(())
@@ -205,8 +151,15 @@ impl TokenManager {
         log::info!("认证失效，禁用云同步功能");
 
         // 实际修改设置中的云同步开关
-        if let Err(e) = crate::biz::system_setting::disable_cloud_sync().await {
-            log::error!("禁用云同步设置失败: {}", e);
+        match try_app_context() {
+            Some(context) => {
+                if let Err(error) =
+                    SettingsService::from_context(context.as_ref()).disable_cloud_sync()
+                {
+                    log::error!("禁用云同步设置失败: {}", error);
+                }
+            }
+            None => log::error!("禁用云同步设置失败: AppContext 尚未初始化"),
         }
 
         // 通知前端云同步已被禁用，前端需要更新UI状态
@@ -219,7 +172,9 @@ impl TokenManager {
 
     /// 检查是否有有效的登录状态
     pub fn has_valid_auth(&self) -> bool {
-        self.get_stored_access_token().is_some() && self.get_stored_refresh_token().is_some()
+        try_app_context()
+            .map(|context| context.auth_store().has_complete_session())
+            .unwrap_or(false)
     }
 }
 

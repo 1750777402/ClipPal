@@ -15,18 +15,42 @@ use uuid::Uuid;
 use crate::{
     app_context::app_context,
     biz::clip_record::{ClipRecord, NOT_SYNCHRONIZED, SKIP_SYNC},
-    biz::vip_checker::VipChecker,
+    services::vip_service::VipService,
     utils::{file_dir::get_resources_dir, file_ext::extract_full_extension},
 };
+
+fn cached_vip_file_size_limit() -> u64 {
+    app_context()
+        .ok()
+        .and_then(|context| {
+            VipService::from_context(context.as_ref())
+                .get_cached_max_file_size()
+                .ok()
+        })
+        .unwrap_or(0)
+}
+
+async fn vip_file_copy_size_limit() -> u64 {
+    let Ok(context) = app_context() else {
+        return 10 * 1024 * 1024;
+    };
+    VipService::from_context(context.as_ref())
+        .get_file_copy_size_limit()
+        .await
+}
 use crate::{
-    biz::{clip_record_clean::try_clean_clip_record, content_search::add_content_to_index},
-    errors::AppError,
+    biz::clip_record_clean::try_clean_clip_record,
+    errors::{AppError, AppResult},
     utils::{
         aes_util::encrypt_content,
         device_info::{GLOBAL_DEVICE_ID, GLOBAL_OS_TYPE},
         path_utils::to_safe_string,
     },
 };
+
+async fn add_content_to_index(id: &str, content: &str) -> AppResult<()> {
+    app_context()?.search_engine().add(id, content).await
+}
 
 #[derive(Debug, Clone)]
 pub struct ClipboardEventTigger;
@@ -329,7 +353,7 @@ async fn handle_text(
 
                     // 检查VIP文本大小限制（加密后的字节大小）
                     let content_size = encrypted.as_bytes().len() as u64;
-                    let max_file_size = VipChecker::get_cached_max_file_size().unwrap_or(0);
+                    let max_file_size = cached_vip_file_size_limit();
 
                     if max_file_size > 0 && content_size > max_file_size {
                         // 超出VIP限制，设置为跳过同步
@@ -381,7 +405,7 @@ async fn handle_text(
 
             // 检查VIP文本大小限制（加密后的字节大小）
             let content_size = encrypted.as_bytes().len() as u64;
-            let max_file_size = VipChecker::get_cached_max_file_size().unwrap_or(0);
+            let max_file_size = cached_vip_file_size_limit();
 
             if max_file_size > 0 && content_size > max_file_size {
                 // 超出VIP限制，设置为跳过同步
@@ -455,7 +479,7 @@ async fn handle_image(
 
                     // 检查VIP图片大小限制
                     let image_size = data.len() as u64;
-                    let max_file_size = VipChecker::get_cached_max_file_size().unwrap_or(0);
+                    let max_file_size = cached_vip_file_size_limit();
 
                     if max_file_size == 0 || image_size > max_file_size {
                         // 超出VIP限制，设置为跳过同步
@@ -508,7 +532,7 @@ async fn handle_image(
 
             // 检查VIP图片大小限制
             let image_size = data.len() as u64;
-            let max_file_size = VipChecker::get_cached_max_file_size().unwrap_or(0);
+            let max_file_size = cached_vip_file_size_limit();
 
             if max_file_size == 0 || image_size > max_file_size {
                 // 超出VIP限制，设置为跳过同步
@@ -834,7 +858,7 @@ async fn handle_sync_eligible_file(
         // 检查VIP文件大小限制
         if let Ok(metadata) = std::fs::metadata(&absolute_path) {
             let file_size = metadata.len();
-            let max_file_size = VipChecker::get_cached_max_file_size().unwrap_or(0);
+            let max_file_size = cached_vip_file_size_limit();
 
             if max_file_size == 0 || file_size > max_file_size {
                 // 超出VIP限制，设置为跳过同步
@@ -931,7 +955,7 @@ async fn copy_file_to_resources(
     // 检查文件大小是否超过复制限制
     if let Ok(metadata) = std::fs::metadata(file_path) {
         let file_size = metadata.len();
-        let copy_size_limit = VipChecker::get_file_copy_size_limit().await;
+        let copy_size_limit = vip_file_copy_size_limit().await;
 
         if file_size > copy_size_limit {
             log::info!(

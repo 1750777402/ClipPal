@@ -1,7 +1,7 @@
-use crate::services::auto_paste_service::AutoPasteService;
-use crate::{app_context::AppContext, biz::system_setting::Settings};
+use crate::services::clipboard_service::ClipboardService;
+use crate::{app_context::AppContext, domain::settings::Settings};
 use std::sync::Arc;
-use tauri::{App, Manager};
+use tauri::{App, AppHandle, Manager};
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut};
 
 pub fn init_global_shortcut(app: &App, app_context: Arc<AppContext>) -> tauri::Result<()> {
@@ -26,38 +26,44 @@ pub fn init_global_shortcut(app: &App, app_context: Arc<AppContext>) -> tauri::R
                 parse_shortcut(&Settings::default().shortcut_key)
             }
         };
-        app.handle()
-            .global_shortcut()
-            .on_shortcut(shortcut_obj, {
-                let app_handle = app.handle().clone();
-                let auto_paste_context = app_context.clone();
-                move |_app, shortcut, event| {
-                    log::debug!("快捷键触发: {:?}, 状态: {:?}", shortcut, event.state());
-                    if event.state() == tauri_plugin_global_shortcut::ShortcutState::Pressed {
-                        if let Some(window) = app_handle.get_webview_window("main") {
-                            // 在显示粘贴板窗口之前，先保存当前获得焦点的窗口
-                            if let Err(error) =
-                                AutoPasteService::from_context(auto_paste_context.as_ref())
-                                    .capture_target()
-                            {
-                                log::warn!("保存自动粘贴目标窗口失败: {}", error);
-                            }
-
-                            let _ = window.show();
-                            let _ = window.set_focus();
-                            log::debug!("窗口已显示并聚焦");
-                        }
-                    }
-                }
-            })
-            .map_err(|e| {
-                log::error!("快捷键注册失败: {}", e);
-                tauri::Error::FailedToReceiveMessage
-            })?;
+        register_shortcut_handler(app.handle(), app_context, shortcut_obj).map_err(|e| {
+            log::error!("快捷键注册失败: {}", e);
+            tauri::Error::FailedToReceiveMessage
+        })?;
 
         log::info!("全局快捷键初始化成功: {}", shortcut_str);
     }
     Ok(())
+}
+
+/// 注册统一的快捷键处理器，初始化和设置变更必须共用同一条唤起链路。
+pub fn register_shortcut_handler(
+    app_handle: &AppHandle,
+    app_context: Arc<AppContext>,
+    shortcut: Shortcut,
+) -> Result<(), String> {
+    app_handle
+        .global_shortcut()
+        .on_shortcut(shortcut, {
+            let app_handle = app_handle.clone();
+            move |_app, shortcut, event| {
+                log::debug!("快捷键触发: {:?}, 状态: {:?}", shortcut, event.state());
+                if event.state() == tauri_plugin_global_shortcut::ShortcutState::Pressed {
+                    if let Some(window) = app_handle.get_webview_window("main") {
+                        if let Err(error) = ClipboardService::from_context(app_context.as_ref())
+                            .capture_auto_paste_target()
+                        {
+                            log::warn!("保存自动粘贴目标窗口失败: {}", error);
+                        }
+
+                        let _ = window.show();
+                        let _ = window.set_focus();
+                        log::debug!("窗口已显示并聚焦");
+                    }
+                }
+            }
+        })
+        .map_err(|error| error.to_string())
 }
 
 fn parse_modifier(part: &str) -> Option<Modifiers> {

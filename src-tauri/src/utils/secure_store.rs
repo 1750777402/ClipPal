@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-pub use crate::domain::vip::{VipInfo, VipType};
+use crate::domain::vip::VipInfo;
 use crate::errors::{AppError, AppResult};
 use crate::utils::aes_util::{decrypt_content, encrypt_content};
 use crate::utils::file_dir::get_data_dir;
@@ -159,6 +159,24 @@ impl SecureStore {
         self.save()
     }
 
+    /// 一次保存完整认证会话，避免多个字段分次落盘产生半完成状态。
+    pub fn set_auth_data(
+        &mut self,
+        access_token: String,
+        refresh_token: String,
+        user_info: String,
+        expires_in: i32,
+    ) -> AppResult<()> {
+        if !self.loaded {
+            self.load()?;
+        }
+        self.data.access_token = Some(access_token);
+        self.data.refresh_token = Some(refresh_token);
+        self.data.user_info = Some(user_info);
+        self.data.token_expires = Some(expires_in);
+        self.save()
+    }
+
     /// 清除所有认证数据
     pub fn clear_auth_data(&mut self) -> AppResult<()> {
         if !self.loaded {
@@ -201,6 +219,24 @@ impl SecureStore {
         self.save()
     }
 
+    /// 一次保存 VIP 信息和成功校验时间，避免权益快照与时间戳分两次落盘。
+    pub fn set_vip_info_checked(&mut self, vip_info: VipInfo) -> AppResult<()> {
+        if !self.loaded {
+            self.load()?;
+        }
+
+        let vip_str = serde_json::to_string(&vip_info)
+            .map_err(|e| AppError::Serde(format!("VIP信息序列化失败: {}", e)))?;
+        let checked_at = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_err(|e| AppError::General(format!("获取系统时间失败: {}", e)))?
+            .as_secs();
+
+        self.data.vip_info = Some(vip_str);
+        self.data.vip_last_check = Some(checked_at);
+        self.save()
+    }
+
     /// 清除VIP信息
     pub fn clear_vip_info(&mut self) -> AppResult<()> {
         if !self.loaded {
@@ -223,7 +259,7 @@ impl SecureStore {
                 .unwrap()
                 .as_secs();
 
-            Ok(current_time - last_check > 600) // 10分钟
+            Ok(current_time.saturating_sub(last_check) > 600) // 10分钟
         } else {
             Ok(true) // 从未检查过
         }

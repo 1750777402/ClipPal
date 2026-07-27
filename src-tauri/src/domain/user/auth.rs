@@ -26,6 +26,15 @@ pub struct LoginResponse {
     pub expires_in: i32,
 }
 
+#[derive(Debug, Clone)]
+/// 认证服务成功返回的完整会话，仅供后端认证流程和安全存储使用。
+pub struct AuthSession {
+    pub access_token: String,
+    pub refresh_token: String,
+    pub expires_in: i32,
+    pub user_info: UserInfo,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 /// 前端登录请求参数。
 pub struct FrontendLoginRequest {

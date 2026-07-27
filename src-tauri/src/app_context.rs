@@ -7,7 +7,13 @@ use crate::{
     biz::clip_async_queue::AsyncQueue,
     domain::{clip::ClipRecord, settings::Settings},
     errors::{AppError, AppResult},
-    infra::{repositories::AppRepositories, search::SearchEngine},
+    infra::{
+        http::{AuthClient, VipClient},
+        repositories::AppRepositories,
+        search::SearchEngine,
+        security::AuthStore,
+        storage::VipStore,
+    },
     utils::lock_utils::{
         create_global_sync_lock,
         lock_utils::{safe_read_lock, safe_write_lock},
@@ -101,7 +107,6 @@ impl AutoPasteState {
         &self.operation_lock
     }
 }
-
 
 /// 只初始化一次的运行期资源。
 ///
@@ -265,6 +270,18 @@ pub struct CoreContext {
     /// 应用数据访问接口。
     repositories: AppRepositories,
 
+    /// 远程认证服务客户端。
+    auth_client: Arc<dyn AuthClient>,
+
+    /// 远程 VIP 和支付服务客户端。
+    vip_client: Arc<dyn VipClient>,
+
+    /// 本地认证会话安全存储。
+    auth_store: Arc<dyn AuthStore>,
+
+    /// 本地 VIP 权益快照安全存储。
+    vip_store: Arc<dyn VipStore>,
+
     /// 剪贴记录搜索引擎。
     search_engine: Arc<dyn SearchEngine>,
 
@@ -371,12 +388,20 @@ impl AppContext {
         db: RBatis,
         settings: Arc<RwLock<Settings>>,
         repositories: AppRepositories,
+        auth_client: Arc<dyn AuthClient>,
+        vip_client: Arc<dyn VipClient>,
+        auth_store: Arc<dyn AuthStore>,
+        vip_store: Arc<dyn VipStore>,
         search_engine: Arc<dyn SearchEngine>,
     ) -> Self {
         Self {
             core: CoreContext {
                 db,
                 repositories,
+                auth_client,
+                vip_client,
+                auth_store,
+                vip_store,
                 search_engine,
                 settings,
             },
@@ -432,6 +457,22 @@ impl AppContext {
         &self.core.repositories
     }
 
+    pub fn auth_client(&self) -> &dyn AuthClient {
+        self.core.auth_client.as_ref()
+    }
+
+    pub fn vip_client(&self) -> &dyn VipClient {
+        self.core.vip_client.as_ref()
+    }
+
+    pub fn auth_store(&self) -> &dyn AuthStore {
+        self.core.auth_store.as_ref()
+    }
+
+    pub fn vip_store(&self) -> &dyn VipStore {
+        self.core.vip_store.as_ref()
+    }
+
     /// 获取剪贴记录搜索引擎。
     pub fn search_engine(&self) -> &dyn SearchEngine {
         self.core.search_engine.as_ref()
@@ -461,6 +502,11 @@ impl AppContext {
     pub fn update_settings<R>(&self, f: impl FnOnce(&mut Settings) -> R) -> AppResult<R> {
         let mut settings = safe_write_lock(&self.core.settings)?;
         Ok(f(&mut settings))
+    }
+
+    /// 判断用户是否开启云同步，供后台任务读取统一的运行期设置缓存。
+    pub fn cloud_sync_enabled(&self) -> AppResult<bool> {
+        self.with_settings(|settings| settings.cloud_sync == 1)
     }
 
     /// 设置 Tauri AppHandle。

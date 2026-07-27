@@ -8,7 +8,7 @@ use crate::{
     },
     bootstrap::core::BootstrapCore,
     clip_board_listener, global_shortcut, menu,
-    services::auto_paste_service::AutoPasteService,
+    services::clipboard_service::ClipboardService,
     tray, window,
 };
 
@@ -43,7 +43,9 @@ fn init_desktop_shell(app: &mut App, core: &BootstrapCore) -> tauri::Result<()> 
     tray::create_tray(app.handle(), core.app_context.clone())?;
 
     // 普通启动会直接显示主窗口，因此也要在显示前捕获当时的前台应用。
-    if let Err(error) = AutoPasteService::from_context(core.app_context.as_ref()).capture_target() {
+    if let Err(error) =
+        ClipboardService::from_context(core.app_context.as_ref()).capture_auto_paste_target()
+    {
         log::warn!("启动时保存自动粘贴目标窗口失败: {}", error);
     }
 

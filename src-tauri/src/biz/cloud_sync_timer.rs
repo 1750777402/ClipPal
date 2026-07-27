@@ -13,17 +13,34 @@ use crate::api::cloud_sync_api::{
 use crate::app_context::app_context;
 use crate::biz::clip_record::{NOT_SYNCHRONIZED, SKIP_SYNC, SYNCHRONIZED, SYNCHRONIZING};
 use crate::biz::clip_record_clean::try_clean_clip_record;
-use crate::biz::content_search::add_content_to_index;
 use crate::biz::sync_time::SyncTime;
-use crate::biz::system_setting::{check_cloud_sync_enabled, SYNC_INTERVAL_SECONDS};
-use crate::biz::vip_checker::VipChecker;
+use crate::domain::settings::SYNC_INTERVAL_SECONDS;
 use crate::errors::{AppError, AppResult};
+use crate::services::vip_service::VipService;
 use crate::utils::config::get_max_file_size_bytes;
 use crate::utils::device_info::GLOBAL_DEVICE_ID;
 use crate::utils::file_dir::get_resources_dir;
 use crate::utils::token_manager::has_valid_auth;
 use crate::{biz::clip_record::ClipRecord, utils::lock_utils::GlobalSyncLock};
 use std::path::PathBuf;
+
+fn cached_vip_file_size_limit() -> u64 {
+    app_context()
+        .ok()
+        .and_then(|context| {
+            VipService::from_context(context.as_ref())
+                .get_cached_max_file_size()
+                .ok()
+        })
+        .unwrap_or(0)
+}
+
+async fn current_vip_file_size_limit() -> Result<u64, String> {
+    let context = app_context().map_err(|error| error.to_string())?;
+    VipService::from_context(context.as_ref())
+        .get_max_file_size()
+        .await
+}
 
 pub struct CloudSyncTimer {
     app_handle: AppHandle,
@@ -93,7 +110,10 @@ impl CloudSyncTimer {
     /// 尝试执行同步任务
     async fn try_execute_sync(&self, sync_lock: &GlobalSyncLock, source: &str) {
         // 检查云同步是否开启
-        if !check_cloud_sync_enabled().await {
+        if !app_context()
+            .and_then(|context| context.cloud_sync_enabled())
+            .unwrap_or(false)
+        {
             log::debug!("云同步未开启，跳过{}同步", source);
             return;
         }
@@ -104,8 +124,14 @@ impl CloudSyncTimer {
             return;
         }
 
+        let Ok(context) = app_context() else {
+            log::error!("AppContext 尚未初始化，跳过{}同步", source);
+            return;
+        };
+        let vip_service = VipService::from_context(context.as_ref());
+
         // 检查VIP云同步权限
-        match VipChecker::check_cloud_sync_permission().await {
+        match vip_service.check_vip_permission().await {
             Ok((allowed, message)) => {
                 if !allowed {
                     log::warn!("{}同步权限检查失败: {}", source, message);
@@ -120,18 +146,18 @@ impl CloudSyncTimer {
         }
 
         // 检查是否需要刷新VIP状态
-        if let Ok(should_refresh) = VipChecker::should_refresh_vip_status() {
+        if let Ok(should_refresh) = vip_service.should_refresh_vip_status() {
             if should_refresh {
                 log::info!("检测到需要刷新VIP状态");
 
-                match VipChecker::refresh_vip_from_server().await {
+                match vip_service.refresh_vip_status().await {
                     Ok(true) => log::info!("VIP状态已更新"),
                     Ok(false) => log::warn!("VIP状态无更新"),
                     Err(e) => log::error!("VIP状态刷新失败: {}", e),
                 }
 
                 // 重新检查权限
-                match VipChecker::check_cloud_sync_permission().await {
+                match vip_service.check_vip_permission().await {
                     Ok((still_allowed, _)) => {
                         if !still_allowed {
                             log::warn!("刷新后{}同步权限检查失败", source);
@@ -294,14 +320,15 @@ impl CloudSyncTimer {
                     // 异步更新搜索索引
                     for (record_id, content) in search_index_updates {
                         let id = record_id.clone();
-                        tokio::spawn(async move {
-                            if let Err(e) =
-                                add_content_to_index(&id, content.as_str().unwrap_or_default())
-                                    .await
+                        if let Ok(context) = app_context() {
+                            if let Err(e) = context
+                                .search_engine()
+                                .add(&id, content.as_str().unwrap_or_default())
+                                .await
                             {
                                 log::error!("搜索索引更新失败: {}", e);
                             }
-                        });
+                        }
                     }
                 }
 
@@ -343,7 +370,7 @@ impl CloudSyncTimer {
         let all_records = ClipRecord::select_by_sync_flag(&self.rb, NOT_SYNCHRONIZED).await?;
 
         // 获取当前用户的文件大小限制
-        let max_file_size = VipChecker::get_cached_max_file_size().unwrap_or(0);
+        let max_file_size = cached_vip_file_size_limit();
 
         // 有文件大小限制的用户（各级VIP），检查每个文件的大小
         let mut filtered_records = Vec::new();
@@ -698,7 +725,7 @@ impl CloudSyncTimer {
         match std::fs::metadata(file_path) {
             Ok(metadata) => {
                 // 使用VIP检查器获取文件大小限制
-                let max_file_size = match VipChecker::get_max_file_size().await {
+                let max_file_size = match current_vip_file_size_limit().await {
                     Ok(size) => size,
                     Err(_) => get_max_file_size_bytes().unwrap_or(5 * 1024 * 1024), // fallback
                 };

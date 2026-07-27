@@ -24,4 +24,21 @@ pub trait ClipRecordRepository: Send + Sync {
 
     /// 批量逻辑删除记录，并将同步状态重置为待同步。
     async fn mark_deleted(&self, ids: &[String]) -> AppResult<()>;
+
+    /// 查询因指定原因跳过同步的有效记录。
+    async fn list_skipped(&self, sync_flag: i32, skip_type: i32) -> AppResult<Vec<ClipRecord>>;
+
+    /// 更新单条记录的同步状态和跳过原因。
+    async fn update_sync_state(
+        &self,
+        id: &str,
+        sync_flag: i32,
+        skip_type: Option<i32>,
+    ) -> AppResult<()>;
+
+    /// 统计未逻辑删除的记录数。
+    async fn count_active(&self) -> AppResult<i64>;
+
+    /// 删除最旧的非置顶有效记录。
+    async fn delete_oldest_unpinned(&self, count: i32) -> AppResult<()>;
 }

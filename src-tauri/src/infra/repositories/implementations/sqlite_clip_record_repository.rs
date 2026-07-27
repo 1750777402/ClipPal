@@ -109,4 +109,74 @@ impl ClipRecordRepository for SqliteClipRecordRepository {
             .await
             .map_err(|error| AppError::Database(rbatis::Error::from(error)))
     }
+
+    async fn list_skipped(&self, sync_flag: i32, skip_type: i32) -> AppResult<Vec<ClipRecord>> {
+        self.db
+            .query_decode(
+                "SELECT * FROM clip_record WHERE sync_flag = ? AND skip_type = ? AND del_flag = 0",
+                vec![to_value!(sync_flag), to_value!(skip_type)],
+            )
+            .await
+            .map_err(AppError::Database)
+    }
+
+    async fn update_sync_state(
+        &self,
+        id: &str,
+        sync_flag: i32,
+        skip_type: Option<i32>,
+    ) -> AppResult<()> {
+        let tx = self.db.acquire_begin().await?;
+        match skip_type {
+            Some(skip_type) => {
+                tx.exec(
+                    "UPDATE clip_record SET sync_flag = ?, skip_type = ?, version = IFNULL(version, 0) + 1 WHERE id = ?",
+                    vec![to_value!(sync_flag), to_value!(skip_type), to_value!(id)],
+                )
+                .await?;
+            }
+            None => {
+                tx.exec(
+                    "UPDATE clip_record SET sync_flag = ?, skip_type = NULL, version = IFNULL(version, 0) + 1 WHERE id = ?",
+                    vec![to_value!(sync_flag), to_value!(id)],
+                )
+                .await?;
+            }
+        }
+        tx.commit()
+            .await
+            .map_err(|error| AppError::Database(rbatis::Error::from(error)))
+    }
+
+    async fn count_active(&self) -> AppResult<i64> {
+        #[derive(serde::Deserialize)]
+        struct CountResult {
+            count: i64,
+        }
+
+        self.db
+            .query_decode(
+                "SELECT COUNT(*) AS count FROM clip_record WHERE del_flag = 0",
+                vec![],
+            )
+            .await
+            .map(|rows: Vec<CountResult>| rows.first().map(|row| row.count).unwrap_or(0))
+            .map_err(AppError::Database)
+    }
+
+    async fn delete_oldest_unpinned(&self, count: i32) -> AppResult<()> {
+        self.db
+            .exec(
+                "DELETE FROM clip_record WHERE id IN (
+                    SELECT id FROM clip_record
+                    WHERE del_flag = 0 AND pinned_flag = 0
+                    ORDER BY sort ASC, created ASC
+                    LIMIT ?
+                )",
+                vec![to_value!(count)],
+            )
+            .await
+            .map(|_| ())
+            .map_err(AppError::Database)
+    }
 }

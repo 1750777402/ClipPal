@@ -15,6 +15,34 @@ pub struct VipInfo {
     pub features: Option<Vec<String>>,
 }
 
+impl VipInfo {
+    /// 将服务端使用的 KB 限制转换为业务比较使用的字节数。
+    pub fn max_file_size_bytes(&self) -> u64 {
+        self.max_file_size.saturating_mul(1024)
+    }
+
+    /// 判断会影响权益执行的关键字段是否变化。
+    pub fn materially_differs_from(&self, previous: &Self) -> bool {
+        self.vip_type != previous.vip_type
+            || self.vip_flag != previous.vip_flag
+            || self.max_file_size != previous.max_file_size
+            || self.max_records != previous.max_records
+    }
+}
+
+impl From<&UserVipInfoResponse> for VipInfo {
+    fn from(response: &UserVipInfoResponse) -> Self {
+        Self {
+            vip_flag: response.vip_flag,
+            vip_type: response.vip_type.clone().unwrap_or(VipType::Free),
+            expire_time: response.expire_time,
+            max_records: response.max_records,
+            max_file_size: response.max_file_size,
+            features: response.features.clone(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 /// 服务端支持的 VIP 套餐类型，同时作为配置映射的键。
 pub enum VipType {
@@ -123,4 +151,58 @@ pub struct VipLimits {
     pub max_file_size: u64,
     /// 当前账号是否可以开启云同步。
     pub can_cloud_sync: bool,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn vip_info() -> VipInfo {
+        VipInfo {
+            vip_flag: true,
+            vip_type: VipType::Monthly,
+            expire_time: Some(123),
+            max_records: 1000,
+            max_file_size: 5120,
+            features: Some(vec!["cloud_sync".to_string()]),
+        }
+    }
+
+    #[test]
+    fn converts_file_limit_from_kilobytes_to_bytes() {
+        assert_eq!(vip_info().max_file_size_bytes(), 5 * 1024 * 1024);
+    }
+
+    #[test]
+    fn detects_changes_that_affect_entitlement_enforcement() {
+        let previous = vip_info();
+        let mut current = previous.clone();
+        current.max_records = 2000;
+
+        assert!(current.materially_differs_from(&previous));
+
+        current.max_records = previous.max_records;
+        current.features = Some(vec!["display-only-change".to_string()]);
+        assert!(!current.materially_differs_from(&previous));
+    }
+
+    #[test]
+    fn converts_server_response_to_cached_vip_info() {
+        let response = UserVipInfoResponse {
+            user_id: 1,
+            vip_flag: true,
+            vip_type: Some(VipType::Yearly),
+            expire_time: Some(456),
+            max_records: 3000,
+            max_file_size: 10240,
+            features: Some(vec!["file_sync".to_string()]),
+        };
+
+        let info = VipInfo::from(&response);
+
+        assert!(info.vip_flag);
+        assert_eq!(info.vip_type, VipType::Yearly);
+        assert_eq!(info.max_records, 3000);
+        assert_eq!(info.max_file_size, 10240);
+    }
 }

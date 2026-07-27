@@ -2,7 +2,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::{
     app_context::app_context,
-    biz::{clip_record::ClipRecord, content_search::remove_ids_from_index},
+    biz::clip_record::ClipRecord,
     utils::{file_dir::get_resources_dir, path_utils::to_safe_string},
 };
 use clipboard_listener::ClipType;
@@ -72,7 +72,7 @@ async fn clip_record_clean() {
                 Ok(_) => {
                     log::info!("删除超限数据成功, 数量: {}", del_ids.len());
                     // 同步删除搜索索引
-                    let _ = remove_ids_from_index(&del_ids).await;
+                    let _ = context.search_engine().remove(&del_ids).await;
 
                     // 删除resources目录下的文件
                     delete_resource_files(&resource_files_to_delete).await;
@@ -105,7 +105,7 @@ async fn clip_record_clean() {
                         Ok(_) => {
                             log::info!("物理删除数据成功, 数量: {}", del_ids.len());
                             // 同步删除搜索索引
-                            let _ = remove_ids_from_index(&del_ids).await;
+                            let _ = context.search_engine().remove(&del_ids).await;
 
                             // 删除resources目录下的文件
                             delete_resource_files(&resource_files_to_delete).await;

@@ -12,11 +12,22 @@ use crate::app_context::app_context;
 use crate::biz::clip_record::{
     ClipRecord, NOT_SYNCHRONIZED, SKIP_SYNC, SYNCHRONIZED, SYNCHRONIZING,
 };
-use crate::biz::vip_checker::VipChecker;
 use crate::errors::{AppError, AppResult};
+use crate::services::vip_service::VipService;
 use crate::utils::file_dir::get_resources_dir;
 use clipboard_listener::ClipType;
 use std::path::PathBuf;
+
+fn cached_vip_file_size_limit() -> u64 {
+    app_context()
+        .ok()
+        .and_then(|context| {
+            VipService::from_context(context.as_ref())
+                .get_cached_max_file_size()
+                .ok()
+        })
+        .unwrap_or(0)
+}
 
 #[derive(Clone, Debug)]
 pub enum QueueEvent<T> {
@@ -171,7 +182,7 @@ async fn handle_sync_task(param: SingleCloudSyncParam) -> AppResult<i32> {
         // 获取文件大小
         let file_size = get_file_size_from_param(&param.clip).await;
         // 获取当前用户的文件大小限制（根据VIP等级）
-        let max_file_size = VipChecker::get_cached_max_file_size().unwrap_or(0);
+        let max_file_size = cached_vip_file_size_limit();
 
         if max_file_size == 0 {
             log::info!(
@@ -384,7 +395,11 @@ async fn check_single_file_size(file_path: &PathBuf) -> Result<(), String> {
     match std::fs::metadata(file_path) {
         Ok(metadata) => {
             let file_size = metadata.len();
-            match VipChecker::can_sync_file(file_size).await {
+            let context = app_context().map_err(|error| error.to_string())?;
+            match VipService::from_context(context.as_ref())
+                .can_sync_file(file_size)
+                .await
+            {
                 Ok((can_sync, message)) => {
                     if can_sync {
                         Ok(())

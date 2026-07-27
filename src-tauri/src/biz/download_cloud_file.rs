@@ -81,7 +81,10 @@ pub async fn start_cloud_file_download_timer(app_handle: AppHandle) {
         loop {
             interval_timer.tick().await;
 
-            if !crate::biz::system_setting::check_cloud_sync_enabled().await {
+            if !app_context()
+                .and_then(|context| context.cloud_sync_enabled())
+                .unwrap_or(false)
+            {
                 continue;
             }
 
