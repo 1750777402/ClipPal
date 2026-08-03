@@ -6,31 +6,31 @@ use crate::{
         FrontendCheckUsernameRequest, FrontendLoginRequest, FrontendRegisterRequest,
         FrontendSendEmailCodeRequest, LoginResponse, UserInfo,
     },
-    infra::{http::AuthClient, security::AuthStore},
-    services::{settings_service::SettingsService, vip_service::VipService},
+    infra::security::AuthStore,
+    services::{ports::AuthGateway, settings_service::SettingsService, vip_service::VipService},
 };
 
-/// 认证应用服务，负责编排认证仓储、VIP 初始化、设置更新和前端事件。
+/// 认证应用服务，负责编排远程认证端口、本地会话存储、VIP 初始化、设置更新和前端事件。
 pub struct AuthService<'a> {
     context: &'a AppContext,
-    client: &'a dyn AuthClient,
+    gateway: &'a dyn AuthGateway,
     store: &'a dyn AuthStore,
 }
 
 impl<'a> AuthService<'a> {
-    /// 从应用上下文取得认证、设置和 VIP 仓储，创建一次 command 调用使用的服务实例。
+    /// 从应用上下文取得认证端口和本地会话存储，创建一次 command 调用使用的服务实例。
     pub fn from_context(context: &'a AppContext) -> Self {
         Self {
             context,
-            client: context.auth_client(),
+            gateway: context.auth_gateway(),
             store: context.auth_store(),
         }
     }
-    /// 执行用户登录；认证仓储负责远程请求和令牌持久化，登录成功后异步初始化 VIP 权益。
+    /// 执行用户登录；远程端口获取会话，本地存储持久化令牌，登录成功后异步初始化 VIP 权益。
     pub async fn login(&self, param: FrontendLoginRequest) -> Result<LoginResponse, String> {
         log::info!("用户登录请求: {}", param.account);
         let session = self
-            .client
+            .gateway
             .login(param)
             .await?
             .ok_or_else(|| "登录响应为空".to_string())?;
@@ -60,18 +60,18 @@ impl<'a> AuthService<'a> {
     /// 注册用户账号，返回服务端创建的用户资料。
     pub async fn register(&self, param: FrontendRegisterRequest) -> Result<UserInfo, String> {
         log::info!("用户注册请求: {}", param.account);
-        self.client
+        self.gateway
             .register(param)
             .await?
             .ok_or_else(|| "注册响应为空".to_string())
     }
 
-    /// 请求发送邮箱验证码，仓储负责转换参数和调用认证接口。
+    /// 通过远程认证端口请求发送邮箱验证码。
     pub async fn send_email_code(
         &self,
         param: FrontendSendEmailCodeRequest,
     ) -> Result<String, String> {
-        match self.client.send_email_code(param).await? {
+        match self.gateway.send_email_code(param).await? {
             Some(true) => Ok("验证码已发送".to_string()),
             Some(false) | None => Err("验证码发送失败".to_string()),
         }
@@ -81,7 +81,7 @@ impl<'a> AuthService<'a> {
     pub async fn logout(&self) -> Result<String, String> {
         // 仅在本地存在令牌时通知服务端，避免无意义的未认证请求。
         if self.store.has_access_token() {
-            if let Err(error) = self.client.logout().await {
+            if let Err(error) = self.gateway.logout().await {
                 log::warn!("通知服务端退出失败，继续清理本地会话: {}", error);
             }
         }
@@ -126,12 +126,12 @@ impl<'a> AuthService<'a> {
         }
     }
 
-    /// 调用认证仓储检查用户名可用性。
+    /// 通过远程认证端口检查用户名可用性。
     pub async fn check_username(
         &self,
         param: FrontendCheckUsernameRequest,
     ) -> Result<bool, String> {
-        self.client
+        self.gateway
             .check_username(param)
             .await?
             .ok_or_else(|| "用户名不可用".to_string())
@@ -148,7 +148,7 @@ impl<'a> AuthService<'a> {
             return Err("昵称长度不能超过20个字符".to_string());
         }
 
-        match self.client.update_nickname(nickname).await? {
+        match self.gateway.update_nickname(nickname).await? {
             Some(true) => {
                 if let Err(error) = self.store.update_user_nickname(nickname) {
                     log::warn!("更新本地用户信息失败: {}", error);

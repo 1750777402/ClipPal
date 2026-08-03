@@ -26,6 +26,11 @@ impl AppRepositories {
         self.clip_records.as_ref()
     }
 
+    /// 克隆剪贴记录仓储共享句柄，供长期运行的后台任务持有。
+    pub fn clip_records_shared(&self) -> Arc<dyn ClipRecordRepository> {
+        self.clip_records.clone()
+    }
+
     /// 获取设置仓储，用于加载和持久化配置文件。
     pub fn settings(&self) -> &dyn SettingsRepository {
         self.settings.as_ref()

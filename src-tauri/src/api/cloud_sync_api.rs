@@ -1,6 +1,6 @@
 use crate::{
     api::{api_get, api_post, api_post_with_timeout},
-    biz::clip_record::ClipRecord,
+    domain::clip::ClipRecord,
     utils::http_client::HttpError,
 };
 use serde::{Deserialize, Serialize};

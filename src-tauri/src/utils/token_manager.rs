@@ -82,7 +82,7 @@ impl TokenManager {
 
         log::info!("开始刷新访问令牌");
 
-        match context.auth_client().refresh_session(&refresh_token).await {
+        match context.auth_gateway().refresh_session(&refresh_token).await {
             Ok(Some(session)) => {
                 log::info!("令牌刷新成功");
 

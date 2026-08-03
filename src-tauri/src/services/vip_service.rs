@@ -13,7 +13,8 @@ use crate::{
             UserVipInfoResponse, VipInfo, VipLimits, VipType,
         },
     },
-    infra::{http::VipClient, security::AuthStore, storage::VipStore},
+    infra::{security::AuthStore, storage::VipStore},
+    services::ports::VipGateway,
     utils::file_dir::get_resources_dir,
 };
 
@@ -33,7 +34,7 @@ struct VipStatusChangedPayload {
 /// VIP 应用服务，统一编排权益刷新、缓存、限制执行、支付和状态通知。
 pub struct VipService<'a> {
     context: &'a AppContext,
-    client: &'a dyn VipClient,
+    gateway: &'a dyn VipGateway,
     auth_store: &'a dyn AuthStore,
     store: &'a dyn VipStore,
 }
@@ -42,7 +43,7 @@ impl<'a> VipService<'a> {
     pub fn from_context(context: &'a AppContext) -> Self {
         Self {
             context,
-            client: context.vip_client(),
+            gateway: context.vip_gateway(),
             auth_store: context.auth_store(),
             store: context.vip_store(),
         }
@@ -60,7 +61,7 @@ impl<'a> VipService<'a> {
             return Ok(false);
         }
 
-        match self.client.fetch_current_info().await {
+        match self.gateway.fetch_current_info().await {
             Ok(Some(response)) => {
                 self.apply_remote_info(&response).await?;
                 Ok(response.vip_flag)
@@ -130,7 +131,7 @@ impl<'a> VipService<'a> {
     /// 从服务端刷新权益，成功应用快照后通知前端。
     pub async fn refresh_vip_status(&self) -> Result<bool, String> {
         log::info!("从服务器刷新 VIP 状态");
-        match self.client.fetch_current_info().await {
+        match self.gateway.fetch_current_info().await {
             Ok(Some(response)) => {
                 self.apply_remote_info(&response).await?;
                 self.emit_status_changed();
@@ -163,7 +164,7 @@ impl<'a> VipService<'a> {
                 .unwrap_or(DEFAULT_VIP_MAX_RECORDS));
         }
 
-        if let Some(config) = self.client.get_server_config().await? {
+        if let Some(config) = self.gateway.get_server_config().await? {
             if let Some(free) = config.get(&VipType::Free) {
                 return Ok(free.record_limit);
             }
@@ -211,7 +212,7 @@ impl<'a> VipService<'a> {
             }
         }
 
-        match self.client.get_server_config().await {
+        match self.gateway.get_server_config().await {
             Ok(Some(configs)) => {
                 let max_kb = configs
                     .values()
@@ -272,18 +273,18 @@ impl<'a> VipService<'a> {
     pub async fn get_server_config(
         &self,
     ) -> Result<Option<HashMap<VipType, ServerConfigResponse>>, String> {
-        self.client.get_server_config().await
+        self.gateway.get_server_config().await
     }
 
     pub async fn get_pay_url(&self, param: PayParam) -> Result<Option<PayCodrUrlResponse>, String> {
-        self.client.get_pay_url(&param).await
+        self.gateway.get_pay_url(&param).await
     }
 
     pub async fn get_pay_result(
         &self,
         param: QueryPayParam,
     ) -> Result<Option<QueryPayResponse>, String> {
-        self.client.get_pay_result(&param).await
+        self.gateway.get_pay_result(&param).await
     }
 
     async fn apply_remote_info(&self, response: &UserVipInfoResponse) -> Result<(), String> {

@@ -6,7 +6,7 @@ use rbatis::RBatis;
 
 use crate::{
     app_context::AppContext,
-    biz::{clip_record::ClipRecord, clip_record_sync::ClipboardEventTigger},
+    biz::clip_record_sync::ClipboardEventTigger,
     errors::AppResult,
     infra::{
         db,
@@ -78,7 +78,7 @@ pub async fn init_core() -> AppResult<BootstrapCore> {
     ));
     crate::app_context::set_app_context(app_context.clone())?;
 
-    initialize_search_index_from_database(&db, app_context.as_ref()).await;
+    initialize_search_index_from_database(app_context.as_ref()).await;
 
     Ok(BootstrapCore {
         app_context,
@@ -90,12 +90,17 @@ pub async fn init_core() -> AppResult<BootstrapCore> {
 /// 从数据库加载已有剪贴记录并初始化搜索索引。
 ///
 /// 搜索索引初始化失败不阻断应用启动。
-async fn initialize_search_index_from_database(db: &RBatis, context: &AppContext) {
+async fn initialize_search_index_from_database(context: &AppContext) {
     // 启动时加载全部记录建立内存索引；失败只影响搜索，不阻断应用启动。
-    let all_clips = ClipRecord::select_order_by(db).await.unwrap_or_else(|e| {
-        log::error!("获取剪贴板记录失败: {}", e);
-        vec![]
-    });
+    let all_clips = context
+        .repositories()
+        .clip_records()
+        .list_all()
+        .await
+        .unwrap_or_else(|e| {
+            log::error!("获取剪贴板记录失败: {}", e);
+            vec![]
+        });
 
     if let Err(e) = context.search_engine().initialize(all_clips).await {
         log::error!("搜索索引初始化失败: {}", e);

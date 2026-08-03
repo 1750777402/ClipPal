@@ -7,14 +7,14 @@ use std::{
 
 use chrono::Local;
 use clipboard_listener::{ClipBoardEventListener, ClipType, ClipboardEvent};
-use rbatis::RBatis;
 use serde_json::Value;
 use tauri::Emitter;
 use uuid::Uuid;
 
 use crate::{
     app_context::app_context,
-    biz::clip_record::{ClipRecord, NOT_SYNCHRONIZED, SKIP_SYNC},
+    domain::clip::{ClipRecord, NOT_SYNCHRONIZED, SKIP_SYNC},
+    infra::repositories::ClipRecordRepository,
     services::vip_service::VipService,
     utils::{file_dir::get_resources_dir, file_ext::extract_full_extension},
 };
@@ -62,13 +62,15 @@ impl ClipBoardEventListener<ClipboardEvent> for ClipboardEventTigger {
             log::error!("AppContext 尚未初始化，跳过剪贴板事件");
             return;
         };
-        let rb: &RBatis = context.db();
-        let next_sort = ClipRecord::get_next_sort(rb).await;
+        let repository = context.repositories().clip_records();
+        let next_sort = repository.next_sort().await.unwrap_or(0);
 
         let record_result = match event.r#type {
-            ClipType::Text => handle_text(rb, &event.content, next_sort).await,
-            ClipType::Image => handle_image(rb, event.file.as_ref(), next_sort).await,
-            ClipType::File => handle_file(rb, event.file_path_vec.as_ref(), next_sort).await,
+            ClipType::Text => handle_text(repository, &event.content, next_sort).await,
+            ClipType::Image => handle_image(repository, event.file.as_ref(), next_sort).await,
+            ClipType::File => {
+                handle_file(repository, event.file_path_vec.as_ref(), next_sort).await
+            }
             _ => Ok(None),
         };
 
@@ -317,7 +319,7 @@ fn build_multiple_files_record(
 }
 
 async fn handle_text(
-    rb: &RBatis,
+    repository: &dyn ClipRecordRepository,
     content: &str,
     sort: i32,
 ) -> Result<Option<ClipRecord>, AppError> {
@@ -333,14 +335,11 @@ async fn handle_text(
         Ok(encrypted) => {
             let md5_str = format!("{:x}", md5::compute(trimmed_content));
             // 单次查询检查是否有相同内容的记录
-            let existing = ClipRecord::check_by_type_and_md5(
-                rb,
-                ClipType::Text.to_string().as_str(),
-                md5_str.as_str(),
-            )
-            .await?;
+            let existing = repository
+                .find_by_type_and_md5(ClipType::Text.to_string().as_str(), md5_str.as_str())
+                .await?;
 
-            if let Some(record) = existing.first() {
+            if let Some(record) = existing.as_ref() {
                 if record.del_flag == Some(1) {
                     // 已删除的记录，更新为新记录的所有字段
                     let mut new_record = build_clip_record(
@@ -366,9 +365,7 @@ async fn handle_text(
                         );
                     }
 
-                    if let Err(e) =
-                        ClipRecord::update_deleted_record_as_new(rb, &record.id, &new_record).await
-                    {
+                    if let Err(e) = repository.restore_deleted(&record.id, &new_record).await {
                         log::error!("更新已删除文本记录失败: {}", e);
                         return Err(e);
                     }
@@ -386,7 +383,7 @@ async fn handle_text(
                     return Ok(Some(new_record));
                 } else {
                     // 活跃记录，只更新排序
-                    if let Err(e) = ClipRecord::update_sort(rb, &record.id, sort).await {
+                    if let Err(e) = repository.update_sort(&record.id, sort).await {
                         log::error!("更新排序失败: {}", e);
                         return Err(e);
                     }
@@ -418,7 +415,7 @@ async fn handle_text(
                 );
             }
 
-            match ClipRecord::insert(rb, &record).await {
+            match repository.insert(&record).await {
                 Ok(_res) => {
                     let content_string = trimmed_content.to_string();
                     let record_id = record.id.clone();
@@ -433,7 +430,7 @@ async fn handle_text(
                 }
                 Err(e) => {
                     log::error!("插入文本记录失败: {}", e);
-                    Err(AppError::Database(e))
+                    Err(e)
                 }
             }
         }
@@ -449,7 +446,7 @@ async fn handle_text(
 }
 
 async fn handle_image(
-    rb: &RBatis,
+    repository: &dyn ClipRecordRepository,
     file_data: Option<&Vec<u8>>,
     sort: i32,
 ) -> Result<Option<ClipRecord>, AppError> {
@@ -457,11 +454,11 @@ async fn handle_image(
         let md5_str = format!("{:x}", md5::compute(data));
 
         // 单次查询检查是否有相同内容的记录
-        let existing =
-            ClipRecord::check_by_type_and_md5(rb, ClipType::Image.to_string().as_str(), &md5_str)
-                .await?;
+        let existing = repository
+            .find_by_type_and_md5(ClipType::Image.to_string().as_str(), &md5_str)
+            .await?;
 
-        if let Some(record) = existing.first() {
+        if let Some(record) = existing.as_ref() {
             if record.del_flag == Some(1) {
                 // 已删除的记录，更新为新记录的所有字段
                 let id = record.id.clone();
@@ -492,9 +489,7 @@ async fn handle_image(
                         );
                     }
 
-                    if let Err(e) =
-                        ClipRecord::update_deleted_record_as_new(rb, &id, &new_record).await
-                    {
+                    if let Err(e) = repository.restore_deleted(&id, &new_record).await {
                         log::error!("更新已删除图片记录失败: {}", e);
                         // 保存图片失败时删除已创建的文件
                         delete_image_file(&filename).await;
@@ -509,7 +504,7 @@ async fn handle_image(
                 }
             } else {
                 // 活跃记录，只更新排序
-                if let Err(e) = ClipRecord::update_sort(rb, &record.id, sort).await {
+                if let Err(e) = repository.update_sort(&record.id, sort).await {
                     log::error!("更新图片排序失败: {}", e);
                     return Err(e);
                 }
@@ -545,7 +540,7 @@ async fn handle_image(
                 );
             }
 
-            match ClipRecord::insert(rb, &record).await {
+            match repository.insert(&record).await {
                 Ok(_) => {
                     log::info!("新增图片记录成功，ID: {}, 文件名: {}", id, filename);
                     Ok(Some(record))
@@ -554,7 +549,7 @@ async fn handle_image(
                     log::error!("插入图片记录失败: {}", e);
                     // 数据库插入失败时删除已创建的文件
                     delete_image_file(&filename).await;
-                    Err(AppError::Database(e))
+                    Err(e)
                 }
             }
         } else {
@@ -567,7 +562,7 @@ async fn handle_image(
 }
 
 async fn handle_file(
-    rb: &RBatis,
+    repository: &dyn ClipRecordRepository,
     file_paths: Option<&Vec<String>>,
     sort: i32,
 ) -> Result<Option<ClipRecord>, AppError> {
@@ -578,7 +573,7 @@ async fn handle_file(
                 "检测到多文件复制({} 个文件)，不支持云同步，仅保留本地记录",
                 paths.len()
             );
-            return handle_multiple_files(rb, paths, sort).await;
+            return handle_multiple_files(repository, paths, sort).await;
         }
 
         // 单文件处理
@@ -608,15 +603,12 @@ async fn handle_file(
             };
 
             // 单次查询检查是否有相同内容的记录
-            let existing = ClipRecord::check_by_type_and_md5(
-                rb,
-                ClipType::File.to_string().as_str(),
-                &md5_str,
-            )
-            .await?;
+            let existing = repository
+                .find_by_type_and_md5(ClipType::File.to_string().as_str(), &md5_str)
+                .await?;
 
             // 判断同样的文件复制记录是否已存在
-            if let Some(record) = existing.first() {
+            if let Some(record) = existing.as_ref() {
                 if record.del_flag == Some(1) {
                     // 已删除的记录，复制文件并更新记录
                     let original_filename = std::path::Path::new(file_path)
@@ -636,10 +628,7 @@ async fn handle_file(
                         new_record.content = Value::String(original_filename.to_string());
                         new_record.local_file_path = Some(absolute_path.clone());
 
-                        if let Err(e) =
-                            ClipRecord::update_deleted_record_as_new(rb, &record.id, &new_record)
-                                .await
-                        {
+                        if let Err(e) = repository.restore_deleted(&record.id, &new_record).await {
                             log::error!("更新已删除文件记录失败: {}", e);
                             // 数据库更新失败时删除已复制的文件
                             delete_copied_file(&absolute_path).await;
@@ -661,10 +650,7 @@ async fn handle_file(
                         new_record.skip_type = Some(1); // 1: 文件复制失败，不支持同步
                         new_record.local_file_path = Some(file_path.to_string());
 
-                        if let Err(e) =
-                            ClipRecord::update_deleted_record_as_new(rb, &record.id, &new_record)
-                                .await
-                        {
+                        if let Err(e) = repository.restore_deleted(&record.id, &new_record).await {
                             log::error!("更新已删除文件记录失败: {}", e);
                             return Err(e);
                         }
@@ -688,7 +674,7 @@ async fn handle_file(
                     return Ok(Some(updated_record));
                 } else {
                     // 活跃记录，只更新排序
-                    if let Err(e) = ClipRecord::update_sort(rb, &record.id, sort).await {
+                    if let Err(e) = repository.update_sort(&record.id, sort).await {
                         log::error!("更新文件排序失败: {}", e);
                         return Err(e);
                     }
@@ -697,7 +683,7 @@ async fn handle_file(
             }
 
             // 单文件：复制到resources目录并支持云同步
-            return handle_sync_eligible_file(rb, file_path, &md5_str, sort).await;
+            return handle_sync_eligible_file(repository, file_path, &md5_str, sort).await;
         }
     }
     Ok(None)
@@ -705,7 +691,7 @@ async fn handle_file(
 
 /// 处理多文件情况（不支持云同步）
 async fn handle_multiple_files(
-    rb: &RBatis,
+    repository: &dyn ClipRecordRepository,
     paths: &Vec<String>,
     sort: i32,
 ) -> Result<Option<ClipRecord>, AppError> {
@@ -732,17 +718,15 @@ async fn handle_multiple_files(
     };
 
     // 单次查询检查是否有相同内容的记录
-    let existing =
-        ClipRecord::check_by_type_and_md5(rb, ClipType::File.to_string().as_str(), &md5_str)
-            .await?;
+    let existing = repository
+        .find_by_type_and_md5(ClipType::File.to_string().as_str(), &md5_str)
+        .await?;
 
-    if let Some(record) = existing.first() {
+    if let Some(record) = existing.as_ref() {
         if record.del_flag == Some(1) {
             // 已删除的记录，更新为新记录
             let new_record = build_multiple_files_record(&record.id, paths, &md5_str, sort);
-            if let Err(e) =
-                ClipRecord::update_deleted_record_as_new(rb, &record.id, &new_record).await
-            {
+            if let Err(e) = repository.restore_deleted(&record.id, &new_record).await {
                 log::error!("更新已删除多文件记录失败: {}", e);
                 return Err(e);
             }
@@ -760,7 +744,7 @@ async fn handle_multiple_files(
             return Ok(Some(new_record));
         } else {
             // 活跃记录，只更新排序
-            if let Err(e) = ClipRecord::update_sort(rb, &record.id, sort).await {
+            if let Err(e) = repository.update_sort(&record.id, sort).await {
                 log::error!("更新多文件排序失败: {}", e);
                 return Err(e);
             }
@@ -796,7 +780,7 @@ async fn handle_multiple_files(
     record.skip_type = Some(1); // 1: 不支持再次同步（多文件）
     record.local_file_path = Some(paths.join(":::"));
 
-    match ClipRecord::insert(rb, &record).await {
+    match repository.insert(&record).await {
         Ok(_) => {
             let record_id_copy = record_id.clone();
             let content_copy = content_display.clone();
@@ -818,14 +802,14 @@ async fn handle_multiple_files(
         }
         Err(e) => {
             log::error!("插入多文件记录失败: {}", e);
-            Err(AppError::Database(e))
+            Err(e)
         }
     }
 }
 
 /// 处理单文件（复制到resources目录）
 async fn handle_sync_eligible_file(
-    rb: &RBatis,
+    repository: &dyn ClipRecordRepository,
     file_path: &str,
     md5_str: &str,
     sort: i32,
@@ -874,7 +858,7 @@ async fn handle_sync_eligible_file(
 
         let final_record = record;
 
-        match ClipRecord::insert(rb, &final_record).await {
+        match repository.insert(&final_record).await {
             Ok(_) => {
                 log::info!(
                     "保存小文件记录成功（支持云同步），记录ID: {}, 原路径: {}, 新路径: {}, 显示文件名: {}",
@@ -899,7 +883,7 @@ async fn handle_sync_eligible_file(
                 log::error!("插入小文件记录失败: {}", e);
                 // 数据库插入失败时删除已复制的文件
                 delete_copied_file(&absolute_path).await;
-                Err(AppError::Database(e))
+                Err(e)
             }
         }
     } else {
@@ -919,7 +903,7 @@ async fn handle_sync_eligible_file(
         record.skip_type = Some(1); // 1: 文件复制失败，不支持同步
         record.local_file_path = Some(file_path.to_string());
 
-        match ClipRecord::insert(rb, &record).await {
+        match repository.insert(&record).await {
             Ok(_) => {
                 log::info!(
                     "保存文件记录成功（不支持同步），记录ID: {}, 文件路径: {}, 显示文件名: {}",
@@ -941,7 +925,7 @@ async fn handle_sync_eligible_file(
             }
             Err(e) => {
                 log::error!("插入文件记录失败: {}", e);
-                Err(AppError::Database(e))
+                Err(e)
             }
         }
     }

@@ -1,5 +1,4 @@
 use clipboard_listener::ClipType;
-use rbatis::RBatis;
 use std::path::PathBuf;
 use tauri::Emitter;
 use tokio::task;
@@ -7,7 +6,7 @@ use tokio::time::{sleep, Duration};
 
 use crate::api::cloud_sync_api::{get_upload_file_url, sync_upload_success, FileCloudSyncParam};
 use crate::app_context::app_context;
-use crate::biz::clip_record::{ClipRecord, SKIP_SYNC, SYNCHRONIZED, SYNCHRONIZING};
+use crate::domain::clip::{ClipRecord, SKIP_SYNC, SYNCHRONIZED, SYNCHRONIZING};
 use crate::errors::{AppError, AppResult};
 use crate::services::vip_service::VipService;
 use crate::utils::file_dir::get_resources_dir;
@@ -62,10 +61,13 @@ pub fn start_upload_cloud_timer() {
 /// 每次只处理一条SYNCHRONIZING状态的记录
 async fn process_one_file_sync() -> AppResult<()> {
     let context = app_context()?;
-    let rb: &RBatis = context.db();
 
     // 查找一条sync_flag为SYNCHRONIZING的记录，但是需要是本地自己的记录，而不是云端同步下来的
-    let pending_records = ClipRecord::select_by_sync_flag_limit(rb, SYNCHRONIZING, 0, 1).await?;
+    let pending_records = context
+        .repositories()
+        .clip_records()
+        .list_by_sync_status_and_source(SYNCHRONIZING, 0, 1)
+        .await?;
 
     if pending_records.is_empty() {
         log::debug!("没有发现待同步文件的记录");
@@ -87,7 +89,7 @@ async fn process_one_file_sync() -> AppResult<()> {
             // 其他类型不需要文件同步，直接标记为已同步
             let ids = vec![record.id.clone()];
             let current_time = current_timestamp();
-            ClipRecord::update_sync_flag(rb, &ids, SYNCHRONIZED, current_time).await?;
+            update_record_sync_status(&ids, SYNCHRONIZED, current_time).await?;
             log::info!("非文件类型记录直接标记为已同步: {}", record.id);
             Ok(())
         }
@@ -104,11 +106,9 @@ async fn process_image_sync(record: &ClipRecord) -> AppResult<()> {
 
     if image_filename.is_empty() {
         // 文件名为空，直接标记为已同步
-        let context = app_context()?;
-        let rb: &RBatis = context.db();
         let ids = vec![record.id.clone()];
         let current_time = current_timestamp();
-        ClipRecord::update_sync_flag(rb, &ids, SYNCHRONIZED, current_time).await?;
+        update_record_sync_status(&ids, SYNCHRONIZED, current_time).await?;
         log::warn!("图片记录content为空，直接标记为已同步: {}", record.id);
         return Ok(());
     }
@@ -177,11 +177,9 @@ async fn process_file_sync(record: &ClipRecord) -> AppResult<()> {
                 return mark_as_skip_sync(&record.id, "所有文件都超过大小限制或不存在").await;
             } else {
                 // 所有文件都不存在，直接标记为已同步
-                let context = app_context()?;
-                let rb: &RBatis = context.db();
                 let ids = vec![record.id.clone()];
                 let current_time = current_timestamp();
-                ClipRecord::update_sync_flag(rb, &ids, SYNCHRONIZED, current_time).await?;
+                update_record_sync_status(&ids, SYNCHRONIZED, current_time).await?;
                 log::warn!("所有文件都不存在，直接标记为已同步: {}", record.id);
                 return Ok(());
             }
@@ -218,12 +216,10 @@ async fn process_file_sync(record: &ClipRecord) -> AppResult<()> {
 
         // 只有所有文件都上传成功后，才更新记录状态为已同步
         if upload_success && !uploaded_files.is_empty() {
-            let context = app_context()?;
-            let rb: &RBatis = context.db();
             let ids = vec![record.id.clone()];
             let current_time = current_timestamp();
 
-            match ClipRecord::update_sync_flag(rb, &ids, SYNCHRONIZED, current_time).await {
+            match update_record_sync_status(&ids, SYNCHRONIZED, current_time).await {
                 Ok(_) => {
                     notify_frontend_sync_status(vec![record.id.clone()], SYNCHRONIZED).await;
                     log::info!("所有文件上传完成，记录标记为已同步: {}", record.id);
@@ -248,11 +244,9 @@ async fn process_file_sync(record: &ClipRecord) -> AppResult<()> {
         Ok(())
     } else {
         // local_file_path字段为None，直接标记为已同步
-        let context = app_context()?;
-        let rb: &RBatis = context.db();
         let ids = vec![record.id.clone()];
         let current_time = current_timestamp();
-        ClipRecord::update_sync_flag(rb, &ids, SYNCHRONIZED, current_time).await?;
+        update_record_sync_status(&ids, SYNCHRONIZED, current_time).await?;
         log::warn!(
             "文件记录local_file_path字段为None，直接标记为已同步: {}",
             record.id
@@ -400,12 +394,10 @@ async fn upload_file_and_update_status(
     }
 
     // 步骤4: 只有所有步骤都成功后，才更新本地状态
-    let context = app_context()?;
-    let rb: &RBatis = context.db();
     let ids = vec![record_id.to_string()];
     let current_time = current_timestamp();
 
-    match ClipRecord::update_sync_flag(rb, &ids, SYNCHRONIZED, current_time).await {
+    match update_record_sync_status(&ids, SYNCHRONIZED, current_time).await {
         Ok(_) => {
             notify_frontend_sync_status(vec![record_id.to_string()], SYNCHRONIZED).await;
             log::info!("预签名URL上传完整流程成功，记录ID: {}", record_id);
@@ -433,7 +425,7 @@ async fn upload_file_and_update_status(
 
                 tokio::time::sleep(tokio::time::Duration::from_millis(1000 * retry_count)).await;
 
-                match ClipRecord::update_sync_flag(rb, &ids, SYNCHRONIZED, current_time).await {
+                match update_record_sync_status(&ids, SYNCHRONIZED, current_time).await {
                     Ok(_) => {
                         notify_frontend_sync_status(vec![record_id.to_string()], SYNCHRONIZED)
                             .await;
@@ -461,12 +453,10 @@ async fn upload_file_and_update_status(
 
 /// 标记记录为跳过同步状态
 async fn mark_as_skip_sync(record_id: &str, reason: &str) -> AppResult<()> {
-    let context = app_context()?;
-    let rb: &RBatis = context.db();
     let ids = vec![record_id.to_string()];
     let current_time = current_timestamp();
 
-    ClipRecord::update_sync_flag(rb, &ids, SKIP_SYNC, current_time).await?;
+    update_record_sync_status(&ids, SKIP_SYNC, current_time).await?;
     notify_frontend_sync_status(vec![record_id.to_string()], SKIP_SYNC).await;
     log::info!(
         "记录标记为跳过同步，记录ID: {}, 原因: {}",
@@ -475,6 +465,20 @@ async fn mark_as_skip_sync(record_id: &str, reason: &str) -> AppResult<()> {
     );
 
     Ok(())
+}
+
+/// 通过剪贴记录仓储批量更新同步状态和服务端时间。
+async fn update_record_sync_status(
+    ids: &[String],
+    sync_flag: i32,
+    sync_time: u64,
+) -> AppResult<()> {
+    let context = app_context()?;
+    context
+        .repositories()
+        .clip_records()
+        .update_sync_status(ids, sync_flag, sync_time)
+        .await
 }
 
 /// 通知前端同步状态更新

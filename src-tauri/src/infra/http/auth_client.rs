@@ -1,38 +1,75 @@
 use async_trait::async_trait;
+use serde::{Deserialize, Serialize};
 
 use crate::{
-    api::user_auth_api::{
-        check_username as api_check_username, refresh_token as api_refresh_token,
-        send_email_code as api_send_email_code, update_user_info as api_update_user_info,
-        user_login, user_logout, user_register as api_user_register, CheckUsernameRequestParam,
-        EmailCodeRequestParam, LoginRequestParam, RefreshTokenRequestParam, RegisterRequestParam,
-        UpdateUserInfoParam, UserInfo as ApiUserInfo,
-    },
+    api::{api_get_public, api_post, api_post_public},
     domain::user::{
         AuthSession, FrontendCheckUsernameRequest, FrontendLoginRequest, FrontendRegisterRequest,
         FrontendSendEmailCodeRequest, UserInfo,
     },
+    services::ports::AuthGateway,
 };
 
-#[async_trait]
-/// 认证服务端客户端，只负责 HTTP 请求、协议字段转换和传输错误收敛。
-pub trait AuthClient: Send + Sync {
-    async fn login(&self, request: FrontendLoginRequest) -> Result<Option<AuthSession>, String>;
-    async fn register(&self, request: FrontendRegisterRequest) -> Result<Option<UserInfo>, String>;
-    async fn send_email_code(
-        &self,
-        request: FrontendSendEmailCodeRequest,
-    ) -> Result<Option<bool>, String>;
-    async fn logout(&self) -> Result<(), String>;
-    async fn check_username(
-        &self,
-        request: FrontendCheckUsernameRequest,
-    ) -> Result<Option<bool>, String>;
-    async fn update_nickname(&self, nickname: &str) -> Result<Option<bool>, String>;
-    async fn refresh_session(&self, refresh_token: &str) -> Result<Option<AuthSession>, String>;
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct LoginRequestParam {
+    username: String,
+    password: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AuthResponse {
+    access_token: String,
+    refresh_token: String,
+    #[allow(dead_code)]
+    token_type: String,
+    expires_in: i32,
+    user_info: ApiUserInfo,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ApiUserInfo {
+    id: u64,
+    username: String,
+    nick_name: Option<String>,
+    email: Option<String>,
+    phone: Option<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RegisterRequestParam {
+    username: String,
+    password: String,
+    confirm_password: String,
+    nick_name: String,
+    email: String,
+    captcha: String,
+    phone: Option<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct EmailCodeRequestParam {
+    email: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RefreshTokenRequestParam {
+    refresh_token: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct UpdateUserInfoParam {
+    nick_name: String,
 }
 
 #[derive(Default)]
+/// 通过项目统一 HTTP 传输能力访问认证服务。
 pub struct HttpAuthClient;
 
 impl From<ApiUserInfo> for UserInfo {
@@ -47,26 +84,32 @@ impl From<ApiUserInfo> for UserInfo {
     }
 }
 
+impl From<AuthResponse> for AuthSession {
+    fn from(response: AuthResponse) -> Self {
+        Self {
+            access_token: response.access_token,
+            refresh_token: response.refresh_token,
+            expires_in: response.expires_in,
+            user_info: response.user_info.into(),
+        }
+    }
+}
+
 #[async_trait]
-impl AuthClient for HttpAuthClient {
+impl AuthGateway for HttpAuthClient {
+    /// 将登录参数转换为服务端协议，返回可供本地持久化的完整认证会话。
     async fn login(&self, request: FrontendLoginRequest) -> Result<Option<AuthSession>, String> {
         let request = LoginRequestParam {
             username: request.account,
             password: request.password,
         };
-        user_login(&request)
+        api_post_public::<_, AuthResponse>("clipPal-sync/auth/login", Some(&request))
             .await
-            .map(|response| {
-                response.map(|response| AuthSession {
-                    access_token: response.access_token,
-                    refresh_token: response.refresh_token,
-                    expires_in: response.expires_in,
-                    user_info: response.user_info.into(),
-                })
-            })
+            .map(|response| response.map(Into::into))
             .map_err(|error| error.to_string())
     }
 
+    /// 将注册参数转换为服务端协议并返回新建用户资料。
     async fn register(&self, request: FrontendRegisterRequest) -> Result<Option<UserInfo>, String> {
         let request = RegisterRequestParam {
             username: request.account,
@@ -77,62 +120,66 @@ impl AuthClient for HttpAuthClient {
             captcha: request.captcha,
             phone: request.phone,
         };
-        api_user_register(&request)
+        api_post_public::<_, ApiUserInfo>("clipPal-sync/auth/register", Some(&request))
             .await
             .map(|response| response.map(Into::into))
             .map_err(|error| error.to_string())
     }
 
+    /// 请求服务端向注册邮箱发送验证码。
     async fn send_email_code(
         &self,
         request: FrontendSendEmailCodeRequest,
     ) -> Result<Option<bool>, String> {
-        api_send_email_code(&EmailCodeRequestParam {
+        let request = EmailCodeRequestParam {
             email: request.email,
-        })
-        .await
-        .map_err(|error| error.to_string())
+        };
+        api_post_public("clipPal-sync/auth/sendEmailCode", Some(&request))
+            .await
+            .map_err(|error| error.to_string())
     }
 
+    /// 通知服务端结束当前访问令牌对应的会话。
     async fn logout(&self) -> Result<(), String> {
-        user_logout()
+        let payload = String::new();
+        api_post::<_, String>("clipPal-sync/auth/logout", Some(&payload))
             .await
             .map(|_| ())
             .map_err(|error| error.to_string())
     }
 
+    /// 通过公开接口检查指定用户名是否可用于注册。
     async fn check_username(
         &self,
         request: FrontendCheckUsernameRequest,
     ) -> Result<Option<bool>, String> {
-        api_check_username(&CheckUsernameRequestParam {
-            username: request.username,
-        })
-        .await
-        .map_err(|error| error.to_string())
+        let path = format!(
+            "clipPal-sync/auth/checkUsername?username={}",
+            request.username
+        );
+        api_get_public(&path)
+            .await
+            .map_err(|error| error.to_string())
     }
 
+    /// 将昵称转换为服务端用户资料字段并提交更新。
     async fn update_nickname(&self, nickname: &str) -> Result<Option<bool>, String> {
-        api_update_user_info(&UpdateUserInfoParam {
+        let request = UpdateUserInfoParam {
             nick_name: nickname.to_string(),
-        })
-        .await
-        .map_err(|error| error.to_string())
+        };
+        api_post("clipPal-sync/user/updateInfo", Some(&request))
+            .await
+            .map_err(|error| error.to_string())
     }
 
+    /// 使用 refresh token 请求新会话，并把协议响应转换为领域会话对象。
     async fn refresh_session(&self, refresh_token: &str) -> Result<Option<AuthSession>, String> {
-        api_refresh_token(&RefreshTokenRequestParam {
+        let request = RefreshTokenRequestParam {
             refresh_token: refresh_token.to_string(),
-        })
-        .await
-        .map(|response| {
-            response.map(|response| AuthSession {
-                access_token: response.access_token,
-                refresh_token: response.refresh_token,
-                expires_in: response.expires_in,
-                user_info: response.user_info.into(),
-            })
-        })
-        .map_err(|error| error.to_string())
+        };
+        api_post_public::<_, AuthResponse>("clipPal-sync/auth/refresh", Some(&request))
+            .await
+            .map(|response| response.map(Into::into))
+            .map_err(|error| error.to_string())
     }
 }

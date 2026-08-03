@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use rbatis::RBatis;
+use rbatis::{crud, RBatis};
 use rbs::to_value;
 
 use crate::{
@@ -7,6 +7,9 @@ use crate::{
     errors::{AppError, AppResult},
     infra::repositories::ClipRecordRepository,
 };
+
+// RBatis 生成的基础插入能力只在 SQLite 仓储实现和暂留的云端合并事务中使用。
+crud!(ClipRecord {}, "clip_record");
 
 /// 基于 RBatis/SQLite 的剪贴记录仓储实现。
 pub struct SqliteClipRecordRepository {
@@ -22,12 +25,39 @@ impl SqliteClipRecordRepository {
 
 #[async_trait]
 impl ClipRecordRepository for SqliteClipRecordRepository {
+    /// 加载数据库中的全部记录，供启动阶段重建搜索索引。
+    async fn list_all(&self) -> AppResult<Vec<ClipRecord>> {
+        self.db
+            .query_decode(
+                "SELECT * FROM clip_record ORDER BY sort DESC, created DESC",
+                vec![],
+            )
+            .await
+            .map_err(AppError::Database)
+    }
+
     /// 使用主键查询记录，并把空结果转换为 `None`。
     async fn find_by_id(&self, id: &str) -> AppResult<Option<ClipRecord>> {
         self.db
             .query_decode(
                 "SELECT * FROM clip_record WHERE id = ?",
                 vec![to_value!(id)],
+            )
+            .await
+            .map(|records: Vec<ClipRecord>| records.into_iter().next())
+            .map_err(AppError::Database)
+    }
+
+    /// 使用类型和 MD5 查询任意状态的一条记录，保持现有去重行为。
+    async fn find_by_type_and_md5(
+        &self,
+        record_type: &str,
+        md5: &str,
+    ) -> AppResult<Option<ClipRecord>> {
+        self.db
+            .query_decode(
+                "SELECT * FROM clip_record WHERE type = ? AND md5_str = ? LIMIT 1",
+                vec![to_value!(record_type), to_value!(md5)],
             )
             .await
             .map(|records: Vec<ClipRecord>| records.into_iter().next())
@@ -71,6 +101,189 @@ impl ClipRecordRepository for SqliteClipRecordRepository {
             .map_err(AppError::Database)
     }
 
+    /// 查询指定同步状态且内容有效的记录。
+    async fn list_by_sync_status(&self, sync_flag: i32) -> AppResult<Vec<ClipRecord>> {
+        self.db
+            .query_decode(
+                "SELECT * FROM clip_record WHERE sync_flag = ? AND content IS NOT NULL ORDER BY created DESC",
+                vec![to_value!(sync_flag)],
+            )
+            .await
+            .map_err(AppError::Database)
+    }
+
+    /// 查询指定同步状态和来源的有限数量记录。
+    async fn list_by_sync_status_and_source(
+        &self,
+        sync_flag: i32,
+        cloud_source: i32,
+        limit: i32,
+    ) -> AppResult<Vec<ClipRecord>> {
+        self.db
+            .query_decode(
+                "SELECT * FROM clip_record WHERE sync_flag = ? AND cloud_source = ? ORDER BY created DESC LIMIT ?",
+                vec![
+                    to_value!(sync_flag),
+                    to_value!(cloud_source),
+                    to_value!(limit),
+                ],
+            )
+            .await
+            .map_err(AppError::Database)
+    }
+
+    /// 查询可以物理清理的已同步墓碑记录。
+    async fn list_synced_tombstones(&self) -> AppResult<Vec<ClipRecord>> {
+        self.db
+            .query_decode(
+                "SELECT * FROM clip_record WHERE sync_flag = 2 AND del_flag = 1",
+                vec![],
+            )
+            .await
+            .map_err(AppError::Database)
+    }
+
+    /// 通过 RBatis 生成的参数化插入语句保存完整记录。
+    async fn insert(&self, record: &ClipRecord) -> AppResult<()> {
+        ClipRecord::insert(&self.db, record)
+            .await
+            .map(|_| ())
+            .map_err(AppError::Database)
+    }
+
+    /// 在事务内根据创建时间腾出排序位置并插入记录。
+    async fn insert_by_created_sort(&self, mut record: ClipRecord) -> AppResult<()> {
+        let tx = self.db.acquire_begin().await?;
+        let next_records: Vec<ClipRecord> = self
+            .db
+            .query_decode(
+                "SELECT * FROM clip_record WHERE created >= ? ORDER BY created DESC LIMIT 1",
+                vec![to_value!(record.created)],
+            )
+            .await?;
+
+        if let Some(next_record) = next_records.first() {
+            tx.exec(
+                "UPDATE clip_record SET sort = IFNULL(sort, 0) + 1 WHERE created >= ?",
+                vec![to_value!(next_record.created)],
+            )
+            .await?;
+            record.sort = next_record.sort;
+        } else {
+            record.sort = self.next_sort().await?;
+        }
+
+        ClipRecord::insert(&tx, &record).await?;
+        tx.commit()
+            .await
+            .map_err(|error| AppError::Database(rbatis::Error::from(error)))
+    }
+
+    /// 读取当前最大排序值并返回下一可用值。
+    async fn next_sort(&self) -> AppResult<i32> {
+        #[derive(serde::Deserialize)]
+        struct SortResult {
+            sort: i32,
+        }
+
+        self.db
+            .query_decode(
+                "SELECT sort FROM clip_record ORDER BY sort DESC, created DESC LIMIT 1",
+                vec![],
+            )
+            .await
+            .map(|records: Vec<SortResult>| {
+                records.first().map(|record| record.sort + 1).unwrap_or(0)
+            })
+            .map_err(AppError::Database)
+    }
+
+    /// 在事务中更新记录内容。
+    async fn update_content(&self, id: &str, content: &str) -> AppResult<()> {
+        let tx = self.db.acquire_begin().await?;
+        tx.exec(
+            "UPDATE clip_record SET content = ? WHERE id = ?",
+            vec![to_value!(content), to_value!(id)],
+        )
+        .await?;
+        tx.commit()
+            .await
+            .map_err(|error| AppError::Database(rbatis::Error::from(error)))
+    }
+
+    /// 更新排序值并递增记录版本。
+    async fn update_sort(&self, id: &str, sort: i32) -> AppResult<()> {
+        let tx = self.db.acquire_begin().await?;
+        tx.exec(
+            "UPDATE clip_record SET sort = ?, version = IFNULL(version, 0) + 1 WHERE id = ?",
+            vec![to_value!(sort), to_value!(id)],
+        )
+        .await?;
+        tx.commit()
+            .await
+            .map_err(|error| AppError::Database(rbatis::Error::from(error)))
+    }
+
+    /// 更新记录关联的本地文件路径。
+    async fn update_local_file_path(&self, id: &str, local_path: &str) -> AppResult<()> {
+        let tx = self.db.acquire_begin().await?;
+        tx.exec(
+            "UPDATE clip_record SET local_file_path = ? WHERE id = ?",
+            vec![to_value!(local_path), to_value!(id)],
+        )
+        .await?;
+        tx.commit()
+            .await
+            .map_err(|error| AppError::Database(rbatis::Error::from(error)))
+    }
+
+    /// 更新云端文件下载完成后的本地资源信息和同步状态。
+    async fn update_after_cloud_download(
+        &self,
+        id: &str,
+        filename: &str,
+        absolute_path: &str,
+    ) -> AppResult<()> {
+        let tx = self.db.acquire_begin().await?;
+        tx.exec(
+            "UPDATE clip_record SET content = ?, local_file_path = ?, sync_flag = 2 WHERE id = ?",
+            vec![to_value!(filename), to_value!(absolute_path), to_value!(id)],
+        )
+        .await?;
+        tx.commit()
+            .await
+            .map_err(|error| AppError::Database(rbatis::Error::from(error)))
+    }
+
+    /// 用新内容覆盖已删除记录，同时保留原记录 ID。
+    async fn restore_deleted(&self, id: &str, record: &ClipRecord) -> AppResult<()> {
+        let tx = self.db.acquire_begin().await?;
+        tx.exec(
+            "UPDATE clip_record SET type = ?, content = ?, md5_str = ?, local_file_path = ?, created = ?, os_type = ?, sort = ?, pinned_flag = ?, sync_flag = ?, sync_time = ?, device_id = ?, version = ?, del_flag = ?, cloud_source = ? WHERE id = ?",
+            vec![
+                to_value!(&record.r#type),
+                to_value!(&record.content),
+                to_value!(&record.md5_str),
+                to_value!(&record.local_file_path),
+                to_value!(record.created),
+                to_value!(&record.os_type),
+                to_value!(record.sort),
+                to_value!(record.pinned_flag),
+                to_value!(&record.sync_flag),
+                to_value!(&record.sync_time),
+                to_value!(&record.device_id),
+                to_value!(&record.version),
+                to_value!(&record.del_flag),
+                to_value!(&record.cloud_source),
+                to_value!(id),
+            ],
+        )
+        .await?;
+        tx.commit()
+            .await
+            .map_err(|error| AppError::Database(rbatis::Error::from(error)))
+    }
+
     /// 在事务中更新置顶状态；置顶新记录前先取消其他记录的置顶标记。
     async fn set_pinned(&self, id: &str, pinned_flag: i32) -> AppResult<()> {
         let tx = self.db.acquire_begin().await?;
@@ -103,6 +316,64 @@ impl ClipRecordRepository for SqliteClipRecordRepository {
             ids.iter().map(|_| "?").collect::<Vec<_>>().join(",")
         );
         let params = ids.iter().map(|id| to_value!(id)).collect::<Vec<_>>();
+        let tx = self.db.acquire_begin().await?;
+        tx.exec(&sql, params).await?;
+        tx.commit()
+            .await
+            .map_err(|error| AppError::Database(rbatis::Error::from(error)))
+    }
+
+    /// 将云端墓碑批量应用到本地记录。
+    async fn apply_remote_deletions(&self, ids: &[String], sync_time: u64) -> AppResult<()> {
+        if ids.is_empty() {
+            return Ok(());
+        }
+        let sql = format!(
+            "UPDATE clip_record SET del_flag = 1, sync_flag = 2, sync_time = ? WHERE id IN ({})",
+            ids.iter().map(|_| "?").collect::<Vec<_>>().join(",")
+        );
+        let mut params = vec![to_value!(sync_time)];
+        params.extend(ids.iter().map(|id| to_value!(id)));
+        let tx = self.db.acquire_begin().await?;
+        tx.exec(&sql, params).await?;
+        tx.commit()
+            .await
+            .map_err(|error| AppError::Database(rbatis::Error::from(error)))
+    }
+
+    /// 在事务中物理删除指定记录。
+    async fn delete_permanently(&self, ids: &[String]) -> AppResult<()> {
+        if ids.is_empty() {
+            return Ok(());
+        }
+        let sql = format!(
+            "DELETE FROM clip_record WHERE id IN ({})",
+            ids.iter().map(|_| "?").collect::<Vec<_>>().join(",")
+        );
+        let params = ids.iter().map(|id| to_value!(id)).collect::<Vec<_>>();
+        let tx = self.db.acquire_begin().await?;
+        tx.exec(&sql, params).await?;
+        tx.commit()
+            .await
+            .map_err(|error| AppError::Database(rbatis::Error::from(error)))
+    }
+
+    /// 批量写入同步状态和服务端同步时间。
+    async fn update_sync_status(
+        &self,
+        ids: &[String],
+        sync_flag: i32,
+        sync_time: u64,
+    ) -> AppResult<()> {
+        if ids.is_empty() {
+            return Ok(());
+        }
+        let sql = format!(
+            "UPDATE clip_record SET sync_flag = ?, sync_time = ? WHERE id IN ({})",
+            ids.iter().map(|_| "?").collect::<Vec<_>>().join(",")
+        );
+        let mut params = vec![to_value!(sync_flag), to_value!(sync_time)];
+        params.extend(ids.iter().map(|id| to_value!(id)));
         let tx = self.db.acquire_begin().await?;
         tx.exec(&sql, params).await?;
         tx.commit()
@@ -157,6 +428,23 @@ impl ClipRecordRepository for SqliteClipRecordRepository {
         self.db
             .query_decode(
                 "SELECT COUNT(*) AS count FROM clip_record WHERE del_flag = 0",
+                vec![],
+            )
+            .await
+            .map(|rows: Vec<CountResult>| rows.first().map(|row| row.count).unwrap_or(0))
+            .map_err(AppError::Database)
+    }
+
+    /// 统计可以物理清理的已同步数量。
+    async fn count_synced_tombstones(&self) -> AppResult<i64> {
+        #[derive(serde::Deserialize)]
+        struct CountResult {
+            count: i64,
+        }
+
+        self.db
+            .query_decode(
+                "SELECT COUNT(*) AS count FROM clip_record WHERE del_flag = 1 AND sync_flag = 2",
                 vec![],
             )
             .await

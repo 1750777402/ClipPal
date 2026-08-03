@@ -9,7 +9,7 @@ use uuid::Uuid;
 use crate::{
     api::cloud_sync_api::{get_dowload_url, DownloadCloudFileParam},
     app_context::app_context,
-    biz::clip_record::{ClipRecord, SKIP_SYNC, SYNCHRONIZING},
+    domain::clip::{ClipRecord, SKIP_SYNC, SYNCHRONIZING},
     errors::{AppError, AppResult},
     services::clip_record_service::get_file_info_with_paths,
     utils::{
@@ -20,7 +20,6 @@ use crate::{
         token_manager::has_valid_auth,
     },
 };
-use rbatis::RBatis;
 
 /// 判断下载错误是否应该重试
 fn should_retry_download_error(error: &AppError) -> bool {
@@ -103,11 +102,12 @@ pub async fn start_cloud_file_download_timer(app_handle: AppHandle) {
 
 async fn scan_and_download_cloud_files(app_handle: &AppHandle) -> AppResult<()> {
     let context = app_context()?;
-    let rb: &RBatis = context.db();
 
-    let pending_records = ClipRecord::select_by_sync_flag_limit(rb, SYNCHRONIZING, 1, 3)
-        .await
-        .map_err(|e| AppError::Database(e))?;
+    let pending_records = context
+        .repositories()
+        .clip_records()
+        .list_by_sync_status_and_source(SYNCHRONIZING, 1, 3)
+        .await?;
 
     if pending_records.is_empty() {
         return Ok(());
@@ -235,8 +235,11 @@ async fn download_cloud_file_core(app_handle: AppHandle, record: ClipRecord) -> 
 
     // 更新数据库记录
     let context = app_context()?;
-    let rb: &RBatis = context.db();
-    ClipRecord::update_after_cloud_download(rb, &record.id, &filename, &absolute_path).await?;
+    context
+        .repositories()
+        .clip_records()
+        .update_after_cloud_download(&record.id, &filename, &absolute_path)
+        .await?;
 
     // 通知前端单条记录下载完成，提供更好的用户体验
     let mut update_payload = serde_json::json!({
@@ -279,11 +282,14 @@ async fn download_cloud_file_core(app_handle: AppHandle, record: ClipRecord) -> 
 /// 标记下载记录为跳过同步状态
 async fn mark_download_as_skip_sync(record_id: &str, reason: &str) -> AppResult<()> {
     let context = app_context()?;
-    let rb: &RBatis = context.db();
     let ids = vec![record_id.to_string()];
     let current_time = current_timestamp();
 
-    ClipRecord::update_sync_flag(rb, &ids, SKIP_SYNC, current_time).await?;
+    context
+        .repositories()
+        .clip_records()
+        .update_sync_status(&ids, SKIP_SYNC, current_time)
+        .await?;
 
     log::info!(
         "标记下载记录为跳过同步，记录ID: {}, 原因: {}",

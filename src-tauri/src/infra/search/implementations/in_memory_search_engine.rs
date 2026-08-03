@@ -9,24 +9,12 @@ use async_trait::async_trait;
 use bloomfilter::Bloom;
 use clipboard_listener::ClipType;
 use dashmap::DashMap;
-use once_cell::sync::Lazy;
-use regex::Regex;
 use std::collections::HashSet;
 use std::sync::{Arc, RwLock};
 
-// 静态编译的正则表达式
-static WORD_REGEX: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"\b[a-z]{2,}\b|\b\d{2,}\b").expect("Valid word regex"));
-
-static TAG_REGEX: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"</?([a-z][a-z0-9]*)\b").expect("Valid tag regex"));
-
-static ATTR_REGEX: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r#"(\w+)=["']([^"']*)["']"#).expect("Valid attribute regex"));
-
 /// 搜索索引配置
-const BLOOM_FILTER_ITEMS: usize = 1000; // 每个记录预期的词汇数量
 const BLOOM_FILTER_FP_RATE: f64 = 0.01; // 1%的误报率
+const MAX_CJK_NGRAM_SIZE: usize = 4;
 
 /// 记录搜索结构 - 每条记录独立维护
 #[derive(Debug)]
@@ -39,18 +27,17 @@ struct RecordSearchData {
 
 impl RecordSearchData {
     fn new(content: String) -> Self {
-        let mut bloom_filter =
-            Bloom::new_for_fp_rate(BLOOM_FILTER_ITEMS, BLOOM_FILTER_FP_RATE).unwrap();
-
         // 将内容的所有可能搜索词汇添加到bloom filter
         let search_terms = Self::extract_search_terms(&content);
+        let mut bloom_filter =
+            Bloom::new_for_fp_rate(search_terms.len().max(1), BLOOM_FILTER_FP_RATE).unwrap();
         log::debug!(
-            "为记录内容创建布隆过滤器 - 内容{}, \n分词结果: {:?}, ",
-            content,
-            search_terms
+            "为记录内容创建布隆过滤器 - 内容长度: {}, 分词数量: {}",
+            content.len(),
+            search_terms.len()
         );
-        for term in search_terms {
-            bloom_filter.set(&term);
+        for term in &search_terms {
+            bloom_filter.set(term);
         }
 
         Self {
@@ -59,104 +46,77 @@ impl RecordSearchData {
         }
     }
 
-    /// 混合 n-gram 滑动窗口 + 空格分词的内容分词方法
+    /// 字母数字按连续词切分，中日韩文字按连续区段生成 n-gram。
     pub fn extract_search_terms(text: &str) -> HashSet<String> {
         let mut tokens = HashSet::new();
-        let cleaned_text = Self::clean_text(text).to_lowercase();
+        let mut word = String::new();
+        let mut cjk_run = Vec::new();
 
-        // ===== 1. 统一提取字母和数字序列 =====
-        for cap in WORD_REGEX.find_iter(&cleaned_text) {
-            tokens.insert(cap.as_str().to_string());
-        }
-
-        // ===== 2. 结构化内容处理 =====
-        if text.contains('<') && text.contains('>') {
-            Self::extract_xml_tokens(text, &mut tokens);
-        }
-
-        // ===== 3. 中文n-gram处理 =====
-        Self::extract_cjk_ngrams(&cleaned_text, &mut tokens);
-
-        // ===== 4. 空格分词补充 =====
-        for word in cleaned_text.split_whitespace() {
-            if word.len() >= 2 && !tokens.contains(word) {
-                tokens.insert(word.to_string());
+        for original in text.chars() {
+            for c in original.to_lowercase() {
+                if Self::is_cjk(c) {
+                    Self::flush_word(&mut word, &mut tokens);
+                    cjk_run.push(c);
+                } else if c.is_alphanumeric() {
+                    Self::flush_cjk_run(&mut cjk_run, &mut tokens);
+                    word.push(c);
+                } else {
+                    // 标点和空白都是词边界，不能删除后拼接两侧内容。
+                    Self::flush_word(&mut word, &mut tokens);
+                    Self::flush_cjk_run(&mut cjk_run, &mut tokens);
+                }
             }
         }
+        Self::flush_word(&mut word, &mut tokens);
+        Self::flush_cjk_run(&mut cjk_run, &mut tokens);
 
         tokens
     }
 
-    // XML/HTML标签处理（独立函数）
-    fn extract_xml_tokens(text: &str, tokens: &mut HashSet<String>) {
-        for cap in TAG_REGEX.captures_iter(text) {
-            if let Some(tag) = cap.get(1) {
-                tokens.insert(tag.as_str().to_string());
-            }
-        }
-
-        for cap in ATTR_REGEX.captures_iter(text) {
-            if let Some(name) = cap.get(1) {
-                tokens.insert(name.as_str().to_string());
-            }
-            if let Some(value) = cap.get(2) {
-                let val = value.as_str().to_lowercase();
-                if val.len() >= 2 {
-                    tokens.insert(val.clone());
-
-                    // 属性值分词
-                    for word in val.split_whitespace() {
-                        if word.len() >= 2 {
-                            tokens.insert(word.to_string());
-                        }
-                    }
-                }
-            }
+    fn flush_word(word: &mut String, tokens: &mut HashSet<String>) {
+        if !word.is_empty() {
+            tokens.insert(std::mem::take(word));
         }
     }
 
-    // 中日韩n-gram处理
-    fn extract_cjk_ngrams(text: &str, tokens: &mut HashSet<String>) {
-        let cjk_text: String = text
-            .chars()
-            .filter(|&c| ('\u{4e00}'..='\u{9fff}').contains(&c))
-            .collect();
-
-        let chars: Vec<char> = cjk_text.chars().collect();
-        let len = chars.len();
-
-        for n in 2..=4 {
-            if len < n {
-                continue;
-            }
-
-            for i in 0..=(len - n) {
-                let gram: String = chars[i..i + n].iter().collect();
-                tokens.insert(gram);
+    fn flush_cjk_run(run: &mut Vec<char>, tokens: &mut HashSet<String>) {
+        let max_size = run.len().min(MAX_CJK_NGRAM_SIZE);
+        for size in 1..=max_size {
+            for window in run.windows(size) {
+                tokens.insert(window.iter().collect());
             }
         }
+        run.clear();
     }
 
-    // 清理文本（保留字母、数字、空格、汉字）
-    fn clean_text(text: &str) -> String {
-        text.chars()
-            .filter(|&c| {
-                c.is_alphabetic()
-                    || c.is_numeric()
-                    || c.is_whitespace()
-                    || ('\u{4e00}'..='\u{9fff}').contains(&c)
-            })
-            .collect()
+    fn is_cjk(c: char) -> bool {
+        matches!(
+            c,
+            '\u{1100}'..='\u{11ff}'
+                | '\u{3040}'..='\u{30ff}'
+                | '\u{3100}'..='\u{318f}'
+                | '\u{31a0}'..='\u{31bf}'
+                | '\u{31f0}'..='\u{31ff}'
+                | '\u{3400}'..='\u{4dbf}'
+                | '\u{4e00}'..='\u{9fff}'
+                | '\u{a960}'..='\u{a97f}'
+                | '\u{ac00}'..='\u{d7af}'
+                | '\u{d7b0}'..='\u{d7ff}'
+                | '\u{f900}'..='\u{faff}'
+                | '\u{ff66}'..='\u{ff9d}'
+                | '\u{20000}'..='\u{2ebef}'
+                | '\u{30000}'..='\u{323af}'
+        )
     }
 
     /// 布隆过滤器快速过滤 + 可选精确匹配
     fn smart_search(
         &self,
-        query: &str,
+        normalized_query: &str,
+        query_terms: &HashSet<String>,
         bloom_trust_threshold: usize,
         direct_contains_threshold: usize,
     ) -> bool {
-        let normalized_query = query.trim().to_lowercase();
         let content_size = self.content.as_bytes().len();
         // 如果内容大小小于配置的direct_contains_threshold，直接使用contains搜索
         if content_size < direct_contains_threshold {
@@ -165,11 +125,13 @@ impl RecordSearchData {
                 content_size,
                 direct_contains_threshold
             );
-            return self.content_contains(&normalized_query);
+            return self.content_contains(normalized_query);
         }
 
-        // 查询内容分词（使用和索引一致的分词方式）
-        let query_terms = Self::extract_search_terms(&normalized_query);
+        // 标点、单数字或 emoji 等无法分词的查询回退到精确包含搜索。
+        if query_terms.is_empty() {
+            return self.content_contains(normalized_query);
+        }
 
         // all_terms_in_bloom表示分词后的每个结果是否都在布隆过滤器中命中
         let all_terms_in_bloom = query_terms
@@ -186,16 +148,15 @@ impl RecordSearchData {
             return all_terms_in_bloom;
         }
         // 所有关键词都未命中
-        return self.content_contains(&normalized_query);
+        self.content_contains(normalized_query)
     }
 
     /// 内容包含搜索
-    fn content_contains(&self, query: &str) -> bool {
+    fn content_contains(&self, normalized_query: &str) -> bool {
         let normalized_content = self.content.to_lowercase();
-        let normalized_query = query.to_lowercase();
 
         // 直接字符串包含搜索
-        normalized_content.contains(&normalized_query)
+        normalized_content.contains(normalized_query)
     }
 }
 
@@ -230,15 +191,23 @@ impl SimpleSearchIndex {
         bloom_trust_threshold: usize,
         direct_contains_threshold: usize,
     ) -> Vec<String> {
-        if query.is_empty() {
+        let normalized_query = query.trim().to_lowercase();
+        if normalized_query.is_empty() {
             return Vec::new();
         }
+        // 查询内容对所有记录相同，只在进入记录遍历前分词一次。
+        let query_terms = RecordSearchData::extract_search_terms(&normalized_query);
 
         let mut results = Vec::new();
         for entry in self.records.iter() {
             let (id, search_data) = (entry.key(), entry.value());
             // 布隆过滤器优先 + 内容包含搜索
-            if search_data.smart_search(query, bloom_trust_threshold, direct_contains_threshold) {
+            if search_data.smart_search(
+                &normalized_query,
+                &query_terms,
+                bloom_trust_threshold,
+                direct_contains_threshold,
+            ) {
                 results.push(id.clone());
             }
         }
@@ -379,5 +348,78 @@ mod tests {
 
         engine.remove(&["record-1".to_string()]).await.unwrap();
         assert!(engine.search("clipboard").await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn blank_query_returns_no_records() {
+        let engine = InMemorySearchEngine::new(Arc::new(RwLock::new(Settings::default())));
+        engine.add("record-1", "hello clipboard").await.unwrap();
+
+        assert!(engine.search(" \t\r\n ").await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn query_without_tokens_uses_exact_contains_search() {
+        let settings = Settings {
+            bloom_filter_trust_threshold: Some(0),
+            direct_contains_threshold: Some(0),
+            ..Settings::default()
+        };
+        let engine = InMemorySearchEngine::new(Arc::new(RwLock::new(settings)));
+        engine.add("matching", "value ! 😀").await.unwrap();
+        engine.add("other", "value without marker").await.unwrap();
+
+        assert_eq!(engine.search("!").await, vec!["matching"]);
+        assert_eq!(engine.search("😀").await, vec!["matching"]);
+    }
+
+    #[test]
+    fn tokenizer_uses_punctuation_as_a_boundary() {
+        let tokens = RecordSearchData::extract_search_terms("Foo-bar hello.world");
+
+        assert!(tokens.contains("foo"));
+        assert!(tokens.contains("bar"));
+        assert!(tokens.contains("hello"));
+        assert!(tokens.contains("world"));
+        assert!(!tokens.contains("foobar"));
+        assert!(!tokens.contains("helloworld"));
+    }
+
+    #[test]
+    fn tokenizer_keeps_cjk_ngrams_inside_contiguous_runs() {
+        let tokens = RecordSearchData::extract_search_terms("甲-乙 中文");
+
+        assert!(tokens.contains("甲"));
+        assert!(tokens.contains("乙"));
+        assert!(tokens.contains("中"));
+        assert!(tokens.contains("中文"));
+        assert!(!tokens.contains("甲乙"));
+        assert!(!tokens.contains("乙中"));
+    }
+
+    #[test]
+    fn tokenizer_supports_unicode_words_and_cjk_scripts() {
+        let tokens = RecordSearchData::extract_search_terms("CAFÉ42 かな 한글");
+
+        assert!(tokens.contains("café42"));
+        assert!(tokens.contains("かな"));
+        assert!(tokens.contains("한글"));
+    }
+
+    #[tokio::test]
+    async fn bloom_search_matches_embedded_cjk_phrase_and_single_character() {
+        let settings = Settings {
+            bloom_filter_trust_threshold: Some(0),
+            direct_contains_threshold: Some(0),
+            ..Settings::default()
+        };
+        let engine = InMemorySearchEngine::new(Arc::new(RwLock::new(settings)));
+        engine
+            .add("record-1", "前缀中华人民共和国后缀")
+            .await
+            .unwrap();
+
+        assert_eq!(engine.search("中华人民共和国").await, vec!["record-1"]);
+        assert_eq!(engine.search("国").await, vec!["record-1"]);
     }
 }

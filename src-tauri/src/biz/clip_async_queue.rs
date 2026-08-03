@@ -1,7 +1,6 @@
 #![allow(dead_code)]
 
 use async_channel::{bounded, Receiver, Sender, TryRecvError};
-use rbatis::RBatis;
 use std::sync::Arc;
 use tauri::Emitter;
 use tokio::task;
@@ -9,9 +8,7 @@ use tokio::time::{sleep, Duration};
 
 use crate::api::cloud_sync_api::{sync_single_clip_record, ClipRecordParam, SingleCloudSyncParam};
 use crate::app_context::app_context;
-use crate::biz::clip_record::{
-    ClipRecord, NOT_SYNCHRONIZED, SKIP_SYNC, SYNCHRONIZED, SYNCHRONIZING,
-};
+use crate::domain::clip::{ClipRecord, NOT_SYNCHRONIZED, SKIP_SYNC, SYNCHRONIZED, SYNCHRONIZING};
 use crate::errors::{AppError, AppResult};
 use crate::services::vip_service::VipService;
 use crate::utils::file_dir::get_resources_dir;
@@ -124,15 +121,19 @@ pub fn consume_clip_record_queue(queue: AsyncQueue<ClipRecord>) {
                                         r#type: 2,
                                         clip: item.clone().into(),
                                     };
-                                    let rb: &RBatis = context.db();
-                                    let record = ClipRecord::select_by_id(rb, &item.id).await;
+                                    let record = context
+                                        .repositories()
+                                        .clip_records()
+                                        .find_by_id(&item.id)
+                                        .await;
                                     match record {
-                                        Ok(rec) => {
-                                            if !rec.is_empty() && rec[0].del_flag == Some(0) {
+                                        Ok(Some(record)) => {
+                                            if record.del_flag == Some(0) {
                                                 // 说明这个记录现在不是已删除状态了
                                                 break;
                                             }
                                         }
+                                        Ok(None) => {}
                                         Err(e) => {
                                             log::error!(
                                                 "同步已删除记录时，检查已删除记录状态出现异常：{}",
@@ -171,9 +172,7 @@ async fn handle_sync_task(param: SingleCloudSyncParam) -> AppResult<i32> {
     // 先检查文件类型是否应该跳过同步（技术限制）
     if should_skip_sync(&param.clip, &record_type).await {
         log::debug!("记录 {} ({}) 不支持云同步", record_id, record_type);
-        let context = app_context()?;
-        let rb: &RBatis = context.db();
-        update_sync_status(rb, &record_id, SKIP_SYNC, 0).await?;
+        update_sync_status(&record_id, SKIP_SYNC, 0).await?;
         return Ok(SKIP_SYNC);
     }
 
@@ -209,11 +208,9 @@ async fn handle_sync_task(param: SingleCloudSyncParam) -> AppResult<i32> {
     // 执行实际同步
     match sync_single_clip_record(&param).await {
         Ok(Some(success)) => {
-            let context = app_context()?;
-            let rb: &RBatis = context.db();
             let final_status = determine_final_sync_status(&record_type, &param.clip).await;
 
-            update_sync_status(rb, &record_id, final_status, success.timestamp).await?;
+            update_sync_status(&record_id, final_status, success.timestamp).await?;
 
             log::info!(
                 "同步成功: 记录ID={}, 类型={}, 状态={}",
@@ -305,14 +302,13 @@ async fn determine_final_sync_status(record_type: &str, _clip: &ClipRecordParam)
 }
 
 /// 更新同步状态
-async fn update_sync_status(
-    rb: &RBatis,
-    record_id: &str,
-    sync_flag: i32,
-    timestamp: u64,
-) -> AppResult<()> {
+async fn update_sync_status(record_id: &str, sync_flag: i32, timestamp: u64) -> AppResult<()> {
+    let context = app_context()?;
     let ids = vec![record_id.to_string()];
-    ClipRecord::update_sync_flag(rb, &ids, sync_flag, timestamp)
+    context
+        .repositories()
+        .clip_records()
+        .update_sync_status(&ids, sync_flag, timestamp)
         .await
         .map_err(|e| {
             log::error!("更新同步状态失败: {}, 错误: {}", record_id, e);

@@ -8,12 +8,9 @@ use crate::{
     domain::{clip::ClipRecord, settings::Settings},
     errors::{AppError, AppResult},
     infra::{
-        http::{AuthClient, VipClient},
-        repositories::AppRepositories,
-        search::SearchEngine,
-        security::AuthStore,
-        storage::VipStore,
+        repositories::AppRepositories, search::SearchEngine, security::AuthStore, storage::VipStore,
     },
+    services::ports::{AuthGateway, VipGateway},
     utils::lock_utils::{
         create_global_sync_lock,
         lock_utils::{safe_read_lock, safe_write_lock},
@@ -270,11 +267,11 @@ pub struct CoreContext {
     /// 应用数据访问接口。
     repositories: AppRepositories,
 
-    /// 远程认证服务客户端。
-    auth_client: Arc<dyn AuthClient>,
+    /// 远程认证服务端口。
+    auth_gateway: Arc<dyn AuthGateway>,
 
-    /// 远程 VIP 和支付服务客户端。
-    vip_client: Arc<dyn VipClient>,
+    /// 远程 VIP 和支付服务端口。
+    vip_gateway: Arc<dyn VipGateway>,
 
     /// 本地认证会话安全存储。
     auth_store: Arc<dyn AuthStore>,
@@ -388,8 +385,8 @@ impl AppContext {
         db: RBatis,
         settings: Arc<RwLock<Settings>>,
         repositories: AppRepositories,
-        auth_client: Arc<dyn AuthClient>,
-        vip_client: Arc<dyn VipClient>,
+        auth_gateway: Arc<dyn AuthGateway>,
+        vip_gateway: Arc<dyn VipGateway>,
         auth_store: Arc<dyn AuthStore>,
         vip_store: Arc<dyn VipStore>,
         search_engine: Arc<dyn SearchEngine>,
@@ -398,8 +395,8 @@ impl AppContext {
             core: CoreContext {
                 db,
                 repositories,
-                auth_client,
-                vip_client,
+                auth_gateway,
+                vip_gateway,
                 auth_store,
                 vip_store,
                 search_engine,
@@ -457,12 +454,14 @@ impl AppContext {
         &self.core.repositories
     }
 
-    pub fn auth_client(&self) -> &dyn AuthClient {
-        self.core.auth_client.as_ref()
+    /// 获取远程认证服务端口。
+    pub fn auth_gateway(&self) -> &dyn AuthGateway {
+        self.core.auth_gateway.as_ref()
     }
 
-    pub fn vip_client(&self) -> &dyn VipClient {
-        self.core.vip_client.as_ref()
+    /// 获取远程 VIP 和支付服务端口。
+    pub fn vip_gateway(&self) -> &dyn VipGateway {
+        self.core.vip_gateway.as_ref()
     }
 
     pub fn auth_store(&self) -> &dyn AuthStore {

@@ -1,7 +1,7 @@
 use clipboard_listener::ClipType;
 use log;
 use rbatis::RBatis;
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 use tauri::{AppHandle, Emitter};
 use tokio::sync::mpsc;
 use tokio::time::Duration;
@@ -11,17 +11,18 @@ use crate::api::cloud_sync_api::{
     sync_clipboard, sync_server_time, ClipRecordParam, CloudSyncRequest,
 };
 use crate::app_context::app_context;
-use crate::biz::clip_record::{NOT_SYNCHRONIZED, SKIP_SYNC, SYNCHRONIZED, SYNCHRONIZING};
 use crate::biz::clip_record_clean::try_clean_clip_record;
 use crate::biz::sync_time::SyncTime;
+use crate::domain::clip::{ClipRecord, NOT_SYNCHRONIZED, SKIP_SYNC, SYNCHRONIZED, SYNCHRONIZING};
 use crate::domain::settings::SYNC_INTERVAL_SECONDS;
 use crate::errors::{AppError, AppResult};
+use crate::infra::repositories::ClipRecordRepository;
 use crate::services::vip_service::VipService;
 use crate::utils::config::get_max_file_size_bytes;
 use crate::utils::device_info::GLOBAL_DEVICE_ID;
 use crate::utils::file_dir::get_resources_dir;
+use crate::utils::lock_utils::GlobalSyncLock;
 use crate::utils::token_manager::has_valid_auth;
-use crate::{biz::clip_record::ClipRecord, utils::lock_utils::GlobalSyncLock};
 use std::path::PathBuf;
 
 fn cached_vip_file_size_limit() -> u64 {
@@ -45,6 +46,7 @@ async fn current_vip_file_size_limit() -> Result<u64, String> {
 pub struct CloudSyncTimer {
     app_handle: AppHandle,
     rb: RBatis,
+    repository: Arc<dyn ClipRecordRepository>,
     trigger_receiver: Option<mpsc::UnboundedReceiver<()>>,
 }
 
@@ -52,7 +54,11 @@ pub struct CloudSyncTimer {
 static TRIGGER_SENDER: OnceLock<mpsc::UnboundedSender<()>> = OnceLock::new();
 
 impl CloudSyncTimer {
-    pub fn new(app_handle: AppHandle, rb: RBatis) -> Self {
+    pub fn new(
+        app_handle: AppHandle,
+        rb: RBatis,
+        repository: Arc<dyn ClipRecordRepository>,
+    ) -> Self {
         // 创建触发器通道
         let (trigger_sender, trigger_receiver) = mpsc::unbounded_channel();
 
@@ -62,6 +68,7 @@ impl CloudSyncTimer {
         Self {
             app_handle,
             rb,
+            repository,
             trigger_receiver: Some(trigger_receiver),
         }
     }
@@ -257,14 +264,15 @@ impl CloudSyncTimer {
                 // 预处理所有记录，分类处理
                 for clip in clips {
                     // 遍历每一条记录  查看是不是在本地已经存在了
-                    let check_res = ClipRecord::check_by_type_and_md5(
-                        &self.rb,
-                        &clip.r#type.clone().unwrap_or_default(),
-                        &clip.md5_str.clone().unwrap_or_default(),
-                    )
-                    .await?;
+                    let check_res = self
+                        .repository
+                        .find_by_type_and_md5(
+                            &clip.r#type.clone().unwrap_or_default(),
+                            &clip.md5_str.clone().unwrap_or_default(),
+                        )
+                        .await?;
 
-                    if check_res.is_empty() && matches!(clip.del_flag, Some(0)) {
+                    if check_res.is_none() && matches!(clip.del_flag, Some(0)) {
                         // 如果本地没有这条记录 并且这条记录不是已经删除的 那么就插入新记录
                         let new_id = Uuid::new_v4().to_string();
                         let content = clip.content.clone();
@@ -334,7 +342,9 @@ impl CloudSyncTimer {
 
                 // 批量处理删除操作
                 if !delete_operations.is_empty() {
-                    ClipRecord::sync_del_by_ids(&self.rb, &delete_operations, server_time).await?;
+                    self.repository
+                        .apply_remote_deletions(&delete_operations, server_time)
+                        .await?;
                     log::debug!("批量删除云记录: {}条", delete_operations.len());
                 }
             }
@@ -367,7 +377,10 @@ impl CloudSyncTimer {
     }
 
     async fn get_unsynced_records(&self) -> AppResult<Vec<ClipRecord>> {
-        let all_records = ClipRecord::select_by_sync_flag(&self.rb, NOT_SYNCHRONIZED).await?;
+        let all_records = self
+            .repository
+            .list_by_sync_status(NOT_SYNCHRONIZED)
+            .await?;
 
         // 获取当前用户的文件大小限制
         let max_file_size = cached_vip_file_size_limit();
@@ -387,13 +400,10 @@ impl CloudSyncTimer {
                             filtered_records.push(record.clone());
                         } else {
                             // 文本内容超过VIP限制，更新为跳过状态
-                            if let Err(e) = ClipRecord::update_sync_flag_and_skip_type(
-                                &self.rb,
-                                &record.id,
-                                SKIP_SYNC,
-                                Some(2),
-                            )
-                            .await
+                            if let Err(e) = self
+                                .repository
+                                .update_sync_state(&record.id, SKIP_SYNC, Some(2))
+                                .await
                             {
                                 log::error!("更新文本记录为VIP限制跳过失败: {}", e);
                             } else {
@@ -422,13 +432,10 @@ impl CloudSyncTimer {
                                         filtered_records.push(record.clone());
                                     } else {
                                         // 图片超过VIP限制，更新为跳过状态
-                                        if let Err(e) = ClipRecord::update_sync_flag_and_skip_type(
-                                            &self.rb,
-                                            &record.id,
-                                            SKIP_SYNC,
-                                            Some(2),
-                                        )
-                                        .await
+                                        if let Err(e) = self
+                                            .repository
+                                            .update_sync_state(&record.id, SKIP_SYNC, Some(2))
+                                            .await
                                         {
                                             log::error!("更新图片记录为VIP限制跳过失败: {}", e);
                                         } else {
@@ -455,13 +462,10 @@ impl CloudSyncTimer {
                                     filtered_records.push(record.clone());
                                 } else {
                                     // 文件超过VIP限制，更新为跳过状态
-                                    if let Err(e) = ClipRecord::update_sync_flag_and_skip_type(
-                                        &self.rb,
-                                        &record.id,
-                                        SKIP_SYNC,
-                                        Some(2),
-                                    )
-                                    .await
+                                    if let Err(e) = self
+                                        .repository
+                                        .update_sync_state(&record.id, SKIP_SYNC, Some(2))
+                                        .await
                                     {
                                         log::error!("更新文件记录为VIP限制跳过失败: {}", e);
                                     } else {
@@ -526,7 +530,9 @@ impl CloudSyncTimer {
 
         // 文本类型直接标记为已同步
         if !text_ids.is_empty() {
-            ClipRecord::update_sync_flag(&self.rb, &text_ids, SYNCHRONIZED, server_time).await?;
+            self.repository
+                .update_sync_status(&text_ids, SYNCHRONIZED, server_time)
+                .await?;
             self.notify_frontend_sync_status_batch(&text_ids, SYNCHRONIZED)
                 .await?;
             log::debug!("文本记录同步完成: {}条", text_ids.len());
@@ -650,7 +656,9 @@ impl CloudSyncTimer {
         action_desc: &str,
     ) -> AppResult<()> {
         if !ids.is_empty() {
-            ClipRecord::update_sync_flag(&self.rb, ids, sync_flag, server_time).await?;
+            self.repository
+                .update_sync_status(ids, sync_flag, server_time)
+                .await?;
             self.notify_frontend_sync_status_batch(ids, sync_flag)
                 .await?;
             log::info!(
@@ -768,6 +776,11 @@ pub fn trigger_immediate_sync() -> Result<(), &'static str> {
 
 /// 开始云同步定时任务（供外部调用）
 pub async fn start_cloud_sync_timer(app_handle: AppHandle, rb: RBatis) {
-    let timer = CloudSyncTimer::new(app_handle, rb);
+    let Ok(context) = app_context() else {
+        log::error!("AppContext 尚未初始化，云同步定时任务无法启动");
+        return;
+    };
+    let repository = context.repositories().clip_records_shared();
+    let timer = CloudSyncTimer::new(app_handle, rb, repository);
     timer.start().await;
 }

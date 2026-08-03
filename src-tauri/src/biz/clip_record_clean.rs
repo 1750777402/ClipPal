@@ -2,7 +2,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::{
     app_context::app_context,
-    biz::clip_record::ClipRecord,
+    domain::clip::ClipRecord,
     utils::{file_dir::get_resources_dir, path_utils::to_safe_string},
 };
 use clipboard_listener::ClipType;
@@ -37,7 +37,7 @@ async fn clip_record_clean() {
         log::error!("AppContext 尚未初始化，跳过剪贴记录清理");
         return;
     };
-    let rb = context.db();
+    let repository = context.repositories().clip_records();
 
     let max_num = match context.with_settings(|settings| settings.max_records) {
         Ok(max_records) => max_records,
@@ -52,11 +52,9 @@ async fn clip_record_clean() {
     // 2. 还有一部分数据就是已经同步并且被逻辑删除的数据，这部分数据可以直接物理删除
 
     // 查询页面会展示的有效数据数量
-    let count = ClipRecord::count_effective(rb).await;
+    let count = repository.count_active().await.unwrap_or(0);
     if count > max_num as i64 {
-        let clip_records = ClipRecord::select_order_by_limit(rb, -1, max_num as i32)
-            .await
-            .unwrap_or(vec![]);
+        let clip_records = repository.list(-1, max_num as i32).await.unwrap_or(vec![]);
         if clip_records.len() > 0 {
             let mut resource_files_to_delete: Vec<String> = vec![];
             let mut del_ids: Vec<String> = vec![];
@@ -67,7 +65,7 @@ async fn clip_record_clean() {
                 del_ids.push(record.id);
             }
 
-            let del_res = ClipRecord::tombstone_by_ids(rb, &del_ids).await;
+            let del_res = repository.mark_deleted(&del_ids).await;
             match del_res {
                 Ok(_) => {
                     log::info!("删除超限数据成功, 数量: {}", del_ids.len());
@@ -85,9 +83,9 @@ async fn clip_record_clean() {
     }
 
     // 查询已同步并且已逻辑删除的数据数量   这些数据需要物理删除
-    let invalid_count = ClipRecord::count_invalid(rb).await;
+    let invalid_count = repository.count_synced_tombstones().await.unwrap_or(0);
     if invalid_count > 0 {
-        let invalid_data = ClipRecord::select_invalid(rb).await;
+        let invalid_data = repository.list_synced_tombstones().await;
         match invalid_data {
             Ok(data) => {
                 if data.len() > 0 {
@@ -100,7 +98,7 @@ async fn clip_record_clean() {
                         del_ids.push(record.id);
                     }
 
-                    let del_res = ClipRecord::del_by_ids(rb, &del_ids).await;
+                    let del_res = repository.delete_permanently(&del_ids).await;
                     match del_res {
                         Ok(_) => {
                             log::info!("物理删除数据成功, 数量: {}", del_ids.len());
