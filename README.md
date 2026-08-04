@@ -92,13 +92,7 @@ VIP界面
    cargo tauri build
    ```
 
-   - 如果你不需要版本更新功能，首先修改tauri.conf.json中的plugins.updater.active为false，然后：
-   ```bash
-   cd ./frontend
-   npm run build
-   cd ..
-   cargo tauri build
-   ```
+   - Tauri 2 的 updater 配置没有 `active` 开关。如果不需要版本更新功能，需要移除 `bootstrap/plugins.rs` 中的 updater 插件注册，并同步移除更新 command 和前端入口。
 6. 上传新包 和 更新latest.json
    ```
    windows下：
@@ -111,6 +105,13 @@ VIP界面
    myapp.app - 标准的应用程序包。
    myapp.app.tar.gz - 更新包。
    myapp.app.tar.gz.sig - 更新包的签名。
+
+   `latest.json` 使用 Tauri 2 官方要求的 `OS-ARCH` 平台键。当前支持的平台需要分别提供安装包 URL 和对应 `.sig` 文件内容：
+   - Windows x64：`windows-x86_64`
+   - Apple Silicon Mac：`darwin-aarch64`
+   - Intel Mac：`darwin-x86_64`
+
+   如果没有发布某个平台的安装包和签名，不要在 `latest.json` 中填写无效占位数据；该平台客户端将无法获取本次更新。
    ```
 
 
@@ -180,4 +181,4 @@ VIP界面
 
 ---
 
-> 本项目致力于为用户提供高效、安全的剪贴板管理体验。如果你喜欢本项目，欢迎 star、推荐和分享！ 
+> 本项目致力于为用户提供高效、安全的剪贴板管理体验。如果你喜欢本项目，欢迎 star、推荐和分享！

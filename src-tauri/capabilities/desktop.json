@@ -11,7 +11,6 @@
   "permissions": [
     "autostart:default",
     "global-shortcut:default",
-    "window-state:default",
-    "updater:default"
+    "window-state:default"
   ]
 }

@@ -44,6 +44,10 @@ const ERROR_SEVERITY_MAP: Record<string, ErrorSeverity> = {
   'open_vip_purchase_page': ErrorSeverity.WARNING,
   'refresh_vip_status': ErrorSeverity.INFO,
   'get_pay_url': ErrorSeverity.CRITICAL,
+
+  // 更新检查和安装错误由更新弹窗统一展示
+  'check_soft_version': ErrorSeverity.SILENT,
+  'download_and_install_update': ErrorSeverity.SILENT,
 };
 
 // API响应类型

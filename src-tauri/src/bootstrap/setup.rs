@@ -4,7 +4,6 @@ use crate::{
     biz::{
         cloud_sync_timer::start_cloud_sync_timer,
         download_cloud_file::start_cloud_file_download_timer,
-        update_checker::check_update_on_startup,
     },
     bootstrap::core::BootstrapCore,
     clip_board_listener, global_shortcut, menu,
@@ -81,11 +80,5 @@ fn start_setup_tasks(app: &mut App, core: &BootstrapCore) {
     let app_handle_download = app.handle().clone();
     tokio::spawn(async move {
         start_cloud_file_download_timer(app_handle_download).await;
-    });
-
-    let app_handle_update = app.handle().clone();
-    tokio::spawn(async move {
-        tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
-        check_update_on_startup(app_handle_update).await;
     });
 }

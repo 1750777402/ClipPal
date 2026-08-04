@@ -3,8 +3,8 @@
     <div class="update-dialog">
       <!-- 标题 -->
       <div class="dialog-header">
-        <h2>{{ updateState === 'checking' ? '检查更新中...' : '发现新版本' }}</h2>
-        <button v-if="updateState !== 'downloading'" class="close-btn" @click="handleClose">×</button>
+        <h2>{{ dialogTitle }}</h2>
+        <button v-if="!isBusy" class="close-btn" @click="handleClose">×</button>
       </div>
 
       <!-- 内容区域 -->
@@ -78,9 +78,12 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { listen } from '@tauri-apps/api/event'
+import DOMPurify from 'dompurify'
+import { marked } from 'marked'
 import { apiInvoke, isSuccess } from '../utils/api'
-import { UpdateInfo } from '../types/global'
+import type { UpdateInfo, UpdateProgress } from '../types/global'
 
 interface Props {
   modelValue: boolean
@@ -104,20 +107,37 @@ const updateState = ref<UpdateState>('checking')
 const updateInfo = ref<UpdateInfo | null>(null)
 const downloadProgress = ref(0)
 const errorMessage = ref('')
-const currentVersion = ref('1.0.7')
-const isFromAutoCheck = ref(false) // 标记是否来自自动检查
+let unlistenDownloadProgress: (() => void) | null = null
+let unlistenInstalling: (() => void) | null = null
+
+const isBusy = computed(() =>
+  updateState.value === 'downloading' || updateState.value === 'installing'
+)
+
+const currentVersion = computed(() => updateInfo.value?.current_version ?? '')
+
+const dialogTitle = computed(() => {
+  switch (updateState.value) {
+    case 'checking':
+      return '检查更新中...'
+    case 'no-update':
+      return '软件更新'
+    case 'has-update':
+      return '发现新版本'
+    case 'downloading':
+      return '下载更新'
+    case 'installing':
+      return '安装更新'
+    case 'success':
+      return '更新完成'
+    case 'error':
+      return '更新失败'
+  }
+})
 
 const formatChangelog = (body: string): string => {
-  // 简单的 Markdown 转 HTML
-  return body
-    .split('\n')
-    .map(line => {
-      if (line.startsWith('## ')) return `<h3>${line.substring(3)}</h3>`
-      if (line.startsWith('- ')) return `<li>${line.substring(2)}</li>`
-      if (line.trim()) return `<p>${line}</p>`
-      return ''
-    })
-    .join('')
+  const rendered = marked.parse(body, { async: false })
+  return DOMPurify.sanitize(rendered)
 }
 
 const handleClose = () => {
@@ -132,6 +152,7 @@ const handleRetry = () => {
 
 const checkUpdate = async () => {
   updateState.value = 'checking'
+  errorMessage.value = ''
   try {
     const response = await apiInvoke<UpdateInfo>('check_soft_version')
     if (!isSuccess(response)) {
@@ -155,7 +176,8 @@ const checkUpdate = async () => {
 // 直接设置更新信息（来自后端自动检查）
 const setUpdateInfo = (info: UpdateInfo) => {
   updateInfo.value = info
-  isFromAutoCheck.value = true
+  errorMessage.value = ''
+  downloadProgress.value = 0
 
   if (info.has_update) {
     updateState.value = 'has-update'
@@ -167,29 +189,21 @@ const setUpdateInfo = (info: UpdateInfo) => {
 const handleUpdate = async () => {
   updateState.value = 'downloading'
   downloadProgress.value = 0
+  errorMessage.value = ''
   
   try {
-    // 模拟下载进度（实际进度由后端通过事件发送）
-    const progressInterval = setInterval(() => {
-      if (downloadProgress.value < 90) {
-        downloadProgress.value += Math.random() * 30
-      }
-    }, 500)
-
     const response = await apiInvoke<boolean>('download_and_install_update')
     if (!isSuccess(response)) {
       throw new Error(response.error || '下载安装更新失败')
     }
     const result = response.data
     
-    clearInterval(progressInterval)
     downloadProgress.value = 100
     
     if (result) {
-      updateState.value = 'installing'
-      setTimeout(() => {
-        updateState.value = 'success'
-      }, 1000)
+      updateState.value = 'success'
+    } else {
+      throw new Error('安装程序未能完成更新')
     }
   } catch (error) {
     errorMessage.value = String(error)
@@ -197,15 +211,32 @@ const handleUpdate = async () => {
   }
 }
 
-// 组件挂载时检查更新
-const init = () => {
-  if (isVisible.value) {
-    checkUpdate()
+onMounted(async () => {
+  try {
+    unlistenDownloadProgress = await listen<UpdateProgress>('update-download-progress', event => {
+      if (updateState.value !== 'downloading') return
+      downloadProgress.value = Math.min(100, Math.max(0, event.payload.percentage))
+    })
+
+    unlistenInstalling = await listen('update-installing', () => {
+      if (updateState.value === 'downloading') {
+        downloadProgress.value = 100
+        updateState.value = 'installing'
+      }
+    })
+  } catch (error) {
+    console.error('注册更新进度监听器失败:', error)
   }
-}
+})
+
+onUnmounted(() => {
+  unlistenDownloadProgress?.()
+  unlistenInstalling?.()
+  unlistenDownloadProgress = null
+  unlistenInstalling = null
+})
 
 defineExpose({
-  init,
   checkUpdate,
   setUpdateInfo
 })

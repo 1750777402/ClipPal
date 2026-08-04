@@ -16,14 +16,16 @@ import ScrollContainer from './components/ScrollContainer.vue';
 import TutorialGuide from './components/TutorialGuide.vue';
 import UpdateDialog from './components/UpdateDialog.vue';
 import { useBreakpoint, generateResponsiveClasses } from './utils/responsive';
-import { setErrorHandler, ErrorSeverity, getFriendlyErrorMessage } from './utils/api';
+import { apiInvoke, isSuccess, setErrorHandler, ErrorSeverity, getFriendlyErrorMessage } from './utils/api';
 import { useUserStore } from './utils/userStore';
 import { useVipStore } from './utils/vipStore';
+import type { UpdateInfo } from './types/global';
 
 const messageBar = ref({ visible: false, message: '', type: 'info' as 'info' | 'warning' | 'error' });
 const showUpdateDialog = ref(false);
 const updateDialogRef = ref<InstanceType<typeof UpdateDialog> | null>(null);
 let closeTimer: ReturnType<typeof setTimeout> | null = null;
+let updateCheckTimer: ReturnType<typeof setTimeout> | null = null;
 let isHovering = false;
 
 // 响应式功能
@@ -65,7 +67,27 @@ const vipStore = useVipStore();
 let authExpiredListener: (() => void) | null = null;
 let authClearedListener: (() => void) | null = null;
 let cloudSyncDisabledListener: (() => void) | null = null;
-let updateAvailableListener: (() => void) | null = null;
+
+function showAvailableUpdate(updateInfo: UpdateInfo) {
+  showUpdateDialog.value = true;
+  updateDialogRef.value?.setUpdateInfo(updateInfo);
+}
+
+async function checkUpdateOnStartup() {
+  const response = await apiInvoke<UpdateInfo>('check_soft_version');
+  if (isSuccess(response) && response.data.has_update) {
+    showAvailableUpdate(response.data);
+  }
+}
+
+function handleManualUpdateCheck() {
+  if (updateCheckTimer) {
+    clearTimeout(updateCheckTimer);
+    updateCheckTimer = null;
+  }
+  showUpdateDialog.value = true;
+  updateDialogRef.value?.checkUpdate();
+}
 
 // 设置全局错误处理器和事件监听
 onMounted(async () => {
@@ -84,13 +106,6 @@ onMounted(async () => {
     // 显示消息
     showMessageBar(friendlyMessage, messageType);
   });
-
-  // 初始化VIP状态
-  try {
-    await vipStore.initialize();
-  } catch (error) {
-    console.error('VIP状态初始化失败:', error);
-  }
 
   // 监听认证过期事件
   authExpiredListener = await listen('auth-expired', () => {
@@ -114,28 +129,20 @@ onMounted(async () => {
     // TODO: 更新前端云同步状态
   });
 
-  // 监听后端发送的更新可用事件
-  updateAvailableListener = await listen('update-available', (event: any) => {
-    console.log('发现新版本:', event.payload);
-    // 直接打开更新对话框，使用后端发送的信息，不再检查一次
-    showUpdateDialog.value = true;
-    if (updateDialogRef.value) {
-      // 延迟一帧确保对话框已挂载
-      setTimeout(() => {
-        if (updateDialogRef.value) {
-          updateDialogRef.value.setUpdateInfo(event.payload);
-        }
-      }, 0);
-    }
-  });
-
   // 监听手动检查更新事件
-  window.addEventListener('check-update', () => {
-    showUpdateDialog.value = true;
-    if (updateDialogRef.value) {
-      updateDialogRef.value.checkUpdate();
-    }
-  });
+  window.addEventListener('check-update', handleManualUpdateCheck);
+
+  // 等界面和 IPC 通道准备完成后静默检查更新，失败不会影响应用启动。
+  updateCheckTimer = setTimeout(() => {
+    void checkUpdateOnStartup();
+  }, 5000);
+
+  // 身份和 VIP 初始化不阻塞事件监听器与自动更新检查注册。
+  try {
+    await vipStore.initialize();
+  } catch (error) {
+    console.error('VIP状态初始化失败:', error);
+  }
 });
 
 
@@ -147,13 +154,18 @@ onUnmounted(() => {
     clearTimeout(closeTimer);
     closeTimer = null;
   }
+  if (updateCheckTimer) {
+    clearTimeout(updateCheckTimer);
+    updateCheckTimer = null;
+  }
+
+  window.removeEventListener('check-update', handleManualUpdateCheck);
 
   // 清理事件监听器，增强错误处理
   const listeners = [
     { listener: authExpiredListener, name: 'authExpired' },
     { listener: authClearedListener, name: 'authCleared' },
-    { listener: cloudSyncDisabledListener, name: 'cloudSyncDisabled' },
-    { listener: updateAvailableListener, name: 'updateAvailable' }
+    { listener: cloudSyncDisabledListener, name: 'cloudSyncDisabled' }
   ];
 
   listeners.forEach(({ listener, name }) => {
@@ -170,7 +182,6 @@ onUnmounted(() => {
   authExpiredListener = null;
   authClearedListener = null;
   cloudSyncDisabledListener = null;
-  updateAvailableListener = null;
 });
 </script>
 
