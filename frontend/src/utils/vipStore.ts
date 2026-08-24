@@ -43,6 +43,11 @@ const vipState = reactive({
   initialized: false
 })
 
+function isVipInfoActive(info: VipInfo | null): boolean {
+  if (!info?.vip_flag) return false
+  return info.expire_time == null || info.expire_time > Date.now()
+}
+
 /**
  * VIP状态管理 - 无状态架构
  * 所有数据都从后端获取，前端仅用于显示
@@ -56,7 +61,7 @@ export const vipStore = {
   get initialized() { return vipState.initialized },
 
   // 计算属性
-  isVip: computed(() => vipState.vipInfo?.vip_flag ?? false),
+  isVip: computed(() => isVipInfoActive(vipState.vipInfo)),
   canCloudSync: computed(() => vipState.limits?.canCloudSync ?? false),
   maxRecordsLimit: computed(() => vipState.limits?.maxRecords ?? 500),
 
@@ -78,7 +83,8 @@ export const vipStore = {
 
   // vip是否生效中显示
   vipFlagDisplay: computed(() => {
-    return vipState.vipInfo?.vip_flag ? "生效中" : "已失效"
+    if (isVipInfoActive(vipState.vipInfo)) return "生效中"
+    return vipState.vipInfo?.vip_flag ? "已失效" : "免费用户"
   }),
 
   // 获取当前用户类型的服务器配置
@@ -96,7 +102,7 @@ export const vipStore = {
       }
     }
 
-    const userType = vipState.vipInfo?.vip_flag ? vipState.vipInfo.vip_type : 'Free'
+    const userType = isVipInfoActive(vipState.vipInfo) ? vipState.vipInfo!.vip_type : 'Free'
     const serverKey = getServerKey(userType)
     return vipState.serverConfig[serverKey] || null
   }),
@@ -321,12 +327,13 @@ export const vipStore = {
 
   // 获取VIP功能权限
   hasFeature(feature: string): boolean {
-    return vipState.vipInfo?.features.includes(feature) ?? false
+    return isVipInfoActive(vipState.vipInfo)
+      && (vipState.vipInfo?.features ?? []).includes(feature)
   },
 
   // 检查是否接近过期（7天内）
   isExpiringSoon: computed(() => {
-    if (!vipState.vipInfo?.expire_time) return false
+    if (!isVipInfoActive(vipState.vipInfo) || !vipState.vipInfo?.expire_time) return false
     const now = Date.now()
     const expireTime = vipState.vipInfo.expire_time
     const sevenDaysInMilliseconds = 7 * 24 * 3600 * 1000
@@ -343,17 +350,11 @@ export const vipStore = {
 
   // 检查是否已过期（基于剩余天数，更可靠）
   isExpired: computed(() => {
-    console.log("isExpired computed被调用了", vipState.vipInfo)
-    if (!vipState.vipInfo?.expire_time) {
-      console.log("没有expire_time，返回false")
-      return false
-    }
-    // 直接使用剩余天数判断，避免时间戳精度问题
-    const now = Date.now()
-    const remaining = vipState.vipInfo.expire_time - now
-    const days = Math.max(0, Math.ceil(remaining / (24 * 3600 * 1000)))
-    console.log("剩余天数:", days, "是否过期:", days <= 0)
-    return days <= 0
+    return Boolean(
+      vipState.vipInfo?.vip_flag
+      && vipState.vipInfo.expire_time
+      && vipState.vipInfo.expire_time <= Date.now()
+    )
   }),
 }
 

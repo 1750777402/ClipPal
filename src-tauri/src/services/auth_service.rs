@@ -34,6 +34,8 @@ impl<'a> AuthService<'a> {
             .login(param)
             .await?
             .ok_or_else(|| "登录响应为空".to_string())?;
+        // 登录新会话前清理上一账号的 VIP 快照，避免新账号在远程刷新完成前继承旧权益。
+        self.context.vip_store().clear_info()?;
         // 只有完整会话一次落盘成功后，才向上层返回登录成功。
         self.store.save_session(&session)?;
         let response = LoginResponse {
@@ -88,6 +90,9 @@ impl<'a> AuthService<'a> {
 
         // 本地认证状态必须清理成功，随后通知前端关闭登录相关界面状态。
         self.store.clear()?;
+        if let Err(error) = self.context.vip_store().clear_info() {
+            log::error!("清除本地 VIP 缓存失败: {}", error);
+        }
         self.emit("auth-cleared");
 
         // 登出后通过设置服务统一更新配置文件和运行期缓存。

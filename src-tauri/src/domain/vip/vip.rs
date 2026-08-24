@@ -16,6 +16,24 @@ pub struct VipInfo {
 }
 
 impl VipInfo {
+    /// 判断权益快照在指定毫秒时间戳下是否仍然有效。
+    pub fn is_active_at(&self, now_ms: u64) -> bool {
+        self.vip_flag
+            && self
+                .expire_time
+                .map(|expire_time| expire_time > now_ms)
+                .unwrap_or(true)
+    }
+
+    /// 根据当前系统时间判断 VIP 权益是否有效。
+    pub fn is_active(&self) -> bool {
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|duration| duration.as_millis().min(u64::MAX as u128) as u64)
+            .unwrap_or(0);
+        self.is_active_at(now_ms)
+    }
+
     /// 将服务端使用的 KB 限制转换为业务比较使用的字节数。
     pub fn max_file_size_bytes(&self) -> u64 {
         self.max_file_size.saturating_mul(1024)
@@ -25,6 +43,7 @@ impl VipInfo {
     pub fn materially_differs_from(&self, previous: &Self) -> bool {
         self.vip_type != previous.vip_type
             || self.vip_flag != previous.vip_flag
+            || self.expire_time != previous.expire_time
             || self.max_file_size != previous.max_file_size
             || self.max_records != previous.max_records
     }
@@ -204,5 +223,23 @@ mod tests {
         assert_eq!(info.vip_type, VipType::Yearly);
         assert_eq!(info.max_records, 3000);
         assert_eq!(info.max_file_size, 10240);
+    }
+
+    #[test]
+    fn expired_vip_snapshot_does_not_grant_entitlements() {
+        let mut info = vip_info();
+        info.expire_time = Some(1_000);
+
+        assert!(info.is_active_at(999));
+        assert!(!info.is_active_at(1_000));
+        assert!(!info.is_active_at(1_001));
+    }
+
+    #[test]
+    fn non_expiring_vip_snapshot_remains_active() {
+        let mut info = vip_info();
+        info.expire_time = None;
+
+        assert!(info.is_active_at(u64::MAX));
     }
 }
