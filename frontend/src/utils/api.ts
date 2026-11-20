@@ -54,19 +54,24 @@ const ERROR_SEVERITY_MAP: Record<string, ErrorSeverity> = {
 // API响应类型
 export interface ApiResponse<T> {
   success: boolean;
+  code: string;
+  message: string;
   data?: T;
   error?: string;
+  errorCode?: string;
   severity: ErrorSeverity;
 }
 
-interface CommandErrorBody {
+export interface CommandErrorBody {
   code: string;
   message: string;
   severity: ErrorSeverity;
 }
 
-interface CommandResponse<T> {
+export interface CommandResponse<T> {
   success: boolean;
+  code: string;
+  message: string;
   data: T | null;
   error: CommandErrorBody | null;
 }
@@ -79,8 +84,16 @@ function isCommandResponse<T>(value: unknown): value is CommandResponse<T> {
   const response = value as Partial<CommandResponse<T>>;
   return (
     typeof response.success === 'boolean' &&
+    typeof response.code === 'string' &&
+    typeof response.message === 'string' &&
     'data' in response &&
-    'error' in response
+    'error' in response &&
+    (response.error === null || (
+      typeof response.error === 'object' &&
+      typeof response.error.code === 'string' &&
+      typeof response.error.message === 'string' &&
+      typeof response.error.severity === 'string'
+    ))
   );
 }
 
@@ -103,6 +116,8 @@ export async function apiInvoke<T>(command: string, args?: InvokeArgs): Promise<
       if (result.success) {
         return {
           success: true,
+          code: result.code,
+          message: result.message,
           data: result.data as T,
           severity: ErrorSeverity.SILENT
         };
@@ -121,18 +136,31 @@ export async function apiInvoke<T>(command: string, args?: InvokeArgs): Promise<
 
       return {
         success: false,
+        code: result.code,
+        message: result.message,
         error: errorMessage,
+        errorCode: result.error?.code,
         severity
       };
     }
 
+    const protocolError = '后端返回了无效的统一响应格式';
+    if (globalErrorHandler) {
+      globalErrorHandler(protocolError, ErrorSeverity.CRITICAL, command);
+    }
     return {
-      success: true,
-      data: result as T,
-      severity: ErrorSeverity.SILENT
+      success: false,
+      code: 'invalid_command_response',
+      message: protocolError,
+      error: protocolError,
+      errorCode: 'invalid_command_response',
+      severity: ErrorSeverity.CRITICAL
     };
   } catch (error) {
-    const errorMessage = typeof error === 'string' ? error : '操作失败';
+    if (import.meta.env.DEV) {
+      console.error(`IPC调用失败 [${command}]:`, error);
+    }
+    const errorMessage = '系统异常，请稍后重试';
     const severity = ERROR_SEVERITY_MAP[command] || ErrorSeverity.INFO;
 
     // 调用全局错误处理器
@@ -147,7 +175,10 @@ export async function apiInvoke<T>(command: string, args?: InvokeArgs): Promise<
 
     return {
       success: false,
+      code: 'ipc_error',
+      message: errorMessage,
       error: errorMessage,
+      errorCode: 'ipc_error',
       severity
     };
   }

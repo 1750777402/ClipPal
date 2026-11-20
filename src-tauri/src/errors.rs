@@ -76,9 +76,26 @@ impl AppError {
         }
     }
 
-    /// 是否适合直接展示给用户。
+    /// 返回适合前端展示的安全消息；技术细节统一写入后端日志。
     pub fn user_message(&self) -> String {
-        self.to_string()
+        match self {
+            // 这些错误通常包含数据库、网络或系统实现细节，不直接暴露给用户。
+            AppError::Database(_)
+            | AppError::Io(_)
+            | AppError::Serde(_)
+            | AppError::Lock(_)
+            | AppError::Crypto(_) => "系统异常，请稍后重试".to_string(),
+            AppError::Http(_) | AppError::Network(_) => "网络服务暂时不可用，请稍后重试".to_string(),
+            AppError::Window(_) | AppError::Tray(_) | AppError::System(_) => {
+                "系统操作异常，请稍后重试".to_string()
+            }
+            AppError::GlobalShortcut(_) => "快捷键设置失败，请检查后重试".to_string(),
+            AppError::Clipboard(_) => "剪贴板操作失败，请稍后重试".to_string(),
+            AppError::AutoPaste(_) => "自动粘贴失败，请稍后重试".to_string(),
+            AppError::ClipSync(_) => "云同步异常，请稍后重试".to_string(),
+            // General / Config 目前承载业务校验消息，需要保留可操作提示。
+            AppError::Config(_) | AppError::General(_) => self.to_string(),
+        }
     }
 }
 

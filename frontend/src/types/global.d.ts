@@ -64,6 +64,8 @@ type PlatformType = 'windows' | 'macos' | 'linux' | 'unknown';
 // API响应类型
 interface ApiResponse<T = any> {
   success: boolean;
+  code: string;
+  message: string;
   data?: T;
   error?: string;
 }

@@ -5,7 +5,7 @@ use crate::errors::{AppError, AppResult};
 /// Tauri command 统一响应结构。
 ///
 /// 业务层继续返回 `AppResult<T>`，command 层只在边界处转换为该结构。
-/// 前端只需要判断 `success`，成功时读取 `data`，失败时读取 `error`。
+/// 前端只需要判断 `success`，成功时读取 `data`，失败时读取 `code`、`message` 和 `error`。
 #[derive(Debug, Serialize)]
 pub struct CommandResponse<T>
 where
@@ -13,6 +13,10 @@ where
 {
     /// command 是否执行成功。
     pub success: bool,
+    /// 稳定的顶层业务码；成功时为 `ok`。
+    pub code: String,
+    /// 顶层消息；失败时为用户可读错误信息。
+    pub message: String,
     /// 成功时返回的数据。失败时固定为 `None`。
     pub data: Option<T>,
     /// 失败时返回的错误信息。成功时固定为 `None`。
@@ -56,6 +60,8 @@ where
     pub fn ok(data: T) -> Self {
         Self {
             success: true,
+            code: "ok".to_string(),
+            message: String::new(),
             data: Some(data),
             error: None,
         }
@@ -63,8 +69,12 @@ where
 
     /// 构造失败响应。
     pub fn error(error: AppError) -> Self {
+        // 完整错误只写入后端日志，响应体使用 user_message 避免泄露实现细节。
+        log::error!("应用 command 错误 [{}]: {}", error.code(), error);
         Self {
             success: false,
+            code: error.code().to_string(),
+            message: error.user_message(),
             data: None,
             error: Some(CommandErrorBody::from(error)),
         }
@@ -78,6 +88,8 @@ impl CommandResponse<()> {
     pub fn empty_ok() -> Self {
         Self {
             success: true,
+            code: "ok".to_string(),
+            message: String::new(),
             data: Some(()),
             error: None,
         }
