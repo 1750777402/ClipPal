@@ -1,6 +1,6 @@
 <template>
     <div class="clip-card" :class="{'is-pinned': record.pinned_flag}"
-        :data-type="record.type" @dblclick="handleCardDoubleClick">
+        :data-type="record.type" :data-item-id="record.id" @dblclick="handleCardDoubleClick">
         <div class="card-header">
             <div class="card-left">
                 <div class="card-type">
@@ -266,6 +266,7 @@ const shouldLoadImage = ref(false);
 const imageContainer = ref<HTMLElement | null>(null);
 const intersectionObserver = ref<IntersectionObserver | null>(null);
 let imageCleanupTimer: ReturnType<typeof setTimeout> | null = null;
+let syncLoadTimer: ReturnType<typeof setTimeout> | null = null;
 
 // showMessageBar 现在通过全局错误处理器自动处理，不需要手动注入
 
@@ -347,7 +348,9 @@ watch(() => props.record.sync_flag, (newFlag, oldFlag) => {
     if (oldFlag === 1 && newFlag === 2 && props.record.type === 'Image') {
         console.log('云端下载完成，自动加载图片:', props.record.id);
         // 稍微延迟一下再加载，确保状态更新完成
-        setTimeout(() => {
+        if (syncLoadTimer) clearTimeout(syncLoadTimer);
+        syncLoadTimer = setTimeout(() => {
+            syncLoadTimer = null;
             if (!shouldLoadImage.value && !imageProtocolUrl.value) {
                 shouldLoadImage.value = true;
                 loadImage();
@@ -591,9 +594,11 @@ const handleDelete = async () => {
 };
 
 const confirmDelete = async () => {
-    await clipApi.deleteRecord(props.record.id);
-    emit('delete', props.record);
-    showConfirm.value = false;
+    const response = await clipApi.deleteRecord(props.record.id);
+    if (isSuccess(response)) {
+        emit('delete', props.record);
+        showConfirm.value = false;
+    }
 };
 
 const cancelDelete = () => {
@@ -602,8 +607,8 @@ const cancelDelete = () => {
 
 const handlePin = async () => {
     const newPinnedFlag = !props.record.pinned_flag ? 1 : 0;
-    await clipApi.setPinned(props.record.id, newPinnedFlag);
-    emit('pin', props.record);
+    const response = await clipApi.setPinned(props.record.id, newPinnedFlag);
+    if (isSuccess(response)) emit('pin', props.record);
 };
 
 const getFileName = (filePath: string) => {
@@ -694,6 +699,10 @@ onMounted(() => {
 // 组件卸载时清理
 onUnmounted(() => {
     clearPendingImageCleanup();
+    if (syncLoadTimer) {
+        clearTimeout(syncLoadTimer);
+        syncLoadTimer = null;
+    }
     if (intersectionObserver.value) {
         intersectionObserver.value.disconnect();
         intersectionObserver.value = null;

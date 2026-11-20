@@ -112,6 +112,7 @@ const qrCodeGenerated = ref(false)
 const qrCodeCanvas = ref<HTMLCanvasElement | null>(null)
 const autoRefreshTimer = ref<NodeJS.Timeout | null>(null)
 const autoRefreshStartTimer = ref<NodeJS.Timeout | null>(null)
+let refreshResetTimer: ReturnType<typeof setTimeout> | null = null
 
 // 支付方式信息
 const paymentMethodInfo = {
@@ -196,7 +197,9 @@ const handleRefreshStatus = async () => {
     showMessageBar('网络错误，请检查网络连接后重试', 'error')
   } finally {
     // 延迟重置状态，给用户反馈
-    setTimeout(() => {
+    if (refreshResetTimer) clearTimeout(refreshResetTimer)
+    refreshResetTimer = setTimeout(() => {
+      refreshResetTimer = null
       refreshing.value = false
     }, 1000)
   }
@@ -338,6 +341,10 @@ watch(() => props.modelValue, (visible) => {
 // 组件销毁时清理定时器
 onUnmounted(() => {
   clearAutoRefreshTimers()
+  if (refreshResetTimer) {
+    clearTimeout(refreshResetTimer)
+    refreshResetTimer = null
+  }
 })
 </script>
 

@@ -159,7 +159,7 @@ const saveNickname = async () => {
     isUpdating.value = true
     
     const response = await apiInvoke<boolean>('update_user_info', {
-      nickName: trimmedNickname
+      nick_name: trimmedNickname
     })
     
     if (isSuccess(response) && response.data) {

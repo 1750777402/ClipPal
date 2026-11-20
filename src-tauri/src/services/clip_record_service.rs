@@ -215,7 +215,7 @@ impl<'a> ClipRecordService<'a> {
 
     /// 更新记录置顶标记；仓储负责互斥置顶和版本号更新事务。
     pub async fn set_pinned(&self, record_id: &str, pinned_flag: i32) -> AppResult<String> {
-        let _ = self.repository.set_pinned(record_id, pinned_flag).await;
+        self.repository.set_pinned(record_id, pinned_flag).await?;
         Ok(String::new())
     }
 
@@ -233,24 +233,23 @@ impl<'a> ClipRecordService<'a> {
 
         let ids = vec![record_id];
         // 只有数据库逻辑删除成功后，才执行队列和索引等后续副作用。
-        if self.repository.mark_deleted(&ids).await.is_ok() {
-            let cloud_sync_enabled = self
-                .context
-                .with_settings(|settings| settings.cloud_sync == 1)
-                .unwrap_or(false);
+        self.repository.mark_deleted(&ids).await?;
+        let cloud_sync_enabled = self
+            .context
+            .with_settings(|settings| settings.cloud_sync == 1)
+            .unwrap_or(false);
 
-            // 开启云同步时将删除事件放入队列，由后台任务同步到服务端。
-            if cloud_sync_enabled {
-                let queue = self.context.clip_record_queue();
-                if !queue.is_full() {
-                    let _ = queue.send_delete(record).await;
-                }
+        // 开启云同步时将删除事件放入队列，由后台任务同步到服务端。
+        if cloud_sync_enabled {
+            let queue = self.context.clip_record_queue();
+            if !queue.is_full() {
+                let _ = queue.send_delete(record).await;
             }
+        }
 
-            // 搜索索引与数据库保持一致；索引失败记录日志但不回滚数据库删除。
-            if let Err(error) = self.search_engine.remove(&ids).await {
-                log::error!("从搜索索引删除记录失败: {}", error);
-            }
+        // 搜索索引与数据库保持一致；索引失败记录日志但不回滚数据库删除。
+        if let Err(error) = self.search_engine.remove(&ids).await {
+            log::error!("从搜索索引删除记录失败: {}", error);
         }
 
         Ok(String::new())

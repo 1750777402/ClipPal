@@ -118,6 +118,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onBeforeUnmount, nextTick, watch } from 'vue'
 import { isSuccess, settingsApi } from '../utils/api'
+import type { AppSettings } from '../types/global'
 
 interface TutorialStep {
   id: string
@@ -127,14 +128,7 @@ interface TutorialStep {
   position: string
 }
 
-interface Settings {
-  auto_start: number
-  max_records: number
-  shortcut_key: string
-  cloud_sync: number
-  auto_paste: number
-  tutorial_completed: number
-}
+type Settings = AppSettings
 
 const isVisible = ref(false)
 const currentStepIndex = ref(0)
@@ -407,10 +401,14 @@ watch(currentStepIndex, () => {
 // 监听窗口大小变化和滚动
 const handleResize = () => {
   // 延迟更新，避免频繁计算
-  setTimeout(() => {
+  if (resizeTimer) clearTimeout(resizeTimer)
+  resizeTimer = setTimeout(() => {
+    resizeTimer = null
     updateHighlight()
   }, 100)
 }
+
+let resizeTimer: ReturnType<typeof setTimeout> | null = null
 
 const handleScroll = () => {
   updateHighlight()
@@ -427,6 +425,10 @@ onMounted(() => {
 onBeforeUnmount(() => {
   window.removeEventListener('resize', handleResize)
   window.removeEventListener('scroll', handleScroll)
+  if (resizeTimer) {
+    clearTimeout(resizeTimer)
+    resizeTimer = null
+  }
 })
 
 // 暴露方法给外部调用

@@ -1,4 +1,5 @@
-import { invoke } from '@tauri-apps/api/core';
+import { invoke, type InvokeArgs } from '@tauri-apps/api/core';
+import type { AppSettings, ClipRecord, UserInfoDto } from '../types/global';
 
 // 错误类型定义
 export enum ErrorSeverity {
@@ -94,7 +95,7 @@ export function setErrorHandler(handler: ErrorHandler) {
 }
 
 // 统一的API调用封装
-export async function apiInvoke<T>(command: string, args?: any): Promise<ApiResponse<T>> {
+export async function apiInvoke<T>(command: string, args?: InvokeArgs): Promise<ApiResponse<T>> {
   try {
     const result = await invoke(command, args);
 
@@ -156,7 +157,7 @@ export async function apiInvoke<T>(command: string, args?: any): Promise<ApiResp
 export const clipApi = {
   // 查询剪贴记录
   async getClipRecords(params: { page: number; size: number; search?: string }) {
-    return apiInvoke<any[]>('get_clip_records', { param: params });
+    return apiInvoke<ClipRecord[]>('get_clip_records', { param: params });
   },
 
   // 获取图片文件路径（自定义协议）
@@ -213,11 +214,11 @@ export const clipApi = {
 export const settingsApi = {
   // 加载设置
   async loadSettings() {
-    return apiInvoke<any>('load_settings');
+    return apiInvoke<AppSettings>('load_settings');
   },
 
   // 保存设置
-  async saveSettings(settings: any) {
+  async saveSettings(settings: AppSettings) {
     return apiInvoke<void>('save_settings', { settings });
   },
 
@@ -232,9 +233,9 @@ export const userApi = {
   // 用户登录
   async login(params: { account: string; password: string }) {
     return apiInvoke<{
-      user_info: any;
+      user_info: UserInfoDto;
       token: string;
-      expires_in: string;
+      expires_in: number;
     }>('login', { param: params });
   },
 
@@ -258,7 +259,7 @@ export const userApi = {
       captcha: params.captcha,
       phone: params.phone
     };
-    return apiInvoke<any>('user_register', { param: backendParams });
+    return apiInvoke<UserInfoDto>('user_register', { param: backendParams });
   },
 
   // 用户登出
@@ -278,26 +279,12 @@ export const userApi = {
 
   // 获取用户信息
   async getUserInfo() {
-    return apiInvoke<{
-      id: number;
-      account: string;
-      nickname: string;
-      email: string;
-      phone: string;
-      role: string;
-    }>('get_user_info');
+    return apiInvoke<UserInfoDto>('get_user_info');
   },
 
   // 检查登录状态（应用启动时调用）
   async checkLoginStatus() {
-    return apiInvoke<{
-      id: number;
-      account: string;
-      nickname: string;
-      email: string;
-      phone: string;
-      role: string;
-    } | null>('check_login_status');
+    return apiInvoke<UserInfoDto | null>('check_login_status');
   },
 
   // 更新用户信息（暂时保留，后续实现）
@@ -306,7 +293,7 @@ export const userApi = {
     email?: string;
     avatar?: string;
   }) {
-    return apiInvoke<boolean>('update_user_info', { nickName: params.nickname ?? '' });
+    return apiInvoke<boolean>('update_user_info', { nick_name: params.nickname ?? '' });
   },
 
   // 检查用户名是否可用

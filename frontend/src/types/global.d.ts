@@ -6,7 +6,7 @@ export interface ClipRecord {
   type: string;
   content: string;
   created: number;
-  user_id: number;
+  user_id?: number;
   os_type: string;
   fileSize?: number;
   pinned_flag?: number;
@@ -31,12 +31,25 @@ export interface FileInfo {
 }
 
 // 设置类型
-interface AppSettings {
+export interface AppSettings {
   max_records: number;
-  show_hotkey: string;
-  cloud_sync_enabled: boolean;
-  auto_paste_enabled: boolean;
-  show_guide: boolean;
+  auto_start: number;
+  shortcut_key: string;
+  cloud_sync: number;
+  auto_paste: number;
+  tutorial_completed: number;
+  bloom_filter_trust_threshold?: number;
+  direct_contains_threshold?: number;
+  cloud_sync_interval: number;
+}
+
+export interface UserInfoDto {
+  id: number;
+  account: string;
+  nickname: string;
+  email: string;
+  phone: string;
+  role?: string;
 }
 
 // 响应式断点类型

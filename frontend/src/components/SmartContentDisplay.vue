@@ -118,6 +118,7 @@ import { ref, computed, onMounted, onBeforeUnmount, nextTick, watch } from 'vue'
 import hljs from 'highlight.js/lib/core';
 import { detectContentType, formatContent, type DetectedContent } from '../utils/contentDetector';
 import { marked } from 'marked';
+import DOMPurify from 'dompurify';
 
 // 只引入必要的语言
 import json from 'highlight.js/lib/languages/json';
@@ -162,6 +163,7 @@ const showStickyCollapse = ref(false);
 const markdownViewMode = ref<'preview' | 'code'>('preview');
 const contentArea = ref<HTMLElement | null>(null);
 const codeElement = ref<HTMLElement | null>(null);
+let progressiveFrame: number | null = null;
 
 // 内容检测（基于当前显示内容）
 const detectedContent = computed<DetectedContent>(() => {
@@ -196,13 +198,15 @@ const highlightedContent = computed(() => {
 const renderedMarkdown = computed(() => {
   if (detectedContent.value.type.type === 'markdown') {
     try {
-      return marked(currentDisplayContent.value, {
+      const rendered = marked(currentDisplayContent.value, {
         breaks: true,
         gfm: true,
+        async: false,
       });
+      return DOMPurify.sanitize(rendered);
     } catch (error) {
       console.warn('Markdown渲染失败:', error);
-      return currentDisplayContent.value;
+      return DOMPurify.sanitize(currentDisplayContent.value);
     }
   }
   return '';
@@ -269,6 +273,11 @@ const isLoadingFullContent = ref(false);
 
 // 渐进式更新大内容，避免UI卡顿
 const updateContentProgressively = async (content: string) => {
+  if (progressiveFrame !== null) {
+    cancelAnimationFrame(progressiveFrame);
+    progressiveFrame = null;
+  }
+
   if (content.length <= 200 * 1024) {
     // 小于200KB直接更新
     currentDisplayContent.value = content;
@@ -286,11 +295,11 @@ const updateContentProgressively = async (content: string) => {
 
     if (currentPos < content.length) {
       // 使用requestAnimationFrame而不是setTimeout，更好的性能
-      requestAnimationFrame(updateChunk);
+      progressiveFrame = requestAnimationFrame(updateChunk);
     }
   };
 
-  requestAnimationFrame(updateChunk);
+  progressiveFrame = requestAnimationFrame(updateChunk);
 };
 
 // 切换展开状态
@@ -357,6 +366,10 @@ watch(isExpanded, (newVal) => {
 
 // 监听内容变化
 watch(() => props.content, (newContent) => {
+  if (progressiveFrame !== null) {
+    cancelAnimationFrame(progressiveFrame);
+    progressiveFrame = null;
+  }
   currentDisplayContent.value = newContent;
   nextTick(() => {
     checkExpandNeeded();
@@ -373,6 +386,10 @@ onMounted(() => {
 
 // 组件卸载
 onBeforeUnmount(() => {
+  if (progressiveFrame !== null) {
+    cancelAnimationFrame(progressiveFrame);
+    progressiveFrame = null;
+  }
   if (contentArea.value) {
     contentArea.value.removeEventListener('scroll', handleScroll);
   }
@@ -867,4 +884,4 @@ onBeforeUnmount(() => {
     padding: 3px 6px;
   }
 }
-</style> 
+</style>

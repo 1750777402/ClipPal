@@ -110,6 +110,7 @@ import { listen } from '@tauri-apps/api/event';
 import { useWindowAdaptive, generateResponsiveClasses } from '../utils/responsive';
 import { settingsApi, isSuccess } from '../utils/api';
 import { useUserStore } from '../utils/userStore';
+import type { AppSettings } from '../types/global';
 
 const props = defineProps<{
   modelValue: boolean
@@ -120,20 +121,16 @@ const emit = defineEmits<{
   (e: 'save', settings: Settings): void
 }>();
 
-interface Settings {
-  auto_start: number;  // 0 关闭 1 开启
-  max_records: number;
-  shortcut_key: string;
-  cloud_sync: number;  // 0 关闭 1 开启
-  auto_paste: number;  // 0 关闭 1 开启
-}
+type Settings = AppSettings;
 
 const settings = ref<Settings>({
   auto_start: 0,
   max_records: 200,
   shortcut_key: 'Ctrl+`',
   cloud_sync: 0,
-  auto_paste: 1
+  auto_paste: 1,
+  tutorial_completed: 0,
+  cloud_sync_interval: 30
 });
 
 const isRecording = ref(false);
@@ -143,6 +140,7 @@ const pressedKeys = ref<string[]>([]);
 
 const showMessageBar = inject('showMessageBar') as (message: string, type?: 'info' | 'warning' | 'error') => void;
 let cloudSyncDisabledListener: (() => void) | null = null;
+let isSettingsDialogUnmounted = false;
 
 // 用户状态管理
 const userStore = useUserStore();
@@ -495,7 +493,7 @@ onMounted(async () => {
   window.addEventListener('click', handleClickOutside);
 
   // 监听云同步禁用事件
-  cloudSyncDisabledListener = await listen('cloud-sync-disabled', async () => {
+  const unlisten = await listen('cloud-sync-disabled', async () => {
     console.log('设置页面收到云同步禁用事件，重新加载设置');
     // 重新加载设置以反映云同步已被禁用
     await loadSettings();
@@ -504,9 +502,12 @@ onMounted(async () => {
       showMessageBar('云同步已被关闭', 'info');
     }
   });
+  if (isSettingsDialogUnmounted) unlisten();
+  else cloudSyncDisabledListener = unlisten;
 });
 
 onBeforeUnmount(() => {
+  isSettingsDialogUnmounted = true;
   window.removeEventListener('keydown', handleKeyDown);
   window.removeEventListener('keyup', handleKeyUp);
   window.removeEventListener('click', handleClickOutside);

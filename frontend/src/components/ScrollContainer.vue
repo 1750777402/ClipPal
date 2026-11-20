@@ -42,16 +42,22 @@
 
       <!-- 真实数据，透明度渐变 - 正常流式布局 -->
       <div class="real-content" :class="{ 'content-updating': isRefreshing }">
-        <ClipCard
-          v-for="item in cards"
-          :key="item.id"
-          v-memo="[item.id, item.pinned_flag, item.sync_flag, item.content, item.created, cloudSyncEnabled]"
-          :record="item"
-          :is-mobile="responsive.isMobile.value"
-          :cloud-sync-enabled="cloudSyncEnabled"
-          @click="handleCardClick"
-          @pin="handlePin"
-          @delete="handleDel" />
+        <div class="virtual-content" :style="{ height: `${virtualTotalHeight}px` }">
+          <div
+            v-for="virtualItem in virtualItems"
+            :key="virtualItem.item.id"
+            class="virtual-item"
+            :style="{ transform: `translateY(${virtualItem.offsetY}px)` }">
+            <ClipCard
+              v-memo="[virtualItem.item.id, virtualItem.item.pinned_flag, virtualItem.item.sync_flag, virtualItem.item.content, virtualItem.item.created, cloudSyncEnabled]"
+              :record="virtualItem.item"
+              :is-mobile="responsive.isMobile.value"
+              :cloud-sync-enabled="cloudSyncEnabled"
+              @click="handleCardClick"
+              @pin="handlePin"
+              @delete="handleDel" />
+          </div>
+        </div>
       </div>
     </div>
 
@@ -64,16 +70,22 @@
       </div>
 
       <!-- 卡片列表 -->
-      <ClipCard
-        v-for="item in cards"
-        :key="item.id"
-        v-memo="[item.id, item.pinned_flag, item.sync_flag, item.content, item.created, cloudSyncEnabled]"
-        :record="item"
-        :is-mobile="responsive.isMobile.value"
-        :cloud-sync-enabled="cloudSyncEnabled"
-        @click="handleCardClick"
-        @pin="handlePin"
-        @delete="handleDel" />
+      <div class="virtual-content" :style="{ height: `${virtualTotalHeight}px` }">
+        <div
+          v-for="virtualItem in virtualItems"
+          :key="virtualItem.item.id"
+          class="virtual-item"
+          :style="{ transform: `translateY(${virtualItem.offsetY}px)` }">
+          <ClipCard
+            v-memo="[virtualItem.item.id, virtualItem.item.pinned_flag, virtualItem.item.sync_flag, virtualItem.item.content, virtualItem.item.created, cloudSyncEnabled]"
+            :record="virtualItem.item"
+            :is-mobile="responsive.isMobile.value"
+            :cloud-sync-enabled="cloudSyncEnabled"
+            @click="handleCardClick"
+            @pin="handlePin"
+            @delete="handleDel" />
+        </div>
+      </div>
 
       <!-- 分页加载状态 -->
       <div v-if="isFetchingMore" class="bottom-loading">
@@ -85,13 +97,13 @@
       <div v-if="!hasMore && cards.length > 0" class="bottom-loading">没有更多了</div>
     </div>
 
-    <SettingsDialog v-model="showSettings" @save="handleSettingsSave" />
+    <SettingsDialog v-if="showSettings" v-model="showSettings" @save="handleSettingsSave" />
     
     <!-- 登录对话框 -->
-    <LoginDialog v-model:visible="showLoginDialog" @login-success="handleLoginSuccess" />
+    <LoginDialog v-if="showLoginDialog" v-model:visible="showLoginDialog" @login-success="handleLoginSuccess" />
     
     <!-- 用户菜单 -->
-    <UserMenu 
+    <UserMenu v-if="showUserMenu"
       v-model:visible="showUserMenu" 
       :user-info="userStore.getUserInfo()" 
       @logout="handleLogout" 
@@ -100,14 +112,14 @@
     />
     
     <!-- 用户信息对话框 -->
-    <UserInfoDialog 
+    <UserInfoDialog v-if="showUserInfoDialog"
       v-model:visible="showUserInfoDialog" 
       :user-info="userStore.getUserInfo()" 
       @edit="handleUserInfoEdit"
     />
     
     <!-- VIP账户对话框 -->
-    <VipAccountDialog 
+    <VipAccountDialog v-if="showVipAccountDialog"
       v-model:visible="showVipAccountDialog"
       @login="showLoginDialog = true"
     />
@@ -139,6 +151,7 @@ import { useWindowAdaptive } from '../utils/responsive';
 import { clipApi, settingsApi, isSuccess } from '../utils/api';
 import { useUserStore } from '../utils/userStore';
 import { createDebouncedFunction, useMemoryManager } from '../utils/memoryManager';
+import { useDynamicVirtualScroll } from '../utils/dynamicVirtualScroll';
 
 // 使用内存安全的防抖函数
 // 原有的防抖函数保留以确保兼容性，但推荐使用新的createDebouncedFunction
@@ -156,12 +169,17 @@ const hasMore = ref(true);
 const lastFetchTime = ref(0);
 const CACHE_DURATION = 2000; // 2秒内避免重复请求
 const lastSearchValue = ref('');
+let requestSequence = 0;
 
 // 防止单记录更新后立即全局刷新的防抖机制
 const recentlyUpdatedRecords = new Set<string>();
 const SINGLE_UPDATE_COOLDOWN = 1000; // 1秒内不重复刷新
 
 const scrollContainer = ref<HTMLElement | null>(null);
+const {
+  visibleItems: virtualItems,
+  totalHeight: virtualTotalHeight,
+} = useDynamicVirtualScroll(cards, scrollContainer);
 
 // 回到顶部按钮相关
 const showBackToTop = ref(false);
@@ -201,7 +219,7 @@ interface ClipRecord {
   type: string;
   content: string;
   created: number;
-  user_id: number;
+  user_id?: number;
   os_type: string;
   fileSize?: number;
   pinned_flag?: number;
@@ -231,8 +249,9 @@ const handleCardClick = async (item: ClipRecord) => {
 };
 
 const initEventListeners = async () => {
+  const unlisteners: Array<() => void> = [];
   try {
-    await listen('clip_record_change', () => {
+    unlisteners.push(await listen('clip_record_change', () => {
       // 如果没有最近的单记录更新，则执行智能刷新
       if (recentlyUpdatedRecords.size === 0) {
         console.log('执行通用刷新：无最近单记录更新');
@@ -240,27 +259,27 @@ const initEventListeners = async () => {
       } else {
         console.log('跳过通用刷新：有最近的单记录更新', Array.from(recentlyUpdatedRecords));
       }
-    });
-    await listen('open_settings_windows', () => {
+    }));
+    unlisteners.push(await listen('open_settings_windows', () => {
       showSettings.value = true;
-    });
+    }));
     // 单个同步状态更新
-    await listen('sync_status_update', (event) => {
+    unlisteners.push(await listen('sync_status_update', (event) => {
       const { clip_id, sync_flag } = event.payload as { clip_id: string, sync_flag: 0 | 1 | 2 | 3 };
       const card = cards.value.find(c => c.id === clip_id);
       if (card) card.sync_flag = sync_flag;
-    });
+    }));
     // 批量同步状态更新
-    await listen('sync_status_update_batch', (event) => {
+    unlisteners.push(await listen('sync_status_update_batch', (event) => {
       const { clip_ids, sync_flag } = event.payload as { clip_ids: string[], sync_flag: 0 | 1 | 2 | 3 };
       // 批量更新卡片状态
       clip_ids.forEach(clip_id => {
         const card = cards.value.find(c => c.id === clip_id);
         if (card) card.sync_flag = sync_flag;
       });
-    });
+    }));
     // 云文件下载完成事件 - 单记录更新，提供更好的用户体验
-    await listen('clip_record_download_completed', (event) => {
+    unlisteners.push(await listen('clip_record_download_completed', (event) => {
       const { record_id, filename, path, file_info } = event.payload as { 
         record_id: string, 
         action: string, 
@@ -308,9 +327,12 @@ const initEventListeners = async () => {
           recentlyUpdatedRecords.delete(record_id);
         }, SINGLE_UPDATE_COOLDOWN);
       }
-    });
+    }));
+    return unlisteners;
   } catch (error) {
     console.error('事件监听失败:', error);
+    unlisteners.forEach((unlisten) => unlisten());
+    return [];
   }
 };
 
@@ -334,6 +356,8 @@ const smartRefresh = () => {
 
 // 静默刷新：不显示loading，平滑更新数据
 const silentRefresh = async () => {
+  const requestId = ++requestSequence;
+  const requestSearch = search.value;
   try {
     isRefreshing.value = true;
     const response = await clipApi.getClipRecords({
@@ -342,7 +366,7 @@ const silentRefresh = async () => {
       search: search.value
     });
     
-    if (isSuccess(response)) {
+    if (requestId === requestSequence && requestSearch === search.value && isSuccess(response)) {
       const data = response.data;
       // 平滑更新数据
       await nextTick();
@@ -354,9 +378,11 @@ const silentRefresh = async () => {
     
   } finally {
     // 延迟移除刷新状态，让动画更平滑
-    memoryManager.setTimeout(() => {
-      isRefreshing.value = false;
-    }, 300);
+    if (requestId === requestSequence) {
+      memoryManager.setTimeout(() => {
+        if (requestId === requestSequence) isRefreshing.value = false;
+      }, 300);
+    }
   }
 };
 
@@ -373,6 +399,8 @@ const resetAndFetch = () => {
 const fetchClipRecords = async (isRefresh = false) => {
   if (!hasMore.value) return;
   
+  const requestId = ++requestSequence;
+  const requestSearch = search.value;
   const currentPage = page.value;
   const now = Date.now();
   
@@ -391,7 +419,7 @@ const fetchClipRecords = async (isRefresh = false) => {
     });
     
     // 使用新的API封装，静默处理失败
-    if (isSuccess(response)) {
+    if (requestId === requestSequence && requestSearch === search.value && isSuccess(response)) {
       const data = response.data;
       
       if (isRefresh || currentPage === 1) {
@@ -407,8 +435,10 @@ const fetchClipRecords = async (isRefresh = false) => {
     // 错误处理由API层自动处理，这里不需要额外逻辑
     
   } finally {
-    isInitialLoading.value = false;
-    isFetchingMore.value = false;
+    if (requestId === requestSequence) {
+      isInitialLoading.value = false;
+      isFetchingMore.value = false;
+    }
   }
 };
 
@@ -426,11 +456,6 @@ const handleScroll = () => {
     fetchClipRecords();
   }
 
-  // 内存清理优化：当数据量过多时，定期清理历史缓存
-  if (cards.value.length > 300) {
-    // 防抖清理，避免频繁执行
-    debouncedMemoryCleanup();
-  }
 };
 
 // 回到顶部功能
@@ -476,28 +501,6 @@ const debouncedRefresh = createDebouncedFunction(() => {
     resetAndFetch();
   }
 }, 500);
-
-// 防抖的内存清理函数
-const debouncedMemoryCleanup = createDebouncedFunction(() => {
-  // 当数据量超过300时，保留最近的200条，清理旧数据
-  if (cards.value.length > 300) {
-    console.log('执行内存清理，当前数据量:', cards.value.length);
-    const keepCount = 200;
-
-    // 保留置顶的和最近的数据
-    const pinnedCards = cards.value.filter(card => card.pinned_flag);
-    const unpinnedCards = cards.value.filter(card => !card.pinned_flag);
-    const recentCards = unpinnedCards.slice(0, keepCount - pinnedCards.length);
-
-    cards.value = [...pinnedCards, ...recentCards];
-
-    // 重置虚拟滚动位置
-    if (scrollContainer.value) {
-      scrollContainer.value.scrollTop = 0;
-    }
-    console.log('内存清理完成，保留数据量:', cards.value.length);
-  }
-}, 1000); // 1秒防抖
 
 watch(search, (newValue) => {
   searchDebounced(newValue);
@@ -618,33 +621,46 @@ const handleUserInfoEdit = () => {
   console.log('用户信息编辑功能，待实现');
 };
 
+let eventUnlisteners: Array<() => void> = [];
+let isScrollContainerUnmounted = false;
+
 onMounted(async () => {
   lastSearchValue.value = search.value;
-  fetchClipRecords();
-  initEventListeners();
+  const registeredListeners = await initEventListeners();
+  if (isScrollContainerUnmounted) {
+    registeredListeners.forEach((unlisten) => unlisten());
+    return;
+  }
+  eventUnlisteners = registeredListeners;
+  void fetchClipRecords();
   loadCloudSyncSetting();
   
   // 初始化用户状态
   await userStore.initialize();
 
   // 监听云同步禁用事件
-  cloudSyncDisabledListener = await listen('cloud-sync-disabled', async () => {
+  const cloudSyncListener = await listen('cloud-sync-disabled', async () => {
     console.log('主页面收到云同步禁用事件，更新云同步状态');
     // 重新加载云同步设置状态
     await loadCloudSyncSetting();
   });
+  if (isScrollContainerUnmounted) cloudSyncListener();
+  else cloudSyncDisabledListener = cloudSyncListener;
 });
 
 onBeforeUnmount(() => {
+  isScrollContainerUnmounted = true;
+  requestSequence += 1;
   // 响应式监听器在useWindowAdaptive中自动清理
 
   // 清理防抖函数
   debouncedRefresh.cancel();
   searchDebounced.cancel();
-  debouncedMemoryCleanup.cancel();
 
   // 清理Set中的所有项目，防止内存泄漏
   recentlyUpdatedRecords.clear();
+  eventUnlisteners.forEach((unlisten) => unlisten());
+  eventUnlisteners = [];
 
   // 清理云同步事件监听器
   if (cloudSyncDisabledListener) {
@@ -786,6 +802,18 @@ onBeforeUnmount(() => {
   -webkit-overflow-scrolling: touch;
   overscroll-behavior: contain;
   position: relative;
+}
+
+.virtual-content {
+  position: relative;
+  width: 100%;
+}
+
+.virtual-item {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
 }
 
 .clip-list::-webkit-scrollbar {

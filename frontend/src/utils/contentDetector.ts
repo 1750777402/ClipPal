@@ -432,9 +432,11 @@ export function detectContentType(content: string): DetectedContent {
     detectors.push(() => detectCodeType(content));
     detectors.push(() => detectGeneralCode(content));
 
-    // 运行检测器，找到高置信度结果即停止
+    // 每个检测器只执行一次，避免低置信度内容重复运行 highlight.js。
+    const results: ContentType[] = [];
     for (const detector of detectors) {
         const result = detector();
+        if (result) results.push(result);
         if (result && result.confidence > 0.8) {
             return {
                 original: content,
@@ -445,10 +447,7 @@ export function detectContentType(content: string): DetectedContent {
     }
 
     // 如果没有高置信度结果，运行所有检测器并选择最佳结果
-    const allResults = detectors
-        .map(detector => detector())
-        .filter(result => result !== null)
-        .sort((a, b) => b!.confidence - a!.confidence);
+    const allResults = results.sort((a, b) => b.confidence - a.confidence);
 
     const bestResult = allResults.length > 0 && allResults[0]!.confidence > 0.5
         ? allResults[0]!
@@ -541,4 +540,4 @@ export function detectCodeWithDetails(text: string): { isCode: boolean; confiden
         console.warn('代码检测失败:', error);
         return { isCode: false, confidence: 0 };
     }
-} 
+}
