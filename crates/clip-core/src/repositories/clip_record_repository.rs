@@ -1,120 +1,27 @@
 use async_trait::async_trait;
-
 use crate::{domain::clip::ClipRecord, errors::AppResult};
 
+/// 单机仓储只暴露本地记录及资源操作，不包含远程同步状态。
 #[async_trait]
-/// 剪贴记录仓储接口，隔离 service 与具体数据库、SQL 和事务实现。
 pub trait ClipRecordRepository: Send + Sync {
-    /// 查询全部记录并按排序值和创建时间倒序返回，用于启动时重建搜索索引。
+    /// 读取全部记录及其资源，供启动重建索引等后台操作使用。
     async fn list_all(&self) -> AppResult<Vec<ClipRecord>>;
-
-    /// 按记录 ID 查询单条记录；不存在时返回 `None`。
-    async fn find_by_id(&self, id: &str) -> AppResult<Option<ClipRecord>>;
-
-    /// 按记录类型和内容摘要查询一条记录，用于剪贴板内容去重。
-    async fn find_by_type_and_md5(
-        &self,
-        record_type: &str,
-        md5: &str,
-    ) -> AppResult<Option<ClipRecord>>;
-
-    /// 按置顶、排序值和创建时间分页查询有效记录。
-    async fn list(&self, limit: i32, offset: i32) -> AppResult<Vec<ClipRecord>>;
-
-    /// 在搜索引擎给出的 ID 范围内分页查询有效记录。
-    async fn list_by_ids(
-        &self,
-        ids: &[String],
-        limit: i32,
-        offset: i32,
-    ) -> AppResult<Vec<ClipRecord>>;
-
-    /// 查询指定同步状态的全部记录，并按创建时间倒序返回。
-    async fn list_by_sync_status(&self, sync_flag: i32) -> AppResult<Vec<ClipRecord>>;
-
-    /// 按同步状态和记录来源查询有限数量的记录。
-    async fn list_by_sync_status_and_source(
-        &self,
-        sync_flag: i32,
-        cloud_source: i32,
-        limit: i32,
-    ) -> AppResult<Vec<ClipRecord>>;
-
-    /// 查询已经同步完成且被逻辑删除、可以物理清理的记录。
-    async fn list_synced_tombstones(&self) -> AppResult<Vec<ClipRecord>>;
-
-    /// 查询所有逻辑删除记录，供无同步的单机版回收历史墓碑。
-    async fn list_tombstones(&self) -> AppResult<Vec<ClipRecord>>;
-
-    /// 插入一条完整剪贴记录。
-    async fn insert(&self, record: &ClipRecord) -> AppResult<()>;
-
-    /// 按记录产生时间计算排序位置并插入记录。
-    #[allow(dead_code)]
-    async fn insert_by_created_sort(&self, record: ClipRecord) -> AppResult<()>;
-
-    /// 获取下一条新记录使用的排序值。
-    async fn next_sort(&self) -> AppResult<i32>;
-
-    /// 更新记录内容。
-    #[allow(dead_code)]
-    async fn update_content(&self, id: &str, content: &str) -> AppResult<()>;
-
-    /// 更新记录排序并递增版本号。
-    async fn update_sort(&self, id: &str, sort: i32) -> AppResult<()>;
-
-    /// 更新记录对应的本地文件路径。
-    #[allow(dead_code)]
-    async fn update_local_file_path(&self, id: &str, local_path: &str) -> AppResult<()>;
-
-    /// 写入云端资源下载后的文件名、本地路径和同步状态。
-    async fn update_after_cloud_download(
-        &self,
-        id: &str,
-        filename: &str,
-        absolute_path: &str,
-    ) -> AppResult<()>;
-
-    /// 使用新记录数据恢复一条已经逻辑删除的同内容记录。
-    async fn restore_deleted(&self, id: &str, record: &ClipRecord) -> AppResult<()>;
-
-    /// 更新记录置顶状态，并保证同一时间只有一条记录置顶。
-    async fn set_pinned(&self, id: &str, pinned_flag: i32) -> AppResult<()>;
-
-    /// 批量逻辑删除记录，并将同步状态重置为待同步。
-    async fn mark_deleted(&self, ids: &[String]) -> AppResult<()>;
-
-    /// 将云端删除操作应用到本地，并标记为已经同步。
-    async fn apply_remote_deletions(&self, ids: &[String], sync_time: u64) -> AppResult<()>;
-
-    /// 从数据库物理删除指定记录。
-    async fn delete_permanently(&self, ids: &[String]) -> AppResult<()>;
-
-    /// 批量更新记录同步状态和同步时间。
-    async fn update_sync_status(
-        &self,
-        ids: &[String],
-        sync_flag: i32,
-        sync_time: u64,
-    ) -> AppResult<()>;
-
-    /// 查询因指定原因跳过同步的有效记录。
-    async fn list_skipped(&self, sync_flag: i32, skip_type: i32) -> AppResult<Vec<ClipRecord>>;
-
-    /// 更新单条记录的同步状态和跳过原因。
-    async fn update_sync_state(
-        &self,
-        id: &str,
-        sync_flag: i32,
-        skip_type: Option<i32>,
-    ) -> AppResult<()>;
-
-    /// 统计未逻辑删除的记录数。
-    async fn count_active(&self) -> AppResult<i64>;
-
-    /// 统计已经同步完成且被逻辑删除的记录数。
-    async fn count_synced_tombstones(&self) -> AppResult<i64>;
-
-    /// 删除最旧的非置顶有效记录。
-    async fn delete_oldest_unpinned(&self, count: i32) -> AppResult<()>;
+    /// 按本地主键定位；记录已删除时返回 None。
+    async fn find_by_id(&self, id: i64) -> AppResult<Option<ClipRecord>>;
+    /// 按内容身份查重，不要求调用方知道已有记录的主键。
+    async fn find_by_content_key(&self, key: &str) -> AppResult<Option<ClipRecord>>;
+    /// 按置顶和最近采集顺序分页，offset 是要跳过的记录条数。
+    async fn list(&self, limit: i32, offset: i64) -> AppResult<Vec<ClipRecord>>;
+    /// 回查搜索候选 ID，再按正常列表顺序分页，过滤已删除记录。
+    async fn list_by_ids(&self, ids: &[String], limit: i32, offset: i64) -> AppResult<Vec<ClipRecord>>;
+    /// 事务内分配排序、按内容去重并替换资源。重复复制保留 ID、首次时间和置顶。
+    async fn save_capture(&self, record: &ClipRecord) -> AppResult<ClipRecord>;
+    /// 设置唯一置顶；只接受 0/1，更新失败必须恢复原置顶状态。
+    async fn set_pinned(&self, id: i64, pinned: i32) -> AppResult<()>;
+    /// 返回已删除的完整快照，提交后由资源管理器回收受管缓存。
+    async fn delete(&self, id: i64) -> AppResult<Option<ClipRecord>>;
+    /// 统计本机当前实际保留的记录数。
+    async fn count(&self) -> AppResult<i64>;
+    /// 淘汰超过保留数量的旧记录并返回快照，保护置顶记录。
+    async fn remove_overflow(&self, max_records: u32) -> AppResult<Vec<ClipRecord>>;
 }

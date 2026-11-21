@@ -77,7 +77,7 @@ pub async fn set_pinned(
 }
 
 #[tauri::command]
-/// 逻辑删除指定剪贴记录，并由服务层处理搜索索引和云同步队列。
+/// 物理删除本地记录、关联资源行并回收受管缓存和搜索索引。
 pub async fn del_record(
     state: tauri::State<'_, Arc<AppContext>>,
     param: ClipRecordIdParam,

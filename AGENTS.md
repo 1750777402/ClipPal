@@ -30,7 +30,7 @@
 ## 4. 关键入口
 
 - 打包启动：`src-tauri/src/lib.rs`；实际桌面启动：`crates/desktop-tauri/src/lib.rs`；Tauri command 注册：`crates/desktop-tauri/src/commands/mod.rs`。
-- SQLite 初始化和表结构迁移：`crates/clip-core/src/storage/schema.rs`。
+- SQLite 两表初始化：`crates/clip-core/src/storage/schema.rs`；旧库备份和升级：`crates/desktop-app-core/src/migration.rs`。
 - 剪贴板记录模型：`crates/clip-core/src/domain/clip/clip_record.rs`。
 - 剪贴板记录查询与展示编排：`crates/desktop-app-core/src/records.rs`；Tauri 扩展副作用在 `crates/desktop-tauri/src/core/application/clip_record_service.rs`。
 - 搜索索引：`crates/clip-core/src/search/in_memory.rs`，通过注入的解码策略解密内容。
@@ -85,3 +85,14 @@
 - `src-tauri/src` 只允许 `main.rs` / `lib.rs`，不得重新添加业务、IPC、系统适配或生命周期模块。
 - 打包壳内的插件直接依赖用于 Tauri 构建权限元数据，不代表插件实现归属启动壳；不要删除这些声明导致 capability 失效。
 - 桌面适配测试使用 `cargo test -p desktop-tauri --lib`；自建/商业测试追加 `--no-default-features --features self-hosted/commercial`。仅测试 ClipPal 启动壳不能替代适配测试。
+
+## 11. 单机数据库 v2 边界
+
+- 本地活动数据库只有 clip_record 和 clip_record_resource 两张业务表。
+- 两表使用 SQLite 自增 i64 主键；content_key 为唯一索引，资源通过 record_id 外键关联。
+- clip-core / desktop-app-core 不得加入 SyncStatus、SkipSyncReason、sync_flag、cloud_source、skip_type 或云同步设置。
+- 只有 desktop-app-core/src/migration.rs 可识别旧数据库字段，升级前完整备份、失败回滚；测试不得打开正式数据目录。
+- 文本按完整原文计算 SHA-256，再使用原算法加密；文件完整流式摘要，不使用采样摘要作唯一键。
+- 后端使用整数 ID，IPC 用十进制字符串防止 JS 精度丢失；单文件复制传 resource_id，不能按显示名定位。
+- legacy/sync-v1 是非编译参考源码。新的同步表和协议接入前，不启动旧同步运行时，不宣传自建同步已可用。
+- 前端默认 local；商业入口通过 --mode commercial 才编译进入产物。改动必须保持本地页面样式。

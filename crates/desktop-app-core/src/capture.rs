@@ -1,1015 +1,133 @@
-//! 本地剪贴记录采集，不依赖 Tauri、全局 AppContext 或云端认证。
-use std::{fs::File, io::{Read, Write}, path::PathBuf, time::{SystemTime, UNIX_EPOCH}};
-use chrono::Local;
-use serde_json::Value;
-use uuid::Uuid;
-use clip_core::{domain::clip::{ClipRecord, NOT_SYNCHRONIZED, SKIP_SYNC, TEXT_TYPE, IMAGE_TYPE, FILE_TYPE}, errors::{AppError, AppResult}, repositories::ClipRecordRepository, files::extensions::extract_full_extension};
+//! 本地采集只处理原始内容、完整摘要、加密、资源快照和本地去重。
+use std::{path::{Path,PathBuf},time::{SystemTime,UNIX_EPOCH}};
+use clip_core::{domain::clip::{ClipRecord,ClipRecordResource,TEXT_TYPE,IMAGE_TYPE,FILE_TYPE,DIRECTORY_TYPE},content_key,errors::{AppError,AppResult}};
 use crate::LocalContext;
 
-pub struct DeviceIdentity { pub device_id: String, pub os_type: String }
-pub enum CaptureInput<'a> { Text(&'a str), Image(Option<&'a Vec<u8>>), Files(Option<&'a Vec<String>>) }
-pub trait TextEncoder: Send + Sync { fn encode(&self, content: &str) -> AppResult<String>; }
-impl<F: Fn(&str) -> AppResult<String> + Send + Sync> TextEncoder for F {
-    fn encode(&self, content: &str) -> AppResult<String> { self(content) }
+/// 从系统事件借用的原始数据；此处尚未计算摘要、加密或复制文件。
+pub enum CaptureInput<'a>{
+    /// 剪贴板原文，不提前去空白或截断。
+    Text(&'a str),
+    /// 图片文件字节；None 表示事件没有附带可用图片。
+    Image(Option<&'a Vec<u8>>),
+    /// 原始文件和目录路径；None 表示事件没有附带路径。
+    Files(Option<&'a Vec<String>>)
 }
-#[async_trait::async_trait]
-pub trait CapturePolicy: Send + Sync {
-    fn cached_sync_file_limit(&self) -> u64;
-    async fn file_copy_limit(&self) -> u64;
+/// 文本加密能力由桌面层注入，单机业务不直接读取打包密钥。
+pub trait TextEncoder:Send+Sync{
+    /// 把完整原文编码成数据库可保存的密文；失败则不入库。
+    fn encode(&self,content:&str)->AppResult<String>;
+}
+/// 普通函数和闭包也可作为加密器，便于复用桌面实现和隔离测试。
+impl<F:Fn(&str)->AppResult<String>+Send+Sync> TextEncoder for F{
+    /// 将接口调用转交给注入的函数，不额外改变文本。
+    fn encode(&self,content:&str)->AppResult<String>{self(content)}
 }
 
-pub struct CaptureService<'a> {
-    local: &'a LocalContext,
-    encoder: &'a dyn TextEncoder,
-    identity: &'a DeviceIdentity,
-    policy: &'a dyn CapturePolicy,
-}
-impl<'a> CaptureService<'a> {
-    pub fn new(local: &'a LocalContext, encoder: &'a dyn TextEncoder, identity: &'a DeviceIdentity, policy: &'a dyn CapturePolicy) -> Self {
-        Self { local, encoder, identity, policy }
-    }
-    pub async fn capture(&self, input: CaptureInput<'_>) -> AppResult<Option<ClipRecord>> {
-        let _guard = self.local.capture_lock.lock().await;
-        let repository = self.local.repositories().clip_records();
-        let next_sort = repository.next_sort().await?;
-        match input {
-            CaptureInput::Text(content) => self.handle_text(repository, content, next_sort).await,
-            CaptureInput::Image(data) => self.handle_image(repository, data, next_sort).await,
-            CaptureInput::Files(paths) => self.handle_file(repository, paths, next_sort).await,
-        }
-    }
-    async fn add_content_to_index(&self, id: &str, content: &str) -> AppResult<()> {
-        self.local.search_engine().add(id, content).await
-    }
-    fn current_timestamp(&self) -> u64 {
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|duration| duration.as_millis() as u64)
-            .unwrap_or_else(|e| {
-                log::warn!("获取系统时间失败，使用默认值: {}", e);
-                0
-            })
-    }
-
-    /// 计算文件内容的MD5值（智能策略：小文件全读，大文件采样）
-    async fn compute_file_content_md5(&self, file_path: &std::path::Path) -> Result<String, std::io::Error> {
-        const SMALL_FILE_THRESHOLD: u64 = 10 * 1024 * 1024; // 10MB
-
-        let metadata = std::fs::metadata(file_path)?;
-        let file_size = metadata.len();
-
-        if file_size <= SMALL_FILE_THRESHOLD {
-            // 小文件：读取完整内容计算MD5
-            self.compute_full_file_md5(file_path).await
-        } else {
-            // 大文件：采样计算MD5（文件头+中间+尾部+文件大小）
-            self.compute_sampled_file_md5(file_path, file_size).await
-        }
-    }
-
-    /// 计算完整文件内容的MD5
-    async fn compute_full_file_md5(&self, file_path: &std::path::Path) -> Result<String, std::io::Error> {
-        let mut file = std::fs::File::open(file_path)?;
-        let mut buffer = [0; 8192]; // 8KB缓冲区
-        let mut context = md5::Context::new();
-
-        loop {
-            let bytes_read = file.read(&mut buffer)?;
-            if bytes_read == 0 {
-                break;
+/// 本地采集服务：先准备内容和资源，再提交数据库，最后更新索引和旧缓存。
+pub struct CaptureService<'a>{local:&'a LocalContext,encoder:&'a dyn TextEncoder}
+impl<'a> CaptureService<'a>{
+    /// 借用当前应用上下文和加密器，不创建额外的全局状态。
+    pub fn new(local:&'a LocalContext,encoder:&'a dyn TextEncoder)->Self{Self{local,encoder}}
+    /// 保存一个有效剪贴板事件；空内容返回 None，保存失败返回具体后端错误。
+    pub async fn capture(&self,input:CaptureInput<'_>)->AppResult<Option<ClipRecord>>{
+        // 与删除、置顶和超限清理互斥，避免资源准备期间记录被另一操作删掉。
+        let _guard=self.local.capture_lock.lock().await;
+        // 毫秒时间用于展示；真正的先后顺序由仓储在写事务内分配。
+        let now=i64::try_from(SystemTime::now().duration_since(UNIX_EPOCH).map_err(|error|AppError::System(error.to_string()))?.as_millis()).map_err(|_|AppError::System("时间超出范围".into()))?;
+        let mut next=ClipRecord{created_at:now,last_copied_at:now,..Default::default()};
+        let mut search=String::new();
+        match input{
+            CaptureInput::Text(text)=>{
+                // 只忽略零长度，不修改首尾空白、缩进、换行或纯空白内容。
+                if text.is_empty(){return Ok(None);}
+                next.r#type=TEXT_TYPE.into();next.content_key=content_key::text_key(text);
+                next.content=Some(self.encoder.encode(text)?);search=text.into();
             }
-            context.consume(&buffer[..bytes_read]);
-        }
-
-        Ok(format!("{:x}", context.compute()))
-    }
-
-    /// 计算大文件采样MD5（文件头+中间+尾部+文件大小）
-    async fn compute_sampled_file_md5(&self, 
-        file_path: &std::path::Path,
-        file_size: u64,
-    ) -> Result<String, std::io::Error> {
-        use std::io::{Seek, SeekFrom};
-
-        const SAMPLE_SIZE: usize = 1024 * 1024; // 1MB
-        let mut file = std::fs::File::open(file_path)?;
-        let mut context = md5::Context::new();
-        let sample_len = SAMPLE_SIZE.min(file_size as usize / 3);
-        let mut buffer = vec![0u8; sample_len];
-
-        // 读取文件头
-        file.read_exact(&mut buffer)?;
-        context.consume(&buffer);
-
-        // 读取文件中间
-        if file_size > (sample_len * 2) as u64 {
-            let mid_pos = file_size / 2 - (sample_len / 2) as u64;
-            file.seek(SeekFrom::Start(mid_pos))?;
-            file.read_exact(&mut buffer)?;
-            context.consume(&buffer);
-        }
-
-        // 读取文件尾
-        if file_size > sample_len as u64 {
-            file.seek(SeekFrom::End(-(sample_len as i64)))?;
-            file.read_exact(&mut buffer)?;
-            context.consume(&buffer);
-        }
-
-        // 包含文件大小信息防止大小相同但内容不同的文件冲突
-        context.consume(&file_size.to_le_bytes());
-
-        Ok(format!("{:x}", context.compute()))
-    }
-
-    /// 计算多文件内容的组合MD5（基于文件名和内容，不包含路径）
-    async fn compute_multiple_files_md5(&self, file_paths: &[String]) -> Result<String, std::io::Error> {
-        let mut context = md5::Context::new();
-
-        // 创建文件信息列表：(文件名, 文件路径)
-        let mut file_info: Vec<(String, String)> = Vec::new();
-
-        for file_path in file_paths {
-            let path = std::path::Path::new(file_path);
-            if path.exists() {
-                // 提取文件名（不包含路径）
-                let filename = path
-                    .file_name()
-                    .and_then(|name| name.to_str())
-                    .unwrap_or(file_path)
-                    .to_string();
-
-                file_info.push((filename, file_path.clone()));
-            }
-        }
-
-        // 按文件名排序确保一致性（不是按路径排序）
-        file_info.sort_by(|a, b| a.0.cmp(&b.0));
-
-        for (filename, file_path) in file_info {
-            let path = std::path::Path::new(&file_path);
-
-            // 只包含文件名信息（不包含路径，确保相同文件产生相同MD5）
-            context.consume(filename.as_bytes());
-
-            // 包含文件内容MD5
-            match self.compute_file_content_md5(&path).await {
-                Ok(content_md5) => {
-                    context.consume(content_md5.as_bytes());
-                }
-                Err(e) => {
-                    log::warn!(
-                        "无法读取文件内容生成MD5，跳过文件: {}, 错误: {}",
-                        file_path,
-                        e
-                    );
+            CaptureInput::Image(Some(data))=>{
+                next.r#type=IMAGE_TYPE.into();next.content_key=content_key::image_key(data);
+                let old=self.local.repositories().clip_records().find_by_content_key(&next.content_key).await?;
+                // 相同图片且缓存仍存在时复用文件；缓存丢失则重新保存。
+                if let Some(old)=old.filter(|old|old.resources.iter().all(|resource|self.resolve(resource).is_ok_and(|path|path.is_file()))){next.resources=old.resources;}
+                else{
+                    let base=self.local.resources_dir().ok_or_else(||AppError::Config("图片资源目录不可用".into()))?;
+                    let relative=format!("images/{}.png",uuid::Uuid::new_v4());
+                    // 文件名用随机值，图片内容身份由 SHA-256 独立确定。
+                    let path=base.join(&relative);std::fs::create_dir_all(path.parent().unwrap())?;
+                    if let Err(error)=std::fs::write(&path,data){let _=std::fs::remove_file(path);return Err(error.into());}
+                    next.resources.push(ClipRecordResource{display_name:"clipboard.png".into(),resource_kind:"image".into(),storage_kind:"managed".into(),path:relative,byte_size:Some(data.len() as i64),content_hash:Some(content_key::bytes_hash(data)),..Default::default()});
                 }
             }
-        }
-
-        Ok(format!("{:x}", context.compute()))
-    }
-
-    fn build_clip_record(&self, 
-        id: String,
-        r#type: String,
-        content: Value,
-        md5_str: String,
-        sort: i32,
-    ) -> ClipRecord {
-        let cur_time = self.current_timestamp();
-        ClipRecord {
-            id,
-            r#type,
-            content,
-            md5_str,
-            local_file_path: None,
-            created: cur_time,
-            os_type: self.identity.os_type.clone(),
-            sort,
-            pinned_flag: 0,
-            sync_flag: Some(NOT_SYNCHRONIZED),
-            sync_time: Some(0),
-            device_id: Some(self.identity.device_id.clone()),
-            version: Some(1),
-            del_flag: Some(0),
-            cloud_source: Some(0),
-            skip_type: None,
-        }
-    }
-
-    fn build_sync_eligible_file_record(&self, 
-        id: &str,
-        file_path: &str,
-        md5_str: &str,
-        sort: i32,
-    ) -> ClipRecord {
-        let filename = std::path::Path::new(file_path)
-            .file_name()
-            .and_then(|name| name.to_str())
-            .unwrap_or(file_path);
-
-        self.build_clip_record(
-            id.to_string(),
-            FILE_TYPE.to_owned(),
-            Value::String(filename.to_string()),
-            md5_str.to_string(),
-            sort,
-        )
-    }
-
-    fn build_multiple_files_record(&self, 
-        id: &str,
-        paths: &Vec<String>,
-        md5_str: &str,
-        sort: i32,
-    ) -> ClipRecord {
-        // content存储文件名列表（显示用）
-        let filenames: Vec<String> = paths
-            .iter()
-            .map(|path| {
-                std::path::Path::new(path)
-                    .file_name()
-                    .and_then(|name| name.to_str())
-                    .unwrap_or(path)
-                    .to_string()
-            })
-            .collect();
-        let content_display = filenames.join(":::");
-
-        let mut record = self.build_clip_record(
-            id.to_string(),
-            FILE_TYPE.to_owned(),
-            Value::String(content_display),
-            md5_str.to_string(),
-            sort,
-        );
-
-        // 多文件不支持云同步
-        record.sync_flag = Some(SKIP_SYNC);
-        record.skip_type = Some(1); // 1: 不支持再次同步（多文件）
-        record.local_file_path = Some(paths.join(":::"));
-        record
-    }
-
-    async fn handle_text(&self, 
-        repository: &dyn ClipRecordRepository,
-        content: &str,
-        sort: i32,
-    ) -> Result<Option<ClipRecord>, AppError> {
-        // 过滤空文本，空文本不进行记录
-        let trimmed_content = content.trim();
-        if trimmed_content.is_empty() {
-            log::debug!("跳过空文本记录");
-            return Ok(None);
-        }
-
-        let encrypt_res = self.encoder.encode(trimmed_content);
-        match encrypt_res {
-            Ok(encrypted) => {
-                let md5_str = format!("{:x}", md5::compute(trimmed_content));
-                // 单次查询检查是否有相同内容的记录
-                let existing = repository
-                    .find_by_type_and_md5(TEXT_TYPE.to_owned().as_str(), md5_str.as_str())
-                    .await?;
-
-                if let Some(record) = existing.as_ref() {
-                    if record.del_flag == Some(1) {
-                        // 已删除的记录，更新为新记录的所有字段
-                        let mut new_record = self.build_clip_record(
-                            record.id.clone(), // 保持原ID
-                            TEXT_TYPE.to_owned(),
-                            Value::String(encrypted.clone()),
-                            md5_str,
-                            sort,
-                        );
-
-                        // 检查扩展策略的同步文本大小限制（加密后的字节大小）
-                        let content_size = encrypted.as_bytes().len() as u64;
-                        let max_file_size = self.policy.cached_sync_file_limit();
-
-                        if max_file_size > 0 && content_size > max_file_size {
-                            // 超出同步策略限制，设置为跳过同步
-                            new_record.sync_flag = Some(SKIP_SYNC);
-                            new_record.skip_type = Some(2); // 2: 同步策略限制，可再次同步
-                            log::info!(
-                                "文本超出同步策略限制，设置为跳过同步: 文本大小={}字节, 限制={}字节",
-                                content_size,
-                                max_file_size
-                            );
-                        }
-
-                        if let Err(e) = repository.restore_deleted(&record.id, &new_record).await {
-                            log::error!("更新已删除文本记录失败: {}", e);
-                            return Err(e);
-                        }
-
-                        // 更新搜索索引
-                        let record_id_copy = record.id.clone();
-                        let content_copy = trimmed_content.to_string();
-                        (async move {
-                            if let Err(e) = self.add_content_to_index(&record_id_copy, &content_copy).await {
-                                log::error!("搜索索引更新失败: {}", e);
-                            }
-                        }).await;
-
-                        log::info!("更新已删除的文本记录为新数据: {}", record.id);
-                        return Ok(Some(new_record));
-                    } else {
-                        // 活跃记录，只更新排序
-                        if let Err(e) = repository.update_sort(&record.id, sort).await {
-                            log::error!("更新排序失败: {}", e);
-                            return Err(e);
-                        }
-                        return Ok(None);
-                    }
-                }
-
-                // 创建新记录
-                let mut record = self.build_clip_record(
-                    Uuid::new_v4().to_string(),
-                    TEXT_TYPE.to_owned(),
-                    Value::String(encrypted.clone()),
-                    md5_str,
-                    sort,
-                );
-
-                // 检查扩展策略的同步文本大小限制（加密后的字节大小）
-                let content_size = encrypted.as_bytes().len() as u64;
-                let max_file_size = self.policy.cached_sync_file_limit();
-
-                if max_file_size > 0 && content_size > max_file_size {
-                    // 超出同步策略限制，设置为跳过同步
-                    record.sync_flag = Some(SKIP_SYNC);
-                    record.skip_type = Some(2); // 2: 同步策略限制，可再次同步
-                    log::info!(
-                        "文本超出同步策略限制，设置为跳过同步: 文本大小={}字节, 限制={}字节",
-                        content_size,
-                        max_file_size
-                    );
-                }
-
-                match repository.insert(&record).await {
-                    Ok(_res) => {
-                        let content_string = trimmed_content.to_string();
-                        let record_id = record.id.clone();
-                        (async move {
-                            if let Err(e) =
-                                self.add_content_to_index(record_id.as_str(), content_string.as_str()).await
-                            {
-                                log::error!("搜索索引更新失败: {}", e);
-                            }
-                        }).await;
-                        Ok(Some(record))
-                    }
-                    Err(e) => {
-                        log::error!("插入文本记录失败: {}", e);
-                        Err(e)
-                    }
-                }
+            CaptureInput::Files(Some(paths)) if !paths.is_empty()=>{
+                // 磁盘操作放到阻塞线程；任何一项失败都不保存不完整的文件清单。
+                let paths=paths.clone();let base=self.local.resources_dir();
+                next.resources=tokio::task::spawn_blocking(move||prepare_files(&paths,base.as_deref())).await.map_err(|error|AppError::System(error.to_string()))??;
+                next.r#type=if next.resources.len()==1 && next.resources[0].resource_kind=="directory"{DIRECTORY_TYPE}else{FILE_TYPE}.into();
+                next.content_key=content_key::resource_key(&next.resources)?;
+                // 文件搜索使用显示名，避免随机缓存路径影响搜索结果。
+                search=next.search_names();
             }
-            Err(e) => {
-                log::error!("文本内容加密失败，无法保存记录: {:?}", e);
-                // 不截取或输出剪贴板原文，避免中文边界 panic 和隐私泄露。
-                Err(e)
-            }
+            _=>return Ok(None),
         }
-    }
-
-    async fn handle_image(&self, 
-        repository: &dyn ClipRecordRepository,
-        file_data: Option<&Vec<u8>>,
-        sort: i32,
-    ) -> Result<Option<ClipRecord>, AppError> {
-        if let Some(data) = file_data {
-            let md5_str = format!("{:x}", md5::compute(data));
-
-            // 单次查询检查是否有相同内容的记录
-            let existing = repository
-                .find_by_type_and_md5(IMAGE_TYPE.to_owned().as_str(), &md5_str)
-                .await?;
-
-            if let Some(record) = existing.as_ref() {
-                if record.del_flag == Some(1) {
-                    // 已删除的记录，更新为新记录的所有字段
-                    let id = record.id.clone();
-
-                    // 先生成文件名，然后保存图片
-                    let filename = self.generate_unique_filename("png");
-                    if self.save_image_with_filename(&filename, data).await {
-                        let mut new_record = self.build_clip_record(
-                            id.clone(),
-                            IMAGE_TYPE.to_owned(),
-                            Value::String(filename.clone()), // 直接设置为生成的文件名
-                            md5_str,
-                            sort,
-                        );
-
-                        // 检查扩展策略的同步图片大小限制
-                        let image_size = data.len() as u64;
-                        let max_file_size = self.policy.cached_sync_file_limit();
-
-                        if max_file_size == 0 || image_size > max_file_size {
-                            // 超出同步策略限制，设置为跳过同步
-                            new_record.sync_flag = Some(SKIP_SYNC);
-                            new_record.skip_type = Some(2); // 2: 同步策略限制，可再次同步
-                            log::info!(
-                                "图片超出同步策略限制，设置为跳过同步: 图片大小={}, 限制={}",
-                                image_size,
-                                max_file_size
-                            );
-                        }
-
-                        if let Err(e) = repository.restore_deleted(&id, &new_record).await {
-                            log::error!("更新已删除图片记录失败: {}", e);
-                            // 保存图片失败时删除已创建的文件
-                            self.delete_image_file(&filename).await;
-                            return Err(e);
-                        }
-
-                        log::info!("更新已删除的图片记录为新数据: {}", id);
-                        return Ok(Some(new_record));
-                    } else {
-                        log::error!("保存图片失败，无法更新记录");
-                        return Err(AppError::Clipboard("保存图片失败".to_string()));
-                    }
-                } else {
-                    // 活跃记录，只更新排序
-                    if let Err(e) = repository.update_sort(&record.id, sort).await {
-                        log::error!("更新图片排序失败: {}", e);
-                        return Err(e);
-                    }
-                    return Ok(None);
-                }
-            }
-
-            // 创建新记录 - 先生成文件名，然后保存图片
-            let id = Uuid::new_v4().to_string();
-            let filename = self.generate_unique_filename("png");
-
-            if self.save_image_with_filename(&filename, data).await {
-                let mut record = self.build_clip_record(
-                    id.clone(),
-                    IMAGE_TYPE.to_owned(),
-                    Value::String(filename.clone()), // 直接设置为生成的文件名
-                    md5_str,
-                    sort,
-                );
-
-                // 检查扩展策略的同步图片大小限制
-                let image_size = data.len() as u64;
-                let max_file_size = self.policy.cached_sync_file_limit();
-
-                if max_file_size == 0 || image_size > max_file_size {
-                    // 超出同步策略限制，设置为跳过同步
-                    record.sync_flag = Some(SKIP_SYNC);
-                    record.skip_type = Some(2); // 2: 同步策略限制，可再次同步
-                    log::info!(
-                        "图片超出同步策略限制，设置为跳过同步: 图片大小={}, 限制={}",
-                        image_size,
-                        max_file_size
-                    );
-                }
-
-                match repository.insert(&record).await {
-                    Ok(_) => {
-                        log::info!("新增图片记录成功，ID: {}, 文件名: {}", id, filename);
-                        Ok(Some(record))
-                    }
-                    Err(e) => {
-                        log::error!("插入图片记录失败: {}", e);
-                        // 数据库插入失败时删除已创建的文件
-                        self.delete_image_file(&filename).await;
-                        Err(e)
-                    }
-                }
-            } else {
-                log::error!("保存图片失败，无法创建记录");
-                Err(AppError::Clipboard("保存图片失败".to_string()))
-            }
-        } else {
-            Ok(None)
-        }
-    }
-
-    async fn handle_file(&self, 
-        repository: &dyn ClipRecordRepository,
-        file_paths: Option<&Vec<String>>,
-        sort: i32,
-    ) -> Result<Option<ClipRecord>, AppError> {
-        if let Some(paths) = file_paths {
-            // 多文件不支持云同步（技术限制）
-            if paths.len() > 1 {
-                log::info!(
-                    "检测到多文件复制({} 个文件)，不支持云同步，仅保留本地记录",
-                    paths.len()
-                );
-                return self.handle_multiple_files(repository, paths, sort).await;
-            }
-
-            // 单文件处理
-            if let Some(file_path) = paths.first() {
-                let path = std::path::Path::new(file_path);
-
-                if !path.exists() {
-                    log::warn!("文件不存在: {}", file_path);
-                    return Ok(None);
-                }
-
-                let metadata = match std::fs::metadata(path) {
-                    Ok(metadata) => metadata,
-                    Err(e) => {
-                        log::warn!("读取文件元数据失败: {}, 文件: {}", e, file_path);
-                        return Ok(None);
-                    }
-                };
-
-                // 文件夹只保留本地引用，不尝试按普通文件读取或复制目录。
-                if metadata.is_dir() {
-                    let md5 = format!("{:x}", md5::compute(format!("directory:{}", file_path)));
-                    let existing = repository.find_by_type_and_md5(FILE_TYPE, &md5).await?;
-                    if let Some(record) = existing.as_ref().filter(|record| !record.is_deleted()) {
-                        repository.update_sort(&record.id, sort).await?;
-                        return Ok(None);
-                    }
-                    let id = existing.as_ref().map(|record| record.id.clone()).unwrap_or_else(|| Uuid::new_v4().to_string());
-                    let name = path.file_name().and_then(|value| value.to_str()).unwrap_or(file_path);
-                    let mut record = self.build_clip_record(id, FILE_TYPE.into(), Value::String(name.into()), md5, sort);
-                    record.local_file_path = Some(file_path.clone());
-                    record.sync_flag = Some(SKIP_SYNC);
-                    record.skip_type = Some(1);
-                    if existing.is_some() { repository.restore_deleted(&record.id, &record).await?; }
-                    else { repository.insert(&record).await?; }
-                    self.add_content_to_index(&record.id, name).await?;
-                    return Ok(Some(record));
-                }
-                if !metadata.is_file() { return Ok(None); }
-
-                // 使用文件内容计算MD5
-                let md5_str = match self.compute_file_content_md5(path).await {
-                    Ok(hash) => hash,
-                    Err(e) => {
-                        log::error!("无法读取文件内容生成MD5: {}, 文件: {}", e, file_path);
-                        return Ok(None); // 无法读取文件则跳过
-                    }
-                };
-
-                // 单次查询检查是否有相同内容的记录
-                let existing = repository
-                    .find_by_type_and_md5(FILE_TYPE.to_owned().as_str(), &md5_str)
-                    .await?;
-
-                // 判断同样的文件复制记录是否已存在
-                if let Some(record) = existing.as_ref() {
-                    if record.del_flag == Some(1) {
-                        // 已删除的记录，复制文件并更新记录
-                        let original_filename = std::path::Path::new(file_path)
-                            .file_name()
-                            .and_then(|name| name.to_str())
-                            .unwrap_or(file_path);
-
-                        let file_path_buf = std::path::PathBuf::from(file_path);
-
-                        // 先尝试复制文件
-                        if let Some((_relative_path, absolute_path)) =
-                            self.copy_file_to_resources(&record.id, &file_path_buf).await
-                        {
-                            // 文件复制成功，创建支持云同步的记录
-                            let mut new_record =
-                                self.build_sync_eligible_file_record(&record.id, file_path, &md5_str, sort);
-                            new_record.content = Value::String(original_filename.to_string());
-                            new_record.local_file_path = Some(absolute_path.clone());
-
-                            if let Err(e) = repository.restore_deleted(&record.id, &new_record).await {
-                                log::error!("更新已删除文件记录失败: {}", e);
-                                // 数据库更新失败时删除已复制的文件
-                                self.delete_copied_file(&absolute_path).await;
-                                return Err(e);
-                            }
-
-                            log::info!(
-                                "更新已删除的文件记录为新数据: {}, 复制到: {}",
-                                record.id,
-                                absolute_path
-                            );
-                        } else {
-                            // 文件复制失败，创建不支持云同步的记录
-                            log::warn!("文件复制失败，设置为不支持同步: {}", file_path);
-                            let mut new_record =
-                                self.build_sync_eligible_file_record(&record.id, file_path, &md5_str, sort);
-                            new_record.content = Value::String(original_filename.to_string());
-                            new_record.sync_flag = Some(SKIP_SYNC);
-                            new_record.skip_type = Some(1); // 1: 文件复制失败，不支持同步
-                            new_record.local_file_path = Some(file_path.to_string());
-
-                            if let Err(e) = repository.restore_deleted(&record.id, &new_record).await {
-                                log::error!("更新已删除文件记录失败: {}", e);
-                                return Err(e);
-                            }
-
-                            log::info!("更新已删除的文件记录为新数据: {}, 不支持同步", record.id);
-                        }
-
-                        // 更新搜索索引
-                        let record_id_copy = record.id.clone();
-                        let filename_copy = original_filename.to_string();
-                        (async move {
-                            if let Err(e) = self.add_content_to_index(&record_id_copy, &filename_copy).await
-                            {
-                                log::error!("搜索索引更新失败: {}", e);
-                            }
-                        }).await;
-
-                        // 返回实际入库快照，保留缓存路径和复制失败等状态。
-                        return repository.find_by_id(&record.id).await;
-                    } else {
-                        // 活跃记录，只更新排序
-                        if let Err(e) = repository.update_sort(&record.id, sort).await {
-                            log::error!("更新文件排序失败: {}", e);
-                            return Err(e);
-                        }
-                        return Ok(None);
-                    }
-                }
-
-                // 单文件：复制到resources目录并支持云同步
-                return self.handle_sync_eligible_file(repository, file_path, &md5_str, sort).await;
-            }
-        }
-        Ok(None)
-    }
-
-    /// 处理多文件情况（不支持云同步）
-    async fn handle_multiple_files(&self, 
-        repository: &dyn ClipRecordRepository,
-        paths: &Vec<String>,
-        sort: i32,
-    ) -> Result<Option<ClipRecord>, AppError> {
-        // 使用文件内容组合计算MD5
-        let md5_str = match self.compute_multiple_files_md5(paths).await {
-            Ok(hash) => hash,
-            Err(e) => {
-                log::error!("无法计算多文件组合MD5: {}", e);
-                // 回退到文件名组合MD5（不包含路径信息）
-                let mut filenames: Vec<String> = paths
-                    .iter()
-                    .map(|path| {
-                        std::path::Path::new(path)
-                            .file_name()
-                            .and_then(|name| name.to_str())
-                            .unwrap_or(path)
-                            .to_string()
-                    })
-                    .collect();
-                filenames.sort();
-                let combined = filenames.join(":::");
-                format!("{:x}", md5::compute(combined.as_bytes()))
+        let repo=self.local.repositories().clip_records();
+        let old=repo.find_by_content_key(&next.content_key).await?;
+        // 先保留旧资源快照：写失败清理新副本，写成功才清理被替换的旧副本。
+        let saved=match repo.save_capture(&next).await{
+            Ok(saved)=>saved,
+            Err(error)=>{
+                if let Some(old)=&old{crate::cleanup::delete_replaced_resources(self.local,&next,old).await;}
+                else{crate::cleanup::delete_managed_resources(self.local,&next).await;}
+                return Err(error);
             }
         };
-
-        // 单次查询检查是否有相同内容的记录
-        let existing = repository
-            .find_by_type_and_md5(FILE_TYPE.to_owned().as_str(), &md5_str)
-            .await?;
-
-        if let Some(record) = existing.as_ref() {
-            if record.del_flag == Some(1) {
-                // 已删除的记录，更新为新记录
-                let new_record = self.build_multiple_files_record(&record.id, paths, &md5_str, sort);
-                if let Err(e) = repository.restore_deleted(&record.id, &new_record).await {
-                    log::error!("更新已删除多文件记录失败: {}", e);
-                    return Err(e);
-                }
-
-                // 更新搜索索引
-                let record_id_copy = record.id.clone();
-                let content_copy = new_record.content.as_str().unwrap_or_default().to_string();
-                (async move {
-                    if let Err(e) = self.add_content_to_index(&record_id_copy, &content_copy).await {
-                        log::error!("搜索索引更新失败: {}", e);
-                    }
-                }).await;
-
-                log::info!("更新已删除的多文件记录为新数据: {}", record.id);
-                return Ok(Some(new_record));
-            } else {
-                // 活跃记录，只更新排序
-                if let Err(e) = repository.update_sort(&record.id, sort).await {
-                    log::error!("更新多文件排序失败: {}", e);
-                    return Err(e);
-                }
-                return Ok(None);
-            }
+        if let Some(old)=old{crate::cleanup::delete_replaced_resources(self.local,&old,&saved).await;}
+        if !search.is_empty(){
+            // 数据库提交后索引失败只记日志，不能误报为整次采集没有保存。
+            if let Err(error)=self.local.search_engine().add(&saved.id.to_string(),&search).await{log::error!("本地索引更新失败: {}",error);}
         }
-
-        let record_id = Uuid::new_v4().to_string();
-
-        // content存储文件名列表（显示用）
-        let filenames: Vec<String> = paths
-            .iter()
-            .map(|path| {
-                std::path::Path::new(path)
-                    .file_name()
-                    .and_then(|name| name.to_str())
-                    .unwrap_or(path)
-                    .to_string()
-            })
-            .collect();
-        let content_display = filenames.join(":::");
-
-        let mut record = self.build_clip_record(
-            record_id.clone(),
-            FILE_TYPE.to_owned(),
-            Value::String(content_display.clone()),
-            md5_str,
-            sort,
-        );
-
-        // 多文件不支持云同步
-        record.sync_flag = Some(SKIP_SYNC);
-        record.skip_type = Some(1); // 1: 不支持再次同步（多文件）
-        record.local_file_path = Some(paths.join(":::"));
-
-        match repository.insert(&record).await {
-            Ok(_) => {
-                let record_id_copy = record_id.clone();
-                let content_copy = content_display.clone();
-                (async move {
-                    if let Err(e) =
-                        self.add_content_to_index(record_id_copy.as_str(), content_copy.as_str()).await
-                    {
-                        log::error!("搜索索引更新失败: {}", e);
-                    }
-                }).await;
-
-                log::info!(
-                    "保存多文件记录成功（不支持同步），记录ID: {}, 文件数: {}, 文件名: {}",
-                    record.id,
-                    paths.len(),
-                    content_display
-                );
-                Ok(Some(record))
-            }
-            Err(e) => {
-                log::error!("插入多文件记录失败: {}", e);
-                Err(e)
-            }
-        }
+        Ok(Some(saved))
     }
+    /// 复用统一路径校验，不能仅凭数据库字符串信任资源位于缓存目录。
+    fn resolve(&self,resource:&ClipRecordResource)->AppResult<PathBuf>{crate::records::resolve_resource(self.local,resource)}
+}
 
-    /// 处理单文件（复制到resources目录）
-    async fn handle_sync_eligible_file(&self, 
-        repository: &dyn ClipRecordRepository,
-        file_path: &str,
-        md5_str: &str,
-        sort: i32,
-    ) -> Result<Option<ClipRecord>, AppError> {
-        let record_id = Uuid::new_v4().to_string();
-        let file_path_buf = std::path::PathBuf::from(file_path);
-
-        // 获取原始文件名用于显示
-        let original_filename = std::path::Path::new(file_path)
-            .file_name()
-            .and_then(|name| name.to_str())
-            .unwrap_or(file_path);
-
-        // 先尝试复制文件到resources/files目录
-        if let Some((_relative_path, absolute_path)) =
-            self.copy_file_to_resources(&record_id, &file_path_buf).await
-        {
-            // 文件复制成功，创建支持云同步的记录
-            let mut record = self.build_clip_record(
-                record_id.clone(),
-                FILE_TYPE.to_owned(),
-                Value::String(original_filename.to_string()), // 直接设置为原始文件名
-                md5_str.to_string(),
-                sort,
-            );
-
-            // 设置本地文件路径为复制后的路径
-            record.local_file_path = Some(absolute_path.clone());
-
-            // 检查扩展策略的同步文件大小限制
-            if let Ok(metadata) = std::fs::metadata(&absolute_path) {
-                let file_size = metadata.len();
-                let max_file_size = self.policy.cached_sync_file_limit();
-
-                if max_file_size == 0 || file_size > max_file_size {
-                    // 超出同步策略限制，设置为跳过同步
-                    record.sync_flag = Some(SKIP_SYNC);
-                    record.skip_type = Some(2); // 2: 同步策略限制，可再次同步
-                    log::info!(
-                        "文件超出同步策略限制，设置为跳过同步: 文件大小={}, 限制={}",
-                        file_size,
-                        max_file_size
-                    );
-                }
-            }
-
-            let final_record = record;
-
-            match repository.insert(&final_record).await {
-                Ok(_) => {
-                    log::info!(
-                        "保存小文件记录成功（支持云同步），记录ID: {}, 原路径: {}, 新路径: {}, 显示文件名: {}",
-                        record_id,
-                        file_path,
-                        absolute_path,
-                        original_filename
-                    );
-
-                    // 添加到搜索索引
-                    let record_id_copy = record_id.clone();
-                    let filename_copy = original_filename.to_string();
-                    (async move {
-                        if let Err(e) = self.add_content_to_index(&record_id_copy, &filename_copy).await {
-                            log::error!("搜索索引更新失败: {}", e);
-                        }
-                    }).await;
-
-                    Ok(Some(final_record))
-                }
-                Err(e) => {
-                    log::error!("插入小文件记录失败: {}", e);
-                    // 数据库插入失败时删除已复制的文件
-                    self.delete_copied_file(&absolute_path).await;
-                    Err(e)
-                }
-            }
-        } else {
-            // 文件复制失败，创建不支持云同步的记录
-            log::warn!("文件复制失败，设置为不支持同步: {}", file_path);
-
-            let mut record = self.build_clip_record(
-                record_id.clone(),
-                FILE_TYPE.to_owned(),
-                Value::String(original_filename.to_string()), // 直接设置为原始文件名
-                md5_str.to_string(),
-                sort,
-            );
-
-            // 设置为不支持云同步，使用原始路径
-            record.sync_flag = Some(SKIP_SYNC);
-            record.skip_type = Some(1); // 1: 文件复制失败，不支持同步
-            record.local_file_path = Some(file_path.to_string());
-
-            match repository.insert(&record).await {
-                Ok(_) => {
-                    log::info!(
-                        "保存文件记录成功（不支持同步），记录ID: {}, 文件路径: {}, 显示文件名: {}",
-                        record_id,
-                        file_path,
-                        original_filename
-                    );
-
-                    // 添加到搜索索引
-                    let record_id_copy = record_id.clone();
-                    let filename_copy = original_filename.to_string();
-                    (async move {
-                        if let Err(e) = self.add_content_to_index(&record_id_copy, &filename_copy).await {
-                            log::error!("搜索索引更新失败: {}", e);
-                        }
-                    }).await;
-
-                    Ok(Some(record))
-                }
-                Err(e) => {
-                    log::error!("插入文件记录失败: {}", e);
-                    Err(e)
-                }
-            }
-        }
-    }
-
-    /// 复制文件到resources/files目录，返回(相对路径, 绝对路径)
-    async fn copy_file_to_resources(&self, 
-        _record_id: &str,
-        file_path: &std::path::PathBuf,
-    ) -> Option<(String, String)> {
-        // 检查文件大小是否超过复制限制
-        if let Ok(metadata) = std::fs::metadata(file_path) {
-            let file_size = metadata.len();
-            let copy_size_limit = self.policy.file_copy_limit().await;
-
-            if file_size > copy_size_limit {
-                log::info!(
-                    "文件大小{}字节超过复制限制{}字节，跳过复制: {:?}",
-                    file_size,
-                    copy_size_limit,
-                    file_path
-                );
-                return None;
-            }
-        } else {
-            log::error!("无法获取文件元数据，跳过复制: {:?}", file_path);
-            return None;
-        }
-        if let Some(resources_dir) = self.local.resources_dir() {
-            let files_dir = resources_dir.join("files");
-
-            // 确保files目录存在
-            if let Err(e) = std::fs::create_dir_all(&files_dir) {
-                log::error!("创建files目录失败: {}", e);
-                return None;
-            }
-
-            // 生成新文件名：保留完整的扩展名（支持复合扩展名如tar.gz）
-            let original_extension = extract_full_extension(file_path);
-
-            let now = Local::now().format("%Y%m%d%H%M%S").to_string();
-            let uid = Uuid::new_v4().to_string();
-            let new_filename = if original_extension.is_empty() {
-                format!("{}_{}", now, uid)
-            } else {
-                format!("{}_{}.{}", now, uid, original_extension)
-            };
-
-            let target_path = files_dir.join(&new_filename);
-            let relative_path = format!("files/{}", new_filename);
-            let absolute_path = target_path.to_string_lossy().to_string();
-
-            // 复制文件
-            match std::fs::copy(file_path, &target_path) {
-                Ok(_) => {
-                    log::debug!("文件复制成功: {:?} -> {:?}", file_path, target_path);
-                    Some((relative_path, absolute_path))
-                }
-                Err(e) => {
-                    log::error!(
-                        "文件复制失败: {:?} -> {:?}, 错误: {}",
-                        file_path,
-                        target_path,
-                        e
-                    );
-                    None
-                }
-            }
-        } else {
-            log::error!("获取resources目录失败");
-            None
-        }
-    }
-
-    /// 生成唯一的文件名
-    fn generate_unique_filename(&self, extension: &str) -> String {
-        let uid = Uuid::new_v4().to_string();
-        let now = Local::now().format("%Y%m%d%H%M%S").to_string();
-        format!("{}_{}.{}", now, uid, extension)
-    }
-
-    /// 使用指定的文件名保存图片
-    async fn save_image_with_filename(&self, filename: &str, image: &Vec<u8>) -> bool {
-        if let Some(resource_path) = self.local.resources_dir() {
-            // 拼接完整路径
-            let mut full_path: PathBuf = resource_path.clone();
-            full_path.push(filename);
-
-            // 创建并写入图片
-            match File::create(&full_path) {
-                Ok(mut file) => {
-                    if file.write_all(image).is_ok() && file.flush().is_ok() {
-                        log::debug!("图片保存成功: {}", filename);
-                        true
-                    } else {
-                        log::error!("写入图片失败: {}", filename);
-                        false
+/// 为多选文件建立快照，目录保留引用；失败时清理本次已创建的缓存。
+fn prepare_files(paths:&[String],base:Option<&Path>)->AppResult<Vec<ClipRecordResource>>{
+    let mut resources=Vec::new();
+    let result=(||{
+        for (index,path) in paths.iter().enumerate(){
+            // 规范化实际来源，但显示名保留用户原来选择的文件名。
+            let source=Path::new(path).canonicalize()?;
+            let meta=std::fs::metadata(&source)?;
+            let name=Path::new(path).file_name().and_then(|name|name.to_str()).ok_or_else(||AppError::Config("文件名不是有效 UTF-8".into()))?;
+            let mut resource=ClipRecordResource{position:index as i32,display_name:name.into(),resource_kind:if meta.is_dir(){"directory"}else{"file"}.into(),storage_kind:"reference".into(),path:source.to_string_lossy().into_owned(),..Default::default()};
+            if meta.is_file(){
+                // 对副本本身计算摘要，确保摘要与最终保存的字节一致。
+                if let Some(base)=base{
+                    let extension=clip_core::files::extensions::extract_full_extension(Path::new(name));
+                    // 保留 tar.gz 等完整扩展名，随机命名避免覆盖同名文件。
+                    let relative=format!("files/{}{}",uuid::Uuid::new_v4(),if extension.is_empty(){String::new()}else{format!(".{extension}")});
+                    let target=base.join(&relative);std::fs::create_dir_all(target.parent().unwrap())?;
+                    match std::fs::copy(&source,&target){
+                        Ok(_)=>{resource.storage_kind="managed".into();resource.path=relative;}
+                        Err(error)=>{let _=std::fs::remove_file(&target);log::warn!("缓存复制失败，保留外部引用: {}",error);}
                     }
                 }
-                Err(e) => {
-                    let safe_path = clip_core::files::paths::to_safe_string(&full_path);
-                    log::error!("创建图片文件失败: {}, 路径: {}", e, safe_path);
-                    false
-                }
-            }
-        } else {
-            log::error!("资源路径获取失败");
-            false
+                // 先登记副本，后续校验失败时也能清理。
+                resources.push(resource);
+                let resource=resources.last_mut().unwrap();
+                let actual=if resource.storage_kind=="managed"{base.unwrap().join(&resource.path)}else{source};
+                resource.content_hash=Some(content_key::file_hash(&actual)?);
+                resource.byte_size=Some(i64::try_from(std::fs::metadata(actual)?.len()).map_err(|_|AppError::Config("文件大小超出范围".into()))?);
+            // 目录不复制、不递归计算摘要，删除历史时也不能删除目录原件。
+            }else if meta.is_dir(){resources.push(resource);}
+            else{return Err(AppError::Config("不支持该文件系统对象".into()));}
         }
+        Ok(())
+    })();
+    if let Err(error)=result{
+        // 整组准备失败就回收已创建副本，不能保存只有一部分附件的记录。
+        if let Some(base)=base{for resource in resources.iter().filter(|resource|resource.storage_kind=="managed"){let _=std::fs::remove_file(base.join(&resource.path));}}
+        return Err(error);
     }
-
-    /// 删除图片文件
-    async fn delete_image_file(&self, filename: &str) {
-        if let Some(resource_path) = self.local.resources_dir() {
-            let mut full_path: PathBuf = resource_path.clone();
-            full_path.push(filename);
-
-            if let Err(e) = std::fs::remove_file(&full_path) {
-                let safe_path = clip_core::files::paths::to_safe_string(&full_path);
-                log::warn!("删除图片文件失败: {}, 路径: {}", e, safe_path);
-            } else {
-                log::debug!("删除图片文件成功: {}", filename);
-            }
-        }
-    }
-
-    /// 删除已复制的文件
-    async fn delete_copied_file(&self, file_path: &str) {
-        if let Err(e) = std::fs::remove_file(file_path) {
-            let safe_path = clip_core::files::paths::to_safe_string(&std::path::Path::new(file_path));
-            log::warn!("删除已复制文件失败: {}, 路径: {}", e, safe_path);
-        } else {
-            log::debug!("删除已复制文件成功: {}", file_path);
-        }
-    }
-
+    Ok(resources)
 }

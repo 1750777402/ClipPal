@@ -26,9 +26,6 @@ pub enum AppError {
     #[error("剪贴板操作错误: {0}")]
     Clipboard(String),
 
-    #[error("云同步错误: {0}")]
-    ClipSync(String),
-
     #[error("加密解密错误: {0}")]
     Crypto(String),
 
@@ -68,7 +65,6 @@ impl AppError {
             AppError::Config(_) => "config_error",
             AppError::Window(_) => "window_error",
             AppError::Clipboard(_) => "clipboard_error",
-            AppError::ClipSync(_) => "sync_error",
             AppError::Crypto(_) => "crypto_error",
             AppError::Lock(_) => "lock_error",
             AppError::GlobalShortcut(_) => "global_shortcut_error",
@@ -98,7 +94,6 @@ impl AppError {
             AppError::GlobalShortcut(_) => "快捷键设置失败，请检查后重试".to_string(),
             AppError::Clipboard(_) => "剪贴板操作失败，请稍后重试".to_string(),
             AppError::AutoPaste(_) => "自动粘贴失败，请稍后重试".to_string(),
-            AppError::ClipSync(_) => "云同步异常，请稍后重试".to_string(),
             // General / Config 目前承载业务校验消息，需要保留可操作提示。
             AppError::Config(_) | AppError::General(_) => self.to_string(),
         }

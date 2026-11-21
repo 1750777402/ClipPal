@@ -4,7 +4,7 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
     desktop_tauri::run(
         tauri::generate_context!(),
         desktop_tauri::PackagedAssets {
-            config_json: include_str!("../config.json"),
+            config_json: include_str!(concat!(env!("OUT_DIR"), "/packaged-config.json")),
             tray_icon_png: include_bytes!("../icons/icon_128x128.png"),
         },
     ).await

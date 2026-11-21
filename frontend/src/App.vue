@@ -10,16 +10,12 @@
 
 <script setup lang="ts">
 import { ref, provide, computed, onMounted, onUnmounted } from 'vue';
-import { listen } from '@tauri-apps/api/event';
 import MessageBar from './components/MessageBar.vue';
 import ScrollContainer from './components/ScrollContainer.vue';
 import TutorialGuide from './components/TutorialGuide.vue';
 import UpdateDialog from './components/UpdateDialog.vue';
 import { useBreakpoint, generateResponsiveClasses } from './utils/responsive';
 import { apiInvoke, isSuccess, setErrorHandler, ErrorSeverity, getFriendlyErrorMessage } from './utils/api';
-import { useUserStore } from './utils/userStore';
-import { useVipStore } from './utils/vipStore';
-import { loadAppCapabilities } from './utils/capabilities';
 import type { UpdateInfo } from './types/global';
 
 const messageBar = ref({ visible: false, message: '', type: 'info' as 'info' | 'warning' | 'error' });
@@ -33,6 +29,7 @@ let isHovering = false;
 const breakpoint = useBreakpoint();
 const responsiveClasses = computed(() => generateResponsiveClasses(breakpoint));
 
+/** 展示一条统一消息，替换已有关闭计时；用户悬停时保留提示。 */
 function showMessageBar(message: string, type: 'info' | 'warning' | 'error' = 'info') {
   messageBar.value.message = message;
   messageBar.value.type = type;
@@ -47,11 +44,13 @@ function showMessageBar(message: string, type: 'info' | 'warning' | 'error' = 'i
   }, displayTime);
 }
 
+/** 鼠标进入提示条时暂停自动关闭，便于读完消息。 */
 function onMessageBarEnter() {
   isHovering = true;
   if (closeTimer) clearTimeout(closeTimer);
 }
 
+/** 鼠标离开后延迟关闭，避免提示条立刻消失。 */
 function onMessageBarLeave() {
   isHovering = false;
   if (closeTimer) clearTimeout(closeTimer);
@@ -63,17 +62,13 @@ function onMessageBarLeave() {
 
 provide('showMessageBar', showMessageBar);
 
-const userStore = useUserStore();
-const vipStore = useVipStore();
-let authExpiredListener: (() => void) | null = null;
-let authClearedListener: (() => void) | null = null;
-let cloudSyncDisabledListener: (() => void) | null = null;
-
+/** 已检测到更新时打开弹窗，复用查询结果，不重复请求后端。 */
 function showAvailableUpdate(updateInfo: UpdateInfo) {
   showUpdateDialog.value = true;
   updateDialogRef.value?.setUpdateInfo(updateInfo);
 }
 
+/** 启动后静默检查版本，仅在确有更新时展示弹窗。 */
 async function checkUpdateOnStartup() {
   const response = await apiInvoke<UpdateInfo>('check_soft_version');
   if (isSuccess(response) && response.data.has_update) {
@@ -81,6 +76,7 @@ async function checkUpdateOnStartup() {
   }
 }
 
+/** 手动检查优先：取消尚未开始的启动检查，并交给更新弹窗显示进度。 */
 function handleManualUpdateCheck() {
   if (updateCheckTimer) {
     clearTimeout(updateCheckTimer);
@@ -108,28 +104,6 @@ onMounted(async () => {
     showMessageBar(friendlyMessage, messageType);
   });
 
-  // 监听认证过期事件
-  authExpiredListener = await listen('auth-expired', () => {
-    console.log('收到认证过期事件');
-    userStore.clearLoginState();
-    vipStore.clearVipState(); // 清除VIP状态
-    showMessageBar('登录已过期，请重新登录', 'warning');
-  });
-
-  // 监听认证清除事件
-  authClearedListener = await listen('auth-cleared', () => {
-    console.log('收到认证清除事件');
-    userStore.clearLoginState();
-    vipStore.clearVipState(); // 清除VIP状态
-  });
-
-  // 监听云同步禁用事件
-  cloudSyncDisabledListener = await listen('cloud-sync-disabled', () => {
-    console.log('收到云同步禁用事件');
-    showMessageBar('云同步功能已关闭', 'info');
-    // TODO: 更新前端云同步状态
-  });
-
   // 监听手动检查更新事件
   window.addEventListener('check-update', handleManualUpdateCheck);
 
@@ -138,13 +112,7 @@ onMounted(async () => {
     void checkUpdateOnStartup();
   }, 5000);
 
-  // 身份和 VIP 初始化不阻塞事件监听器与自动更新检查注册。
-  try {
-    const capabilities = await loadAppCapabilities();
-    if (capabilities?.account) await vipStore.initialize();
-  } catch (error) {
-    console.error('VIP状态初始化失败:', error);
-  }
+
 });
 
 
@@ -163,27 +131,7 @@ onUnmounted(() => {
 
   window.removeEventListener('check-update', handleManualUpdateCheck);
 
-  // 清理事件监听器，增强错误处理
-  const listeners = [
-    { listener: authExpiredListener, name: 'authExpired' },
-    { listener: authClearedListener, name: 'authCleared' },
-    { listener: cloudSyncDisabledListener, name: 'cloudSyncDisabled' }
-  ];
 
-  listeners.forEach(({ listener, name }) => {
-    if (listener && typeof listener === 'function') {
-      try {
-        listener();
-      } catch (error) {
-        console.warn(`清理${name}监听器失败:`, error);
-      }
-    }
-  });
-
-  // 重置引用防止内存泄漏
-  authExpiredListener = null;
-  authClearedListener = null;
-  cloudSyncDisabledListener = null;
 });
 </script>
 

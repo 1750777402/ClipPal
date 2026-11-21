@@ -1,400 +1,51 @@
-use crate::errors::{AppError, AppResult};
+//! 单机数据库结构入口。这里只定义本地记录和资源，不创建同步或账号表。
 use std::path::Path;
 use rbatis::RBatis;
-use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use rbs::to_value;
+use crate::errors::{AppError,AppResult};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ColumnInfo {
-    pub name: String,
-    pub r#type: String,
-    pub not_null: bool,
-    pub default_value: Option<String>,
-    pub primary_key: bool,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TableSchema {
-    pub name: String,
-    pub columns: Vec<ColumnInfo>,
-}
-
-/// 当前代码中期望的数据库结构
-fn get_expected_schema() -> HashMap<String, TableSchema> {
-    let mut schema = HashMap::new();
-
-    // clip_record 表的期望结构
-    get_clip_pal_record_schema(&mut schema);
-
-    // sync_time 表的期望结构
-    get_sync_time_record_schema(&mut schema);
-
-    schema
-}
-
-fn get_sync_time_record_schema(schema: &mut HashMap<String, TableSchema>) {
-    let clip_record_columns = vec![
-        ColumnInfo {
-            name: "id".to_string(),
-            r#type: "TEXT".to_string(),
-            not_null: true,
-            default_value: None,
-            primary_key: true,
-        },
-        ColumnInfo {
-            name: "last_time".to_string(),
-            r#type: "INTEGER".to_string(),
-            not_null: true,
-            default_value: None,
-            primary_key: false,
-        },
-    ];
-
-    schema.insert(
-        "sync_time".to_string(),
-        TableSchema {
-            name: "clip_record".to_string(),
-            columns: clip_record_columns,
-        },
-    );
-}
-
-fn get_clip_pal_record_schema(schema: &mut HashMap<String, TableSchema>) {
-    // clip_record 表的期望结构
-    let clip_record_columns = vec![
-        ColumnInfo {
-            name: "id".to_string(),
-            r#type: "TEXT".to_string(),
-            not_null: true,
-            default_value: None,
-            primary_key: true,
-        },
-        ColumnInfo {
-            name: "type".to_string(),
-            r#type: "TEXT".to_string(),
-            not_null: true,
-            default_value: None,
-            primary_key: false,
-        },
-        ColumnInfo {
-            name: "content".to_string(),
-            r#type: "TEXT".to_string(),
-            not_null: true,
-            default_value: None,
-            primary_key: false,
-        },
-        ColumnInfo {
-            name: "md5_str".to_string(),
-            r#type: "TEXT".to_string(),
-            not_null: true,
-            default_value: None,
-            primary_key: false,
-        },
-        ColumnInfo {
-            name: "local_file_path".to_string(),
-            r#type: "TEXT".to_string(),
-            not_null: false,
-            default_value: None,
-            primary_key: false,
-        },
-        ColumnInfo {
-            name: "created".to_string(),
-            r#type: "INTEGER".to_string(),
-            not_null: false,
-            default_value: None,
-            primary_key: false,
-        },
-        ColumnInfo {
-            name: "os_type".to_string(),
-            r#type: "TEXT".to_string(),
-            not_null: false,
-            default_value: None,
-            primary_key: false,
-        },
-        ColumnInfo {
-            name: "sort".to_string(),
-            r#type: "INTEGER".to_string(),
-            not_null: false,
-            default_value: None,
-            primary_key: false,
-        },
-        ColumnInfo {
-            name: "pinned_flag".to_string(),
-            r#type: "INTEGER".to_string(),
-            not_null: false,
-            default_value: None,
-            primary_key: false,
-        },
-        ColumnInfo {
-            name: "sync_flag".to_string(),
-            r#type: "INTEGER".to_string(),
-            not_null: false,
-            default_value: None,
-            primary_key: false,
-        },
-        ColumnInfo {
-            name: "sync_time".to_string(),
-            r#type: "INTEGER".to_string(),
-            not_null: false,
-            default_value: None,
-            primary_key: false,
-        },
-        ColumnInfo {
-            name: "device_id".to_string(),
-            r#type: "TEXT".to_string(),
-            not_null: false,
-            default_value: None,
-            primary_key: false,
-        },
-        ColumnInfo {
-            name: "version".to_string(),
-            r#type: "INTEGER".to_string(),
-            not_null: false,
-            default_value: Some("0".to_string()),
-            primary_key: false,
-        },
-        ColumnInfo {
-            name: "del_flag".to_string(),
-            r#type: "INTEGER".to_string(),
-            not_null: true,
-            default_value: Some("0".to_string()),
-            primary_key: false,
-        },
-        ColumnInfo {
-            name: "cloud_source".to_string(),
-            r#type: "INTEGER".to_string(),
-            not_null: true,
-            default_value: Some("0".to_string()),
-            primary_key: false,
-        },
-        ColumnInfo {
-            name: "skip_type".to_string(),
-            r#type: "INTEGER".to_string(),
-            not_null: false,
-            default_value: None,
-            primary_key: false,
-        },
-    ];
-
-    schema.insert(
-        "clip_record".to_string(),
-        TableSchema {
-            name: "clip_record".to_string(),
-            columns: clip_record_columns,
-        },
-    );
-}
-
-#[derive(Debug, Deserialize)]
-struct TableName {
-    name: String,
-}
-
-#[derive(Debug, Deserialize)]
-struct RawColumnInfo {
-    #[serde(rename = "cid")]
-    pub _cid: i32,
-    pub name: String,
-    #[serde(rename = "type")]
-    pub r#type: String,
-    pub notnull: i32,
-    pub dflt_value: Option<String>,
-    pub pk: i32,
-}
-
-/// 获取数据库中实际存在的表结构
-async fn get_actual_schema(rb: &RBatis) -> AppResult<HashMap<String, TableSchema>> {
-    let mut schema = HashMap::new();
-
-    // 获取所有表名
-    let tables: Vec<TableName> = rb
-        .query_decode(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'",
-            vec![],
-        )
-        .await?;
-
-    for table_name in tables {
-        // 查询 PRAGMA 表结构信息
-        let raw_columns: Vec<RawColumnInfo> = rb
-            .query_decode(&format!("PRAGMA table_info({})", table_name.name), vec![])
-            .await?;
-
-        let columns: Vec<ColumnInfo> = raw_columns
-            .into_iter()
-            .map(|raw| ColumnInfo {
-                name: raw.name,
-                r#type: raw.r#type,
-                not_null: raw.notnull != 0,
-                default_value: raw.dflt_value,
-                primary_key: raw.pk != 0,
-            })
-            .collect();
-
-        schema.insert(
-            table_name.name.clone(),
-            TableSchema {
-                name: table_name.name,
-                columns,
-            },
-        );
-    }
-
-    Ok(schema)
-}
-
-/// 比较期望结构和实际结构，返回需要执行的迁移操作
-fn compare_schemas(
-    expected: &HashMap<String, TableSchema>,
-    actual: &HashMap<String, TableSchema>,
-) -> Vec<String> {
-    let mut migrations = Vec::new();
-
-    for (table_name, expected_table) in expected {
-        if let Some(actual_table) = actual.get(table_name) {
-            // 表存在，检查字段
-            let expected_columns: HashMap<&String, &ColumnInfo> = expected_table
-                .columns
-                .iter()
-                .map(|col| (&col.name, col))
-                .collect();
-
-            let actual_columns: HashMap<&String, &ColumnInfo> = actual_table
-                .columns
-                .iter()
-                .map(|col| (&col.name, col))
-                .collect();
-
-            // 检查缺失的字段
-            for (col_name, expected_col) in &expected_columns {
-                if !actual_columns.contains_key(col_name) {
-                    let sql = format!(
-                        "ALTER TABLE {} ADD COLUMN {} {}",
-                        table_name, col_name, expected_col.r#type
-                    );
-                    migrations.push(sql);
-                }
-            }
-        } else {
-            // 表不存在，创建表
-            let mut create_sql = format!("CREATE TABLE {} (", table_name);
-            let column_definitions: Vec<String> = expected_table
-                .columns
-                .iter()
-                .map(|col| {
-                    let mut def = format!("{} {}", col.name, col.r#type);
-                    if col.not_null {
-                        def.push_str(" NOT NULL");
-                    }
-                    if col.primary_key {
-                        def.push_str(" PRIMARY KEY");
-                    }
-                    if let Some(ref default_val) = col.default_value {
-                        def.push_str(&format!(" DEFAULT {}", default_val));
-                    }
-                    def
-                })
-                .collect();
-            create_sql.push_str(&column_definitions.join(", "));
-            create_sql.push(')');
-            migrations.push(create_sql);
-        }
-    }
-
-    migrations
-}
-
-/// 执行数据库迁移
-async fn execute_migrations(rb: &RBatis, migrations: Vec<String>) -> AppResult<()> {
-    for migration in migrations {
-        log::debug!("执行数据库迁移: {}", migration);
-        rb.acquire().await?.exec(&migration, vec![]).await?;
-    }
+/// 仅定义本地业务表。外键由 SQLite 连接选项对每个池连接启用。
+pub async fn create_tables(executor: &dyn rbatis::executor::Executor) -> AppResult<()> {
+    // 表约束保证类型、资源顺序和置顶状态有效；索引负责去重、列表排序和路径查找。
+    // 资源外键级联删除行，磁盘文件的回收由应用服务在提交后执行。
+    for sql in [
+        "CREATE TABLE IF NOT EXISTS clip_record (id INTEGER PRIMARY KEY AUTOINCREMENT, content_key TEXT NOT NULL UNIQUE, type TEXT NOT NULL CHECK(type IN ('text','image','files','directory')), content TEXT, created_at INTEGER NOT NULL, last_copied_at INTEGER NOT NULL, sort_order INTEGER NOT NULL, pinned INTEGER NOT NULL DEFAULT 0 CHECK(pinned IN (0,1)))",
+        "CREATE TABLE IF NOT EXISTS clip_record_resource (id INTEGER PRIMARY KEY AUTOINCREMENT, record_id INTEGER NOT NULL REFERENCES clip_record(id) ON DELETE CASCADE, position INTEGER NOT NULL CHECK(position >= 0), display_name TEXT NOT NULL, resource_kind TEXT NOT NULL CHECK(resource_kind IN ('image','file','directory')), storage_kind TEXT NOT NULL CHECK(storage_kind IN ('managed','reference')), path TEXT NOT NULL, byte_size INTEGER CHECK(byte_size IS NULL OR byte_size >= 0), content_hash TEXT, UNIQUE(record_id, position))",
+        "CREATE INDEX IF NOT EXISTS idx_local_resource_path ON clip_record_resource(storage_kind,path)",
+        "CREATE INDEX IF NOT EXISTS idx_local_record_order ON clip_record(pinned DESC, sort_order DESC)",
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_local_single_pin ON clip_record(pinned) WHERE pinned = 1",
+    ] { executor.exec(sql, vec![]).await?; }
     Ok(())
 }
 
-/// 创建索引
-async fn create_indexes(rb: &RBatis) -> AppResult<()> {
-    let conn = rb.acquire().await?;
-
-    // 手动查询索引是否存在
-    let result = conn
-        .query(
-            "SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_clip_record_md5_str_type'",
-            vec![],
-        )
-        .await?;
-
-    if result.is_empty() {
-        conn.exec(
-            "CREATE UNIQUE INDEX idx_clip_record_md5_str_type ON clip_record(md5_str, type)",
-            vec![],
-        )
-        .await?;
-    }
-
-    // 创建普通索引
-    conn.exec(
-        "CREATE INDEX IF NOT EXISTS idx_clip_record_created ON clip_record(created)",
-        vec![],
-    )
-    .await?;
-    conn.exec(
-        "CREATE INDEX IF NOT EXISTS idx_clip_record_sort ON clip_record(sort)",
-        vec![],
-    )
-    .await?;
-
-    Ok(())
+/// 按表名检查结构是否存在；名称使用参数绑定，不拼接进 SQL。
+pub async fn has_table(db: &RBatis, name: &str) -> AppResult<bool> {
+    #[derive(serde::Deserialize)] struct Row { count: i64 }
+    let rows: Vec<Row> = db.query_decode("SELECT COUNT(*) AS count FROM sqlite_master WHERE type='table' AND name=?", vec![to_value!(name)]).await?;
+    Ok(rows[0].count != 0)
 }
 
-/// 检查并修复数据库结构
-async fn check_and_fix_database_schema(rb: &RBatis) -> AppResult<()> {
-    log::debug!("检查数据库结构...");
-
-    // 获取期望的结构
-    let expected_schema = get_expected_schema();
-
-    // 获取实际的结构
-    let actual_schema = get_actual_schema(rb).await?;
-
-    // 比较结构并生成迁移操作
-    let migrations = compare_schemas(&expected_schema, &actual_schema);
-
-    if migrations.is_empty() {
-        log::debug!("数据库结构检查完成，无需迁移");
-    } else {
-        log::debug!("发现 {} 个需要执行的迁移操作", migrations.len());
-
-        // 执行迁移
-        execute_migrations(rb, migrations).await?;
-
-        log::debug!("数据库迁移完成");
-    }
-
-    // 创建索引
-    create_indexes(rb).await?;
-
-    Ok(())
+/// 旧 UUID/MD5 表没有 content_key，用这一特征区分新旧结构。
+pub async fn is_legacy(db: &RBatis) -> AppResult<bool> {
+    if !has_table(db, "clip_record").await? { return Ok(false); }
+    #[derive(serde::Deserialize)] struct Column { name: String }
+    let columns: Vec<Column> = db.query_decode("PRAGMA table_info(clip_record)", vec![]).await?;
+    Ok(!columns.iter().any(|column| column.name == "content_key"))
 }
 
-pub async fn connect(db_path: &Path) -> AppResult<RBatis> {
-    // 创建sqlite链接
-    let rb = RBatis::new();
-
-    // 安全地处理数据库路径，确保中文字符正确处理
-    log::info!("SQLite数据库路径: {:?}", db_path);
-
-    // 使用工具函数安全地处理路径
-    let db_path_str = db_path.to_string_lossy();
-
-    rb.init(rbdc_sqlite::Driver {}, &format!("sqlite://{}", db_path_str))
-        .map_err(|e| AppError::Database(e))?;
-
-    // 检查并修复数据库结构
-    check_and_fix_database_schema(&rb).await?;
-
-    log::info!("数据库初始化完成");
-
-    Ok(rb)
+/// 建立连接，不隐式迁移旧表；旧表需要由持有解密能力和资源路径的应用层迁移。
+pub async fn connect(path: &Path) -> AppResult<RBatis> {
+    let db = RBatis::new();
+    // 驱动默认为每个连接设置 foreign_keys=ON、WAL 和 busy_timeout。
+    db.init(rbdc_sqlite::Driver {}, &format!("sqlite://{}", path.to_string_lossy()))?;
+    #[derive(serde::Deserialize)] struct Version { user_version:i32 }
+    let version:Vec<Version>=db.query_decode("PRAGMA user_version",vec![]).await?;
+    // 新版数据库不能交给旧程序降级处理，否则可能破坏尚不认识的结构。
+    if version[0].user_version>2{return Err(AppError::Config("数据库版本高于当前应用支持的版本，请升级应用".into()));}
+    if !is_legacy(&db).await? {
+        // 新库直接建两表；旧库留给具有解密能力的应用层完整迁移。
+        create_tables(&db).await?;
+        db.exec("PRAGMA user_version=2",vec![]).await?;
+    }
+    Ok(db)
 }

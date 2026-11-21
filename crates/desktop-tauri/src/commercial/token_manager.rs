@@ -1,6 +1,5 @@
 use {
     crate::app_context::try_app_context,
-    crate::core::application::settings_service::SettingsService,
 };
 use std::sync::{Arc, OnceLock, RwLock};
 use tauri::Emitter;
@@ -13,6 +12,7 @@ pub struct TokenManager {
 static TOKEN_MANAGER: OnceLock<TokenManager> = OnceLock::new();
 
 impl TokenManager {
+    /// 创建并发刷新标记，不在构造时读取令牌或访问网络。
     pub fn new() -> Self {
         Self {
             is_refreshing: Arc::new(RwLock::new(false)),
@@ -152,18 +152,6 @@ impl TokenManager {
     /// 禁用云同步功能
     async fn disable_cloud_sync(&self) {
         log::info!("认证失效，禁用云同步功能");
-
-        // 实际修改设置中的云同步开关
-        match try_app_context() {
-            Some(context) => {
-                if let Err(error) =
-                    SettingsService::from_context(context.as_ref()).disable_cloud_sync()
-                {
-                    log::error!("禁用云同步设置失败: {}", error);
-                }
-            }
-            None => log::error!("禁用云同步设置失败: AppContext 尚未初始化"),
-        }
 
         // 通知前端云同步已被禁用，前端需要更新UI状态
         if let Some(app_handle) = try_app_context().and_then(|context| context.try_app_handle()) {

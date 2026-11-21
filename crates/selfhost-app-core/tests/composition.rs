@@ -1,6 +1,7 @@
 use std::sync::Arc;
 use selfhost_app_core::{SelfhostContext, desktop_app_core::{LocalContext, clip_core::{domain::clip::ClipRecord, errors::AppResult}}, clip_sync_client::queue::QueueEvent};
 
+/// 验证自建版复用单机上下文及仓储，不另建第二套本地数据。
 #[tokio::test]
 async fn selfhost_extends_the_same_local_resources() {
     let dir = std::env::temp_dir().join(format!("clip-pal-composition-{}", uuid::Uuid::new_v4()));
@@ -16,8 +17,8 @@ async fn selfhost_extends_the_same_local_resources() {
     assert_eq!(app.local().search_engine().search("context").await, vec!["record"]);
 
     let producer = app.sync().record_queue();
-    producer.send_add(ClipRecord { id: "queued".into(), ..Default::default() }).await.unwrap();
-    assert!(matches!(app.sync().record_queue().try_recv().unwrap(), QueueEvent::Add(record) if record.id == "queued"));
+    producer.send_add(ClipRecord { id: 1, ..Default::default() }).await.unwrap();
+    assert!(matches!(app.sync().record_queue().try_recv().unwrap(), QueueEvent::Add(record) if record.id == 1));
     let guard = app.sync().lock().try_lock().unwrap();
     assert!(app.sync().lock().try_lock().is_none());
     drop(guard);

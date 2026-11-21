@@ -39,6 +39,10 @@ pub async fn create_named_temp_files(
         return Err("没有可创建的临时文件".to_string());
     }
 
+    // 目录只恢复本地引用；普通文件继续使用显示名称副本。
+    if file_entries.iter().all(|(_, source)| source.is_dir()) {
+        return Ok(file_entries.iter().map(|(_,source)|source.to_string_lossy().into_owned()).collect());
+    }
     let temp_root = std::env::temp_dir().join("clip_pal_temp");
     std::fs::create_dir_all(&temp_root).map_err(|error| format!("创建临时目录失败: {}", error))?;
     let temp_root_metadata = std::fs::symlink_metadata(&temp_root)
@@ -54,6 +58,10 @@ pub async fn create_named_temp_files(
 
     let mut temp_file_paths = Vec::new();
     for (index, (display_name, source_path)) in file_entries.into_iter().enumerate() {
+        if source_path.is_dir() {
+            temp_file_paths.push(source_path.to_string_lossy().into_owned());
+            continue;
+        }
         // 同名文件分别放入独立子目录，目标应用仍会看到原始显示名称。
         let file_temp_dir = operation_temp_dir.join(index.to_string());
         if let Err(error) = std::fs::create_dir(&file_temp_dir) {
@@ -102,6 +110,7 @@ mod tests {
     use std::fs;
     use std::path::PathBuf;
 
+    /// 生成唯一测试文件路径，隔离并发用例和用户真实文件。
     fn test_path(name: &str) -> PathBuf {
         std::env::temp_dir()
             .join(format!(
@@ -112,6 +121,7 @@ mod tests {
             .join(name)
     }
 
+    /// 验证显示名不能包含父目录跳转或其他路径部分。
     #[tokio::test]
     async fn rejects_display_names_with_path_components() {
         let source_path = test_path("source.txt");
@@ -128,6 +138,7 @@ mod tests {
         fs::remove_dir_all(source_path.parent().unwrap()).unwrap();
     }
 
+    /// 验证同名文件用独立目录保存，不互相覆盖。
     #[tokio::test]
     async fn keeps_duplicate_display_names_in_separate_paths() {
         let source_dir = test_path("sources");
@@ -165,6 +176,7 @@ mod tests {
 #[cfg(test)]
 mod filename_tests {
     use super::*;
+    /// 验证合法文件名首尾空格原样保留，不提前 trim。
     #[tokio::test]
     async fn preserves_legal_leading_and_trailing_filename_spaces() {
         let dir = std::env::temp_dir().join(format!("clippal-spaces-{}", uuid::Uuid::new_v4()));
@@ -176,6 +188,23 @@ mod filename_tests {
         assert_eq!(target.file_name().unwrap(), " leading space.txt ");
         assert_eq!(std::fs::read_to_string(target).unwrap(), "original");
         cleanup_temp_files(target.parent().unwrap().parent().unwrap()).await.unwrap();
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod mixed_resource_tests {
+    use super::*;
+    /// 验证混合复制时目录保留引用，缓存文件恢复原显示名。
+    #[tokio::test]
+    async fn mixed_folder_and_cached_file_keep_reference_and_original_filename() {
+        let dir=std::env::temp_dir().join(format!("clippal-mixed-{}",uuid::Uuid::new_v4()));
+        let folder=dir.join("folder");std::fs::create_dir_all(&folder).unwrap();
+        let cached=dir.join("cached-name.bin");std::fs::write(&cached,b"data").unwrap();
+        let restored=create_named_temp_files(&["folder".into(),"original.txt".into()],&[folder.to_string_lossy().into_owned(),cached.to_string_lossy().into_owned()]).await.unwrap();
+        assert_eq!(restored[0],folder.to_string_lossy());
+        let file=std::path::Path::new(&restored[1]);assert_eq!(file.file_name().unwrap(),"original.txt");assert_eq!(std::fs::read(file).unwrap(),b"data");
+        cleanup_temp_files(file.parent().unwrap().parent().unwrap()).await.unwrap();
         std::fs::remove_dir_all(dir).unwrap();
     }
 }

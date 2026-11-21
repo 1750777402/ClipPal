@@ -104,7 +104,6 @@ impl From<&AppError> for ErrorSeverity {
             AppError::Config(_) => ErrorSeverity::Warning,
             AppError::Window(_) => ErrorSeverity::Warning,
             AppError::Clipboard(_) => ErrorSeverity::Critical,
-            AppError::ClipSync(_) => ErrorSeverity::Info,
             AppError::Crypto(_) => ErrorSeverity::Warning,
             AppError::Lock(_) => ErrorSeverity::Warning,
             AppError::GlobalShortcut(_) => ErrorSeverity::Warning,

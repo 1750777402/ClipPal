@@ -51,18 +51,6 @@
             </div>
           </div>
 
-          <div v-if="appCapabilities?.cloud_sync" class="settings-item">
-            <div class="settings-label">
-              <span>云同步</span>
-              <span class="settings-description">同步剪贴板内容到云端</span>
-            </div>
-            <label class="switch">
-              <input type="checkbox" :checked="settings.cloud_sync === 1" @change="handleCloudSyncChange">
-              <span class="slider"></span>
-            </label>
-          </div>
-
-
           <div class="settings-item-wrapper auto-paste-setting">
             <div class="settings-item">
               <div class="settings-label">
@@ -118,11 +106,10 @@
 </template>
 
 <script setup lang="ts">
+// 本地设置弹窗管理表单和权限提示，由后端应用快捷键、自启与保留数量。
 import { ref, watch, onMounted, onBeforeUnmount, computed, inject } from 'vue';
-import { listen } from '@tauri-apps/api/event';
 import { useWindowAdaptive, generateResponsiveClasses } from '../utils/responsive';
 import { settingsApi, isSuccess } from '../utils/api';
-import { useUserStore } from '../utils/userStore';
 import { appCapabilities, loadAppCapabilities } from '../utils/capabilities';
 import type { AppSettings, AutoPastePermission } from '../types/global';
 import { getCurrentWindow } from '@tauri-apps/api/window';
@@ -142,10 +129,8 @@ const settings = ref<Settings>({
   auto_start: 0,
   max_records: 200,
   shortcut_key: 'Ctrl+`',
-  cloud_sync: 0,
   auto_paste: 1,
   tutorial_completed: 0,
-  cloud_sync_interval: 30
 });
 
 const isRecording = ref(false);
@@ -165,6 +150,7 @@ const refreshAutoPastePermission = async () => {
   }
 };
 
+/** 用户主动触发系统授权。用请求序号避免迟到的结果覆盖更新的状态。 */
 const requestAutoPastePermission = async () => {
   if (isRequestingPermission.value) return;
   isRequestingPermission.value = true;
@@ -180,6 +166,7 @@ const requestAutoPastePermission = async () => {
   } finally { isRequestingPermission.value = false; }
 };
 
+/** 打开系统辅助功能设置，返回应用后由焦点监听重新检查授权。 */
 const openAccessibilitySettings = async () => {
   if (isRequestingPermission.value) return;
   isRequestingPermission.value = true;
@@ -192,11 +179,9 @@ const shortcutError = ref('');
 const pressedKeys = ref<string[]>([]);
 
 const showMessageBar = inject('showMessageBar') as (message: string, type?: 'info' | 'warning' | 'error') => void;
-let cloudSyncDisabledListener: (() => void) | null = null;
 let isSettingsDialogUnmounted = false;
 
-// 用户状态管理
-const userStore = useUserStore();
+// 记录上限来自后端版本策略；前端只用于显示和输入范围提示。
 const recordLimit = computed(() => appCapabilities.value?.max_records ?? 300);
 
 // 使用响应式工具
@@ -294,6 +279,7 @@ const convertDisplayToStorage = (displayKey: string): string => {
   return displayKey.replace(/\bCmd\b/g, 'Meta');
 };
 
+/** 按固定顺序收集仍按下的修饰键，用于组成快捷键。 */
 const getModifierKeys = (e: KeyboardEvent): string[] => {
   const modifiers: string[] = [];
   if (e.ctrlKey) modifiers.push('Ctrl');
@@ -303,6 +289,7 @@ const getModifierKeys = (e: KeyboardEvent): string[] => {
   return modifiers;
 };
 
+/** 将按键事件转成后端支持的键名，修饰键由单独逻辑处理。 */
 const normalizeKeyFromEvent = (e: KeyboardEvent): string | null => {
   if (MODIFIER_KEY_NAMES.includes(e.key)) {
     return null;
@@ -317,31 +304,6 @@ const normalizeKeyFromEvent = (e: KeyboardEvent): string | null => {
   }
 
   return KEY_CODE_MAP[e.code] || null;
-};
-
-// 处理云同步开关切换
-const handleCloudSyncChange = (e: Event) => {
-  const target = e.target as HTMLInputElement;
-  const isEnabled = target.checked;
-  
-  if (isEnabled) {
-    // 用户尝试开启云同步，检查是否已登录
-    if (appCapabilities.value?.account && !userStore.isLoggedIn()) {
-      // 用户未登录，阻止开关切换并显示提示
-      target.checked = false;
-      settings.value.cloud_sync = 0;
-      
-      if (showMessageBar) {
-        showMessageBar('请先登录账号才能开启云同步功能', 'warning');
-      } else {
-        alert('请先登录账号才能开启云同步功能');
-      }
-      return;
-    }
-  }
-  
-  // 更新设置值
-  settings.value.cloud_sync = isEnabled ? 1 : 0;
 };
 
 // 加载设置的统一函数
@@ -384,12 +346,14 @@ watch(() => props.modelValue, async (newVal) => {
 
 
 
+/** 关闭表单，同时让尚未返回的权限结果失效并结束快捷键录制。 */
 const handleClose = () => {
   permissionCheckSequence += 1;
   stopRecording();
   emit('update:modelValue', false);
 };
 
+/** 表单和快捷键状态通过检查后请求保存，后端确认成功才关闭。 */
 const handleConfirm = async () => {
   if (isSaving.value || isRecording.value || isValidatingShortcut.value || !settingsLoaded.value || hasErrors.value) {
     return;
@@ -414,12 +378,14 @@ const handleConfirm = async () => {
   }
 };
 
+/** 每次减少 50 条，达到 50 条后停止减少。 */
 const decreaseMaxRecords = () => {
   if (settings.value.max_records > 50) {
     settings.value.max_records -= 50;
   }
 };
 
+/** 每次增加最多 50 条，最终值受当前版本上限约束。 */
 const increaseMaxRecords = () => {
   if (settings.value.max_records < recordLimit.value) {
     settings.value.max_records = Math.min(settings.value.max_records + 50, recordLimit.value);
@@ -550,6 +516,7 @@ const handleClickOutside = (e: MouseEvent) => {
   }
 };
 
+/** 将手动检查请求交给根组件统一打开更新弹窗。 */
 const checkUpdate = async () => {
   // 发送事件给父组件打开更新对话框
   const event = new CustomEvent('check-update', { detail: {} });
@@ -569,18 +536,7 @@ onMounted(async () => {
     else permissionFocusListener = unlistenFocus;
   } catch (error) { console.error('监听辅助功能权限刷新失败:', error); }
 
-  // 监听云同步禁用事件
-  const unlisten = await listen('cloud-sync-disabled', async () => {
-    console.log('设置页面收到云同步禁用事件，重新加载设置');
-    // 重新加载设置以反映云同步已被禁用
-    await loadSettings();
-    // 如果设置页面当前可见，显示提示信息
-    if (props.modelValue && showMessageBar) {
-      showMessageBar('云同步已被关闭', 'info');
-    }
-  });
-  if (isSettingsDialogUnmounted) unlisten();
-  else cloudSyncDisabledListener = unlisten;
+
 });
 
 onBeforeUnmount(() => {
@@ -592,10 +548,7 @@ onBeforeUnmount(() => {
   window.removeEventListener('keyup', handleKeyUp);
   window.removeEventListener('click', handleClickOutside);
   
-  // 清理云同步事件监听器
-  if (cloudSyncDisabledListener) {
-    cloudSyncDisabledListener();
-  }
+
 });
 </script>
 

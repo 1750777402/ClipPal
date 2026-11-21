@@ -40,6 +40,7 @@ static APP_CONTEXT: OnceLock<Arc<AppContext>> = OnceLock::new();
 pub struct AppContext {
     /// 应用启动阶段必须完成初始化的核心资源。
     application: ApplicationContext,
+    /// 当前版本的能力限制，单机业务只调用策略而不识别商业实现。
     policy: Arc<dyn crate::core::policy::ApplicationPolicy>,
     /// Tauri setup / runtime 阶段才能拿到的运行期资源。
     runtime: RuntimeContext,
@@ -83,6 +84,7 @@ pub struct AutoPasteState {
 }
 
 impl Default for AutoPasteState {
+    /// 初始化空的自动粘贴目标、唤起序号和互斥锁，不默认绑定目标应用。
     fn default() -> Self {
         Self {
             target: Mutex::new(None),
@@ -251,7 +253,7 @@ impl Default for WindowContext {
 impl AppContext {
     /// 创建应用上下文。
     ///
-    /// 构造时会创建同步锁、同步队列和窗口状态等运行资源。
+    /// 应用核心及可选同步资源由外部注入；此处只创建桌面运行状态。
     pub fn new(
         application: ApplicationContext,
         #[cfg(feature = "commercial-extension")]
@@ -269,11 +271,12 @@ impl AppContext {
         }
     }
 
+    /// 取得当前版本注入的能力策略，业务入口不自行判断账号或套餐。
     pub fn policy(&self) -> &dyn crate::core::policy::ApplicationPolicy { self.policy.as_ref() }
 
     /// 获取核心资源分组。
     ///
-    /// 通常业务代码更推荐直接使用 `db()`、`settings()` 等更明确的方法。
+    /// 本地业务服务使用该上下文；桌面调用仓储时可直接使用 repositories()。
     pub fn core(&self) -> &CoreContext {
         #[cfg(feature = "sync")]
         {
@@ -328,11 +331,6 @@ impl AppContext {
         self.core().update_settings(f)
     }
 
-    /// 判断用户是否开启云同步，供后台任务读取统一的运行期设置缓存。
-    pub fn cloud_sync_enabled(&self) -> AppResult<bool> {
-        self.with_settings(|settings| settings.cloud_sync == 1)
-    }
-
     /// 设置 Tauri AppHandle。
     ///
     /// 应在 Tauri `.setup()` 阶段调用一次。
@@ -374,19 +372,23 @@ impl AppContext {
         self.window.focus_state.clone()
     }
 
+    /// 读取系统成功注册的快捷键快照，不以配置值代替真实状态。
     pub fn registered_shortcut(&self) -> AppResult<Option<String>> {
         Ok(self.runtime.shortcut.lock()?.clone())
     }
 
+    /// 保存当前已成功注册的快捷键状态，供设置和退出清理共用。
     pub fn set_registered_shortcut(&self, shortcut: Option<String>) -> AppResult<()> {
         *self.runtime.shortcut.lock()? = shortcut;
         Ok(())
     }
 
+    /// 读取尚待释放的快捷键试注册句柄，便于后续重试清理。
     pub fn pending_shortcut_probe(&self) -> AppResult<Option<tauri_plugin_global_shortcut::Shortcut>> {
         Ok(*self.runtime.shortcut_probe.lock()?)
     }
 
+    /// 记录或清除待释放的试注册句柄，不绑定实际唤起动作。
     pub fn set_pending_shortcut_probe(&self, key: Option<tauri_plugin_global_shortcut::Shortcut>) -> AppResult<()> {
         *self.runtime.shortcut_probe.lock()? = key;
         Ok(())
@@ -428,6 +430,7 @@ mod auto_paste_tests {
     use super::*;
     use crate::desktop::system::auto_paste::TargetCapture;
 
+    /// 构造平台对应的测试目标，不查找或操作实际前台应用。
     fn target() -> AutoPasteTarget {
         #[cfg(target_os = "macos")]
         { AutoPasteTarget::MacOS { process_id: 123, bundle_id: Some("test.editor".into()), app_name: "Editor".into() } }
@@ -437,6 +440,7 @@ mod auto_paste_tests {
         { AutoPasteTarget::Unsupported }
     }
 
+    /// 验证重复唤起保留外部目标，无目标或捕获失败则清空旧目标。
     #[test]
     fn repeated_self_wake_retains_target_but_unavailable_or_failed_capture_clears_it() {
         let state = AutoPasteState::default();

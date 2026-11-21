@@ -1,83 +1,35 @@
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use super::ClipRecordResource;
 
-use super::{SkipSyncReason, SyncStatus};
-
+/// 纯本地记录。自增 ID 只用于本机关联，内容标识独立负责去重。
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
-/// 剪贴记录领域模型，保存内容、排序、同步和逻辑删除等业务状态。
 pub struct ClipRecord {
-    pub id: String,
-    // 类型
+    /// clip_record.id，本地自增主键，与跨设备内容身份无关。
+    pub id: i64,
+    /// 完整内容的版本化 SHA-256 唯一键，资源不通过它建立外键。
+    pub content_key: String,
+    /// text / image / files / directory。
     pub r#type: String,
-    // 内容
-    pub content: Value,
-    // 内容 md5 值
-    pub md5_str: String,
-    // 本地文件地址
-    pub local_file_path: Option<String>,
-    // 时间戳
-    pub created: u64,
-    // 操作系统类型
-    pub os_type: String,
-    // 排序字段
-    pub sort: i32,
-    // 是否置顶
-    pub pinned_flag: i32,
-    // 云同步状态
-    pub sync_flag: Option<i32>,
-    // 同步时间
-    pub sync_time: Option<u64>,
-    // 设备标识
-    pub device_id: Option<String>,
-    // 云同步版本号
-    pub version: Option<i32>,
-    // 是否逻辑删除
-    pub del_flag: Option<i32>,
-    // 是否来自云端同步
-    pub cloud_source: Option<i32>,
-    // 跳过云同步的原因
-    pub skip_type: Option<i32>,
+    /// 文本的 AES-GCM 密文；非文本记录为 None。
+    pub content: Option<String>,
+    /// 首次采集时间，毫秒；重复采集保留原值。
+    pub created_at: i64,
+    /// 最近一次采集时间，毫秒。
+    pub last_copied_at: i64,
+    /// 事务内分配的本地排序序号。
+    pub sort_order: i64,
+    /// 0 / 1；数据库保证最多一条置顶记录。
+    pub pinned: i32,
+    /// 非 clip_record 表字段，由仓储按 record_id 加载的有序子实体。
+    #[serde(default)]
+    pub resources: Vec<ClipRecordResource>,
 }
 
 impl ClipRecord {
-    /// 将持久化的同步状态数值转换为类型安全的 `SyncStatus`；未知数值返回 `None`。
-    pub fn sync_status(&self) -> Option<SyncStatus> {
-        self.sync_flag.and_then(SyncStatus::from_value)
-    }
-
-    /// 将跳过同步原因转换为领域枚举，供业务层判断记录是否能够再次同步。
-    pub fn skip_sync_reason(&self) -> Option<SkipSyncReason> {
-        self.skip_type.and_then(SkipSyncReason::from_value)
-    }
-
-    /// 判断记录当前是否处于置顶状态。
-    pub fn is_pinned(&self) -> bool {
-        self.pinned_flag == 1
-    }
-
-    /// 判断记录是否已被逻辑删除。
-    pub fn is_deleted(&self) -> bool {
-        self.del_flag == Some(1)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    /// 验证持久化数值可以通过领域模型暴露为类型安全状态。
-    fn exposes_typed_record_state() {
-        let record = ClipRecord {
-            pinned_flag: 1,
-            sync_flag: Some(SyncStatus::Synchronized.value()),
-            skip_type: Some(SkipSyncReason::VipLimit.value()),
-            ..Default::default()
-        };
-
-        assert!(record.is_pinned());
-        assert!(!record.is_deleted());
-        assert_eq!(record.sync_status(), Some(SyncStatus::Synchronized));
-        assert_eq!(record.skip_sync_reason(), Some(SkipSyncReason::VipLimit));
+    /// 将数据库的 0/1 状态转成业务判断使用的布尔值。
+    pub fn is_pinned(&self) -> bool { self.pinned == 1 }
+    /// 拼接原始资源名供搜索使用，不使用缓存文件名或磁盘路径。
+    pub fn search_names(&self) -> String {
+        self.resources.iter().map(|resource| resource.display_name.as_str()).collect::<Vec<_>>().join("\n")
     }
 }

@@ -1,6 +1,3 @@
-use clipboard_listener::ClipType;
-use tauri::Manager;
-use tauri_plugin_clipboard_pal::desktop::ClipboardPal;
 use tauri_plugin_dialog::DialogExt;
 
 use {
@@ -11,10 +8,8 @@ use {
     crate::errors::AppResult,
     clip_core::repositories::ClipRecordRepository,
     crate::desktop::system::auto_paste,
-    crate::desktop::system::clipboard::create_named_temp_files,
     crate::desktop::system::clipboard::show_accessibility_dialog,
     crate::desktop::system::clipboard::write_record,
-    clip_core::files::paths::str_to_safe_string,
     crate::desktop::shell::window::WindowHideGuard,
 };
 
@@ -46,7 +41,7 @@ impl<'a> ClipboardService<'a> {
         // 先通过仓储读取领域对象，系统剪贴板层不直接访问数据库。
         let record = self
             .repository
-            .find_by_id(&record_id)
+            .find_by_id(desktop_app_core::records::parse_id(&record_id).map_err(String::from)?)
             .await
             .map_err(|_| "剪贴记录查询失败".to_string())?
             .ok_or_else(|| "记录不存在".to_string())?;
@@ -69,14 +64,13 @@ impl<'a> ClipboardService<'a> {
     /// 将图片记录保存到用户选择的位置，并在保存对话框期间禁止主窗口自动隐藏。
     pub async fn image_save_as(&self, record_id: String) -> AppResult<String> {
         // 仓储只返回记录数据，文件存在性和系统对话框由本服务继续编排。
-        let record = self.repository.find_by_id(&record_id).await?
-            .filter(|record| !record.is_deleted())
+        let record = self.repository.find_by_id(desktop_app_core::records::parse_id(&record_id)?).await?
             .ok_or_else(|| AppError::General("未找到指定的剪贴板记录".into()))?;
-        if record.r#type != ClipType::Image.to_string() {
+        if record.r#type != clip_core::domain::clip::IMAGE_TYPE {
             return Err(AppError::General("仅支持图片类型另存为".into()));
         }
         let image_path = super::clip_record_service::ClipRecordService::from_context(self.context)
-            .get_image_path(&record.id).await?.file_path;
+            .get_image_path(&record.id.to_string()).await?.file_path;
         let app_handle = self.context.app_handle()?;
         let hide_flag = self.context.window_hide_flag();
         // 在对话框打开之前进入保护，直到用户选择完成且文件写入结束。
@@ -95,77 +89,18 @@ impl<'a> ClipboardService<'a> {
         Ok("图片已成功保存".into())
     }
 
-    /// 从多文件记录中解析指定显示名称，并将对应真实文件写入系统剪贴板。
+    /// 按资源自增 ID 精确定位，支持同一条记录中存在多个同名文件。
     pub async fn copy_single_file(&self, param: CopySingleFileParam) -> Result<String, String> {
-        let record = match self.repository.find_by_id(&param.record_id).await {
-            Ok(Some(record)) => record,
-            Ok(None) => return Err("记录不存在".to_string()),
-            Err(_) => return Err("剪贴记录查询失败".to_string()),
-        };
-
-        if record.r#type != ClipType::File.to_string() {
-            return Err("只支持文件类型的单个文件复制".to_string());
-        }
-
-        let app_handle = self
-            .context
-            .app_handle()
-            .map_err(|error| error.to_string())?;
-        let clipboard = app_handle.state::<ClipboardPal>();
-        let display_names = record.content.as_str().unwrap_or("");
-        let actual_paths = record.local_file_path.as_deref().unwrap_or("");
-
-        if display_names.is_empty() || actual_paths.is_empty() {
-            return Err("文件信息无效".to_string());
-        }
-
-        let display_list: Vec<String> = display_names
-            .split(":::")
-            .map(|value| value.to_string())
-            .collect();
-        let actual_list: Vec<String> = actual_paths
-            .split(":::")
-            .map(|value| value.to_string())
-            .collect();
-
-        // 显示名称和真实路径按相同索引保存，需要先找到前端选择的显示名称。
-        let file_index = display_list
-            .iter()
-            .position(|name| name == &param.file_path);
-        let actual_file_path = match file_index {
-            Some(index) if index < actual_list.len() => &actual_list[index],
-            _ => return Err("指定的文件不在此记录中".to_string()),
-        };
-
-        if !std::path::Path::new(actual_file_path).exists() {
-            return Err(format!(
-                "文件不存在 {}",
-                str_to_safe_string(&param.file_path)
-            ));
-        }
-
-        // 单文件复制也参与同一串行队列，避免覆盖正在等待发送的自动粘贴内容。
-        let _operation = self
-            .context
-            .auto_paste_state()
-            .operation_lock()
-            .lock()
-            .await;
-
-        // 优先创建保留显示名称的临时硬链接，失败时退回真实文件路径。
-        match create_named_temp_files(&[param.file_path], &[actual_file_path.clone()]).await {
-            Ok(temp_files) => {
-                clipboard.write_files_uris(temp_files)?;
-            }
-            Err(error) => {
-                log::warn!("创建单文件临时副本失败，使用真实路径: {}", error);
-                clipboard.write_files_uris(vec![actual_file_path.clone()])?;
-            }
-        }
-
+        let record=self.repository.find_by_id(desktop_app_core::records::parse_id(&param.record_id).map_err(String::from)?).await
+            .map_err(String::from)?.ok_or_else(||"记录不存在".to_string())?;
+        let resource_id=desktop_app_core::records::parse_id(&param.resource_id).map_err(String::from)?;
+        let payload=desktop_app_core::clipboard::prepare_copy(self.context.core(),&record,Some(resource_id)).map_err(String::from)?;
+        let _operation=self.context.auto_paste_state().operation_lock().lock().await;
+        crate::desktop::system::clipboard::write_payload(self.context,payload).await?;
         Ok(String::new())
     }
 
+    /// 串行写入剪贴板，不切换焦点、不发送系统粘贴按键。
     async fn copy_only(&self, record: &ClipRecord) -> Result<(), String> {
         let _operation = self
             .context
@@ -176,6 +111,7 @@ impl<'a> ClipboardService<'a> {
         write_record(self.context, record).await
     }
 
+    /// 先复制，再验证权限和原目标窗口，最后恢复目标并发送一次粘贴按键。
     async fn copy_and_paste(&self, record: &ClipRecord) -> Result<(), String> {
         let state = self.context.auto_paste_state();
         let _operation = state.operation_lock().lock().await;

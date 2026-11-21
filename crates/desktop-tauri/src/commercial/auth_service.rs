@@ -10,7 +10,6 @@ use {
     crate::commercial::domain::user::UserInfo,
     crate::commercial::storage::AuthStore,
     crate::commercial::ports::AuthGateway,
-    crate::core::application::settings_service::SettingsService,
     crate::commercial::vip_service::VipService,
 };
 
@@ -99,10 +98,7 @@ impl<'a> AuthService<'a> {
         }
         self.emit("auth-cleared");
 
-        // 登出后通过设置服务统一更新配置文件和运行期缓存。
-        if let Err(error) = SettingsService::from_context(self.context).disable_cloud_sync() {
-            log::error!("禁用云同步设置失败: {}", error);
-        }
+        // 同步已暂停，不再修改单机设置；仍通知商业界面清除连接状态。
         self.emit("cloud-sync-disabled");
 
         Ok("退出成功".to_string())

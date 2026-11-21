@@ -18,6 +18,7 @@ const COMPOUND_EXTENSIONS: &[&str] = &[
 /// # 示例
 /// ```rust
 /// use clip_core::files::extensions::extract_full_extension;
+/// use std::path::Path;
 ///
 /// assert_eq!(extract_full_extension(Path::new("file.pdf")), "pdf");
 /// assert_eq!(extract_full_extension(Path::new("backup.tar.gz")), "tar.gz");
@@ -74,6 +75,7 @@ mod tests {
     use super::*;
     use std::path::Path;
 
+    /// 验证普通文件扩展名可正确提取。
     #[test]
     fn test_simple_extensions() {
         assert_eq!(extract_full_extension(Path::new("file.txt")), "txt");
@@ -81,6 +83,7 @@ mod tests {
         assert_eq!(extract_full_extension(Path::new("image.jpg")), "jpg");
     }
 
+    /// 验证 tar.gz 等复合扩展名不会只保留最后一段。
     #[test]
     fn test_compound_extensions() {
         assert_eq!(extract_full_extension(Path::new("backup.tar.gz")), "tar.gz");
@@ -92,6 +95,7 @@ mod tests {
         assert_eq!(extract_full_extension(Path::new("old.tar.Z")), "tar.z");
     }
 
+    /// 验证扩展名按统一大小写返回。
     #[test]
     fn test_case_insensitive() {
         assert_eq!(extract_full_extension(Path::new("BACKUP.TAR.GZ")), "tar.gz");
@@ -102,6 +106,7 @@ mod tests {
         assert_eq!(extract_full_extension(Path::new("FILE.PDF")), "PDF");
     }
 
+    /// 验证带目录的路径只根据文件名提取扩展名。
     #[test]
     fn test_with_paths() {
         assert_eq!(
@@ -118,12 +123,14 @@ mod tests {
         );
     }
 
+    /// 验证无扩展名或特殊文件名不会产生错误扩展名。
     #[test]
     fn test_no_extension() {
         assert_eq!(extract_full_extension(Path::new("README")), "");
         assert_eq!(extract_full_extension(Path::new("path/to/file")), "");
     }
 
+    /// 验证字符串路径入口与 Path 入口保持一致。
     #[test]
     fn test_from_string() {
         assert_eq!(extract_full_extension_from_str("file.tar.gz"), "tar.gz");

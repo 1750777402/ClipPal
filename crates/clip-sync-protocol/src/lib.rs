@@ -1,16 +1,19 @@
 //! 当前线上协议的兼容契约，不包含 HTTP、Tauri、密钥或账号逻辑。
 //! v2 的 SSE/Outbox 协议将在明确版本之后增加，当前字段保持不变。
-use clip_core::domain::clip::ClipRecord;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+/// 旧服务批量同步响应，只承载线协议数据，不代表本地数据库实体。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CloudSyncResponse {
+    /// 服务端返回的记录清单，未返回清单时为 None。
     pub clips: Option<Vec<ClipRecordParam>>,
 }
+/// 旧服务记录契约。字段命名保持兼容，新单机实体不再依赖这些同步字段。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ClipRecordParam {
+    /// 旧兼容输入中的本地标识，不参与网络序列化。
     #[serde(skip)]
     pub id: Option<String>,
     // 类型
@@ -41,81 +44,60 @@ pub struct ClipRecordParam {
     #[serde(skip)]
     pub local_file_path: Option<String>,
 }
-impl ClipRecordParam {
-    pub fn to_clip_record(&self) -> ClipRecord {
-        ClipRecord {
-            id: self.id.clone().unwrap_or_default(),
-            r#type: self.r#type.clone().unwrap_or_default(),
-            content: self.content.clone(),
-            md5_str: self.md5_str.clone().unwrap_or_default(),
-            local_file_path: None,
-            created: self.created.unwrap_or(0),
-            os_type: self.os_type.clone().unwrap_or_default(),
-            sort: self.sort.unwrap_or(0),
-            pinned_flag: self.pinned_flag.unwrap_or(0),
-            sync_flag: self.sync_flag,
-            sync_time: self.sync_time,
-            device_id: self.device_id.clone(),
-            version: self.version,
-            del_flag: self.del_flag,
-            cloud_source: Some(0),
-            skip_type: None,
-        }
-    }
-}
-impl From<ClipRecord> for ClipRecordParam {
-    fn from(record: ClipRecord) -> Self {
-        ClipRecordParam {
-            id: record.id.into(),
-            r#type: Some(record.r#type),
-            content: record.content,
-            md5_str: Some(record.md5_str),
-            created: Some(record.created),
-            os_type: Some(record.os_type),
-            sort: Some(record.sort),
-            pinned_flag: Some(record.pinned_flag),
-            sync_flag: record.sync_flag.into(),
-            sync_time: record.sync_time,
-            device_id: record.device_id,
-            version: record.version.into(),
-            del_flag: record.del_flag.into(),
-            local_file_path: record.local_file_path,
-        }
-    }
-}
+/// 旧服务的批量同步请求；保留原字段形式供兼容测试和后续替换参考。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CloudSyncRequest {
+    /// 待交换的旧协议记录。
     pub clips: Vec<ClipRecordParam>,
+    /// 本次请求的毫秒时间戳。
     pub timestamp: u64,
+    /// 上次同步游标时间，不是本地记录自增 ID。
     pub last_sync_time: u64,
+    /// 发送设备的旧协议标识。
     pub device_id: String,
 }
+/// 旧单条同步响应中的服务时间。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SingleCloudSyncResponse {
+    /// 服务返回的毫秒时间戳。
     pub timestamp: u64,
 }
+/// 旧单条同步请求，用操作类型与一条记录表达变更。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SingleCloudSyncParam {
+    /// 旧服务约定的操作类型数值，当前仅保持协议原样。
     pub r#type: i32,
+    /// 本次操作对应的旧协议记录。
     pub clip: ClipRecordParam,
 }
+/// 旧附件同步身份参数，使用服务端原有的 MD5 字段名。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FileCloudSyncParam {
+    /// 旧服务附件摘要；与新版本地 content_key 分开维护。
     pub md5_str: String,
+    /// 旧服务约定的记录类型。
     pub r#type: String,
 }
+/// 旧附件下载响应，描述临时下载位置及服务端文件名。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DownloadCloudFileResponse {
+    /// 服务端提供的下载地址。
     pub url: String,
+    /// 旧服务附件摘要。
     pub md5_str: String,
+    /// 旧服务记录类型。
     pub r#type: String,
+    /// 下载后展示给用户的文件名。
     pub file_name: String,
 }
+/// 根据旧摘要和类型请求附件下载信息。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DownloadCloudFileParam {
+    /// 旧服务用于定位附件的摘要。
     pub md5_str: String,
+    /// 请求的旧协议记录类型。
     pub r#type: String,
 }

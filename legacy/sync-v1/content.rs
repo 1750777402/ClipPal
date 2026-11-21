@@ -1,4 +1,4 @@
-use clip_core::domain::clip::{TEXT_TYPE, FILE_TYPE, IMAGE_TYPE};
+use clip_core::domain::clip::{TEXT_TYPE, FILE_TYPE, IMAGE_TYPE, DIRECTORY_TYPE};
 use clip_core::search::TextDecoder;
 use serde_json::Value;
 
@@ -45,7 +45,7 @@ impl ContentProcessor {
                 // 图片类型直接返回文件路径，不进行 base64 编码。
                 content.as_str().unwrap_or_default().to_string()
             }
-            FILE_TYPE => content
+            FILE_TYPE | DIRECTORY_TYPE => content
                 .as_str()
                 .map(Self::process_file_content)
                 .unwrap_or_default(),

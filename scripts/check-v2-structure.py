@@ -7,14 +7,17 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def cargo(*args):
+    """在仓库根目录执行只读 Cargo 查询，返回文本结果供后续边界检查。"""
     return subprocess.check_output(["cargo", *args], cwd=ROOT, text=True)
 
 
+# 先从 Cargo 的解析结果建立依赖图，不靠手工猜测配置文件路径。
 metadata = json.loads(cargo("metadata", "--no-deps", "--format-version", "1"))
 packages = {package["name"]: package for package in metadata["packages"]}
+# 核心只向下依赖，自建版组合单机核心，商业能力不反向进入公共包。
 allowed = {
     "clip-core": set(),
-    "clip-sync-protocol": {"clip-core"},
+    "clip-sync-protocol": set(),
     "clip-sync-client": {"clip-core", "clip-sync-protocol"},
     "desktop-app-core": {"clip-core"},
     "selfhost-app-core": {"desktop-app-core", "clip-sync-client"},
@@ -29,6 +32,7 @@ for name, dependencies in allowed.items():
     if any(dependency["name"].startswith("tauri") for dependency in packages[name]["dependencies"]):
         raise SystemExit(f"{name}: 公共核心不可依赖 Tauri")
 
+# 检查 feature 解析后的实际依赖树，避免可选声明意外启用了扩展。
 local_tree = cargo("tree", "-p", "ClipPal", "--no-default-features", "--features", "local", "--edges", "normal")
 for name in ("selfhost-app-core", "clip-sync-client", "clip-sync-protocol", "tauri-plugin-http", "bincode", "backon"):
     if name in local_tree:
@@ -83,4 +87,15 @@ for source in (ROOT / "crates/desktop-app-core/src").rglob("*.rs"):
     for forbidden in ("tauri::", "crate::app_context", "crate::commercial", "clip_sync_client::"):
         if forbidden in code:
             raise SystemExit(f"{source.relative_to(ROOT)}: 单机核心意外依赖宿主或扩展 {forbidden}")
-print("v2 核心依赖方向、协议隔离、单机隔离、桌面适配边界和薄启动壳检查通过")
+# 单机领域/应用核心不得继续承载同步状态；仅一次性旧数据迁移允许识别旧表。
+for folder in ("crates/clip-core/src", "crates/desktop-app-core/src"):
+    for source in (ROOT / folder).rglob("*.rs"):
+        if source.name == "migration.rs":
+            continue
+        code = source.read_text()
+        for forbidden in ("SkipSyncReason", "SyncStatus", "VipLimit", "SKIP_SYNC", "NOT_SYNCHRONIZED",
+                          "sync_flag", "cloud_source", "skip_type", "cloud_sync", "retain_tombstones",
+                          "list_synced_tombstones", "update_sync_status", "insert_batch_merge"):
+            if forbidden in code:
+                raise SystemExit(f"{source.relative_to(ROOT)}: 单机核心仍包含同步领域 {forbidden}")
+print("v2 依赖方向、单机领域/仓储边界、协议隔离、桌面适配和薄启动壳检查通过")

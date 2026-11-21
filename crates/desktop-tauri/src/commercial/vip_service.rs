@@ -6,8 +6,6 @@ use tauri_plugin_opener::OpenerExt;
 
 use {
     crate::app_context::AppContext,
-    clip_core::domain::clip::NOT_SYNCHRONIZED,
-    clip_core::domain::clip::SKIP_SYNC,
     crate::commercial::domain::vip::PayCodrUrlResponse,
     crate::commercial::domain::vip::PayParam,
     crate::commercial::domain::vip::QueryPayParam,
@@ -19,7 +17,6 @@ use {
     crate::commercial::storage::AuthStore,
     crate::commercial::storage::VipStore,
     crate::commercial::ports::VipGateway,
-    crate::desktop::paths::get_resources_dir,
 };
 
 const DEFAULT_FREE_MAX_RECORDS: u32 = 300;
@@ -28,6 +25,7 @@ const DEFAULT_VIP_FILE_SIZE_KB: u64 = 5120;
 const FALLBACK_COPY_SIZE_BYTES: u64 = 10 * 1024 * 1024;
 
 #[derive(Serialize, Clone)]
+/// 权益变化事件的展示快照，只包含前端更新页面所需字段。
 struct VipStatusChangedPayload {
     is_vip: bool,
     vip_type: Option<VipType>,
@@ -44,6 +42,7 @@ pub struct VipService<'a> {
 }
 
 impl<'a> VipService<'a> {
+    /// 从商业扩展上下文取得网关、会话存储和权益存储。
     pub fn from_context(context: &'a AppContext) -> Self {
         Self {
             context,
@@ -98,6 +97,7 @@ impl<'a> VipService<'a> {
         self.check_cloud_sync_permission_with_status(None).await
     }
 
+    /// 复用已知 VIP 状态或实时查询，返回商业同步权限及业务原因。
     async fn check_cloud_sync_permission_with_status(
         &self,
         known_vip_status: Option<bool>,
@@ -304,6 +304,7 @@ impl<'a> VipService<'a> {
         Ok(())
     }
 
+    /// 通过系统浏览器打开固定的购买页面，不接受页面传入任意地址。
     pub fn open_vip_purchase_page(&self) -> Result<(), String> {
         let app_handle = self
             .context
@@ -315,16 +316,19 @@ impl<'a> VipService<'a> {
             .map_err(|error| format!("打开浏览器失败: {}", error))
     }
 
+    /// 通过商业网关获取套餐配置，不在本地核心硬编码服务请求。
     pub async fn get_server_config(
         &self,
     ) -> Result<Option<HashMap<VipType, ServerConfigResponse>>, String> {
         self.gateway.get_server_config().await
     }
 
+    /// 将支付参数交给商业网关，取得支付链接响应。
     pub async fn get_pay_url(&self, param: PayParam) -> Result<Option<PayCodrUrlResponse>, String> {
         self.gateway.get_pay_url(&param).await
     }
 
+    /// 按支付查询参数向商业网关确认当前支付结果。
     pub async fn get_pay_result(
         &self,
         param: QueryPayParam,
@@ -332,6 +336,7 @@ impl<'a> VipService<'a> {
         self.gateway.get_pay_result(&param).await
     }
 
+    /// 保存服务端权益快照，再按新上限调整本地保留数量设置。
     async fn apply_remote_info(&self, current: &VipInfo) -> Result<(), String> {
         let previous = self.store.get_info()?;
         let changed = previous
@@ -345,14 +350,7 @@ impl<'a> VipService<'a> {
         } else {
             DEFAULT_FREE_MAX_RECORDS
         };
-        let max_file_size = if current.is_active() {
-            current.max_file_size_bytes()
-        } else {
-            0
-        };
         self.enforce_local_records_limit(max_records).await?;
-        self.update_skipped_records_after_vip_change(max_file_size)
-            .await?;
 
         if changed {
             log::info!("检测到 VIP 权益关键字段变化");
@@ -360,6 +358,7 @@ impl<'a> VipService<'a> {
         Ok(())
     }
 
+    /// 只有当前设置超出套餐上限才降低设置，先持久化再更新内存。
     async fn enforce_local_records_limit(&self, max_records: u32) -> Result<(), String> {
         let mut settings = self
             .context
@@ -385,90 +384,17 @@ impl<'a> VipService<'a> {
             .map_err(|error| error.to_string())
     }
 
-    async fn update_skipped_records_after_vip_change(
-        &self,
-        max_file_size: u64,
-    ) -> Result<(), String> {
-        let records = self
-            .context
-            .repositories()
-            .clip_records()
-            .list_skipped(SKIP_SYNC, 2)
-            .await
-            .map_err(|error| error.to_string())?;
-        if records.is_empty() {
-            return Ok(());
-        }
-
-        let mut updated_count = 0;
-        for record in records {
-            let should_update = match record.r#type.as_str() {
-                "text" => record
-                    .content
-                    .as_str()
-                    .map(|content| max_file_size > 0 && content.len() as u64 <= max_file_size)
-                    .unwrap_or(false),
-                "image" => record
-                    .content
-                    .as_str()
-                    .and_then(|content| get_resources_dir().map(|base| base.join(content)))
-                    .and_then(|path| std::fs::metadata(path).ok())
-                    .map(|metadata| max_file_size > 0 && metadata.len() <= max_file_size)
-                    .unwrap_or(false),
-                "file" => record
-                    .local_file_path
-                    .as_ref()
-                    .and_then(|path| std::fs::metadata(path).ok())
-                    .map(|metadata| max_file_size > 0 && metadata.len() <= max_file_size)
-                    .unwrap_or(false),
-                _ => false,
-            };
-
-            if should_update {
-                match self
-                    .context
-                    .repositories()
-                    .clip_records()
-                    .update_sync_state(&record.id, NOT_SYNCHRONIZED, None)
-                    .await
-                {
-                    Ok(_) => updated_count += 1,
-                    Err(error) => {
-                        log::error!("恢复记录{}的同步状态失败: {}", record.id, error)
-                    }
-                }
-            }
-        }
-
-        if updated_count > 0 {
-            log::info!("VIP 状态更新后，已将{}条记录恢复为待同步", updated_count);
-        }
-        Ok(())
-    }
-
+    /// 取得当前权益上限并调用统一本地清理，不直接操作旧数据库字段。
     async fn enforce_local_records_limit_from_db(&self) -> Result<(), String> {
         let max_allowed = self.get_max_records_limit().await?;
         self.enforce_local_records_limit(max_allowed).await?;
 
-        let current_count = self
-            .context
-            .repositories()
-            .clip_records()
-            .count_active()
-            .await
-            .map_err(|error| format!("查询记录总数失败: {}", error))?;
-        if current_count > max_allowed as i64 {
-            let excess_count = current_count - max_allowed as i64;
-            self.context
-                .repositories()
-                .clip_records()
-                .delete_oldest_unpinned(excess_count as i32)
-                .await
-                .map_err(|error| format!("清理超出记录失败: {}", error))?;
-        }
+        crate::core::application::capture_listener::clean_records(self.context).await
+            .map_err(|error| error.to_string())?;
         Ok(())
     }
 
+    /// 向前端广播展示所需的权益摘要，不发送完整账号凭据。
     fn emit_status_changed(&self) {
         let Ok(Some(info)) = self.store.get_info() else {
             return;

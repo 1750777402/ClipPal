@@ -22,6 +22,7 @@ impl FileSettingsRepository {
         Self { path }
     }
 
+    /// 读取已配置的设置文件；缺失时尝试保存默认值，失败仍使用内存默认设置。
     fn load_value(&self) -> Settings {
         let Some(path) = self.path.clone() else {
             return Settings::default();
@@ -38,6 +39,7 @@ impl FileSettingsRepository {
         Self::load_from_path(&path)
     }
 
+    /// 解析并修正无效设置，防止损坏的保留数量触发启动时误删历史。
     fn load_from_path(path: &Path) -> Settings {
         let mut settings: Settings = match fs::read_to_string(path)
             .map_err(AppError::Io).and_then(|data| serde_json::from_str(&data).map_err(AppError::from)) {
@@ -54,11 +56,11 @@ impl FileSettingsRepository {
         if settings.shortcut_key.trim().is_empty() { settings.shortcut_key = defaults.shortcut_key; }
         if settings.auto_start > 1 { settings.auto_start = defaults.auto_start; }
         if settings.auto_paste > 1 { settings.auto_paste = defaults.auto_paste; }
-        if settings.cloud_sync > 1 { settings.cloud_sync = defaults.cloud_sync; }
         if settings.tutorial_completed > 1 { settings.tutorial_completed = defaults.tutorial_completed; }
         settings
     }
 
+    /// 先写同目录临时文件并落盘，再原子替换正式设置，失败保留旧文件。
     fn save_to_path(path: &Path, settings: &Settings) -> AppResult<()> {
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)?;
@@ -94,12 +96,14 @@ impl SettingsRepository for FileSettingsRepository {
 mod tests {
     use super::*;
 
+    /// 生成测试专用设置路径，不读取或修改用户实际配置。
     fn isolated_settings_path() -> PathBuf {
         std::env::temp_dir()
             .join(format!("clip-pal-settings-test-{}", uuid::Uuid::new_v4()))
             .join("settings.json")
     }
 
+    /// 验证设置保存后可原样读取，快捷键和用户开关不会丢失。
     #[test]
     fn saves_and_loads_settings_without_changing_the_contract() {
         let path = isolated_settings_path();
@@ -118,6 +122,7 @@ mod tests {
         let _ = fs::remove_dir_all(path.parent().unwrap());
     }
 
+    /// 验证损坏 JSON 使用默认设置，不中断应用启动。
     #[test]
     fn invalid_json_falls_back_to_default_settings() {
         let path = isolated_settings_path();
@@ -129,7 +134,6 @@ mod tests {
 
         assert_eq!(loaded.max_records, defaults.max_records);
         assert_eq!(loaded.shortcut_key, defaults.shortcut_key);
-        assert_eq!(loaded.cloud_sync, defaults.cloud_sync);
 
         let _ = fs::remove_dir_all(path.parent().unwrap());
     }
@@ -138,6 +142,7 @@ mod tests {
 #[cfg(test)]
 mod stability_tests {
     use super::*;
+    /// 验证旧设置缺少字段时保留已有值，非法保留数量不会清空历史。
     #[test]
     fn partial_old_settings_preserve_user_values_and_invalid_retention_is_safe() {
         let dir = tempfile::tempdir().unwrap();
@@ -152,6 +157,7 @@ mod stability_tests {
         assert_eq!(settings.max_records, Settings::default().max_records);
         assert_eq!(settings.auto_paste, Settings::default().auto_paste);
     }
+    /// 验证连续保存可替换原设置，且不会遗留临时配置文件。
     #[test]
     fn repeatedly_replaces_existing_settings_without_leaving_temporary_files() {
         let dir = tempfile::tempdir().unwrap();

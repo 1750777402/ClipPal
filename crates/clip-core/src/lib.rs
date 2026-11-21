@@ -11,3 +11,5 @@ pub mod storage;
 pub mod files;
 #[cfg(feature = "crypto")]
 pub mod crypto;
+
+pub mod content_key;

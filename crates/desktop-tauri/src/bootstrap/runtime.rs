@@ -2,8 +2,6 @@ use crate::{
     bootstrap::core::BootstrapCore,
 };
 
-#[cfg(feature = "sync")]
-use crate::sync::{consumer::consume_clip_record_queue, runtime::start_upload_cloud_timer};
 
 /// 处理 Tauri 运行期事件。
 ///
@@ -35,11 +33,7 @@ fn handle_exit_requested(core: &BootstrapCore) {
 /// - 启动剪贴板事件循环；
 /// - 用户已登录时初始化 VIP 状态并执行权益限制检查。
 fn handle_ready(core: BootstrapCore) {
-    #[cfg(feature = "sync")]
-    {
-        consume_clip_record_queue(core.app_context.sync().record_queue());
-        start_upload_cloud_timer();
-    }
+    // 本地事件循环独立启动。自建版和商业版当前都不启动旧同步任务。
     core.clipboard_event_manager.start_event_loop();
     #[cfg(feature = "commercial-extension")]
     start_vip_initialization_task(core);

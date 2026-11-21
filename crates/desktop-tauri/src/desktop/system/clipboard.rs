@@ -1,4 +1,3 @@
-use clipboard_listener::ClipType;
 use tauri::Manager;
 use tauri_plugin_clipboard_pal::desktop::ClipboardPal;
 use tauri_plugin_dialog::DialogExt;
@@ -6,94 +5,33 @@ use tauri_plugin_dialog::DialogExt;
 use {
     crate::app_context::AppContext,
     clip_core::domain::clip::ClipRecord,
-    desktop_app_core::content::ContentProcessor,
-    crate::desktop::security::decrypt_content,
-    clip_core::files::paths::generate_file_not_found_error,
 };
 
 /// 根据剪贴记录类型，将领域内容写入系统文本、图片或文件剪贴板。
 pub async fn write_record(context: &AppContext, record: &ClipRecord) -> Result<(), String> {
-    let app_handle = context.app_handle().map_err(|error| error.to_string())?;
-    let clipboard = app_handle.state::<ClipboardPal>();
-    // 领域记录保存字符串类型，进入系统层后解析为剪贴板插件支持的类型。
-    let clip_type: ClipType = record.r#type.parse().unwrap_or(ClipType::Text);
+    let payload=desktop_app_core::clipboard::prepare_copy(context.core(),record,None).map_err(String::from)?;
+    write_payload(context,payload).await
+}
 
-    match clip_type {
-        ClipType::Text => {
-            // 文本在数据库中为加密内容，写入系统剪贴板前必须解密。
-            let content = decrypt_content(
-                ContentProcessor::process_text_content(record.content.clone()).as_str(),
-            )
-            .map_err(|_| "文本解密失败".to_string())?;
-            clipboard.write_text(content)?;
+/// 将单机核心已校验的内容写入系统；这里只处理系统 API 和临时文件适配。
+pub async fn write_payload(context:&AppContext,payload:desktop_app_core::clipboard::ClipboardPayload)->Result<(),String>{
+    use desktop_app_core::clipboard::ClipboardPayload;
+    let app=context.app_handle().map_err(String::from)?;
+    let clipboard=app.state::<ClipboardPal>();
+    match payload{
+        ClipboardPayload::Text(text)=>clipboard.write_text(text)?,
+        ClipboardPayload::Image(path)=>{
+            let bytes=tokio::fs::read(path).await.map_err(|error|{log::error!("读取复制图片失败: {}",error);"图片资源不可用".to_string()})?;
+            clipboard.write_image_binary(bytes)?;
         }
-        ClipType::Image => {
-            // 图片记录保存资源目录相对路径，系统剪贴板需要实际二进制数据。
-            if let Some(path) = record.content.as_str() {
-                if let Some(base_path) = crate::desktop::paths::get_resources_dir() {
-                    let absolute_path = base_path.join(path);
-                    if !absolute_path.exists() {
-                        return Err("图片资源不存在，无法复制".to_string());
-                    }
-                    if let Ok(image_bytes) = std::fs::read(absolute_path) {
-                        clipboard.write_image_binary(image_bytes)?;
-                    } else {
-                        return Err("图片资源读取失败，无法复制".to_string());
-                    }
-                } else {
-                    return Err("资源目录获取失败".to_string());
-                }
-            } else {
-                return Err("图片路径无效".to_string());
+        ClipboardPayload::Files{names,paths,..}=>{
+            // 先恢复原显示名；临时副本准备失败时仍可用真实来源路径完成复制。
+            match create_named_temp_files(&names,&paths).await{
+                Ok(files)=>clipboard.write_files_uris(files)?,
+                Err(error)=>{log::warn!("临时复制失败，使用实际路径: {}",error);clipboard.write_files_uris(paths)?;}
             }
         }
-        ClipType::File => {
-            // 文件显示名称和真实路径分别保存，并通过相同索引建立对应关系。
-            let display_names = record.content.as_str().unwrap_or("");
-            let actual_paths = record.local_file_path.as_deref().unwrap_or("");
-
-            if display_names.is_empty() || actual_paths.is_empty() {
-                return Err("文件信息无效".to_string());
-            }
-
-            let display_list: Vec<String> =
-                display_names.split(":::").map(str::to_string).collect();
-            let actual_list: Vec<String> = actual_paths.split(":::").map(str::to_string).collect();
-
-            // 写入前一次性验证所有真实文件，避免系统剪贴板只包含部分文件。
-            let mut not_found = Vec::new();
-            for (index, actual_path) in actual_list.iter().enumerate() {
-                let actual_path = actual_path.as_str();
-                if actual_path.is_empty() {
-                    continue;
-                }
-                if !std::path::Path::new(actual_path).exists() {
-                    let display_name = display_list
-                        .get(index)
-                        .cloned()
-                        .unwrap_or_else(|| actual_path.to_string());
-                    not_found.push(display_name);
-                }
-            }
-            if !not_found.is_empty() {
-                return Err(generate_file_not_found_error(&not_found));
-            }
-
-            // 临时文件用于恢复原始显示名称；创建失败时退回真实路径。
-            match create_named_temp_files(&display_list, &actual_list).await {
-                Ok(temp_files) => {
-                    clipboard.write_files_uris(temp_files)?;
-                }
-                Err(error) => {
-                    log::warn!("创建带显示名称的临时文件失败，使用真实路径: {}", error);
-                    clipboard.write_files_uris(actual_list)?;
-                }
-            }
-        }
-        _ => {}
-    }
-
-    Ok(())
+    }Ok(())
 }
 
 pub use desktop_app_core::temporary_files::create_named_temp_files;
@@ -104,6 +42,7 @@ struct PermissionPromptGuard {
     _window: crate::desktop::shell::window::WindowHideGuard,
 }
 impl PermissionPromptGuard {
+    /// 原子抢占提示资格，同时禁止窗口自动隐藏；已有提示时返回 None。
     fn try_acquire(open: std::sync::Arc<std::sync::atomic::AtomicBool>, flag: std::sync::Arc<crate::desktop::shell::window::WindowHideFlag>) -> Option<Self> {
         use std::sync::atomic::Ordering;
         open.compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst).ok()?;
@@ -111,6 +50,7 @@ impl PermissionPromptGuard {
     }
 }
 impl Drop for PermissionPromptGuard {
+    /// 对话框关闭时释放提示资格，窗口隐藏保护也随字段一并释放。
     fn drop(&mut self) { self.open.store(false, std::sync::atomic::Ordering::SeqCst); }
 }
 
@@ -141,6 +81,7 @@ pub fn show_accessibility_dialog(context: &crate::app_context::AppContext) -> cr
     Ok(())
 }
 
+/// 异步请求系统辅助功能授权；只发起请求，不自动重放之前的粘贴操作。
 fn request_native_permission(context: std::sync::Arc<AppContext>) {
     tauri::async_runtime::spawn(async move {
         if let Err(error) = super::accessibility::request(&context).await {
@@ -149,6 +90,7 @@ fn request_native_permission(context: std::sync::Arc<AppContext>) {
     });
 }
 
+/// 打开固定的系统辅助功能页面，失败细节仅写入日志。
 fn open_permission_settings(context: &AppContext) {
     if let Err(error) = super::accessibility::open_settings(context) {
         log::error!("打开辅助功能设置失败: {}", error);
@@ -161,6 +103,7 @@ mod permission_tests {
     use crate::desktop::shell::window::{WindowHideFlag, WindowHideGuard};
     use std::sync::{Arc, atomic::AtomicBool};
 
+    /// 验证权限提示只显示一次，释放时不破坏其他弹窗的隐藏保护。
     #[test]
     fn permission_prompt_is_unique_and_preserves_other_dialog_guards() {
         let open = Arc::new(AtomicBool::new(false));

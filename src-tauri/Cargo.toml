@@ -28,6 +28,7 @@ sync = ["desktop-tauri/sync"]
 commercial-extension = ["desktop-tauri/commercial-extension"]
 
 [build-dependencies]
+serde_json.workspace = true
 tauri-build = { workspace = true, features = [] }
 
 [dependencies]

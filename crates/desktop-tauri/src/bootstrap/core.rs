@@ -39,13 +39,12 @@ pub async fn init_core() -> AppResult<BootstrapCore> {
     let db_path = crate::desktop::paths::get_data_dir()
         .ok_or_else(|| crate::errors::AppError::Config("无法获取数据目录".into()))?
         .join("clip_record.db");
-    let local = desktop_app_core::LocalContext::open(
+    let local = desktop_app_core::LocalContext::open_with_resources(
         &db_path,
         crate::desktop::paths::get_config_dir().map(|dir| dir.join("settings.json")),
         Arc::new(crate::desktop::security::decrypt_content),
-    )
-    .await?
-    .with_resources_dir(crate::desktop::paths::get_resources_dir());
+        crate::desktop::paths::get_resources_dir(),
+    ).await?;
     let policy: Arc<dyn crate::core::policy::ApplicationPolicy>;
     #[cfg(feature = "commercial-extension")]
     {
@@ -108,7 +107,7 @@ pub async fn init_core() -> AppResult<BootstrapCore> {
     ));
     crate::app_context::set_app_context(app_context.clone())?;
 
-    // 升级后先处理旧墓碑和超限记录，再建立有效记录的搜索索引。
+    // 数据库打开阶段已过滤旧删除记录；此处清理本机超限记录，再建立搜索索引。
     if let Err(error) = crate::core::application::capture_listener::clean_records(app_context.as_ref()).await {
         log::error!("启动时清理剪贴记录失败: {}", error);
     }

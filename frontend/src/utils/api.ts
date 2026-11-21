@@ -27,6 +27,8 @@ const ERROR_SEVERITY_MAP: Record<string, ErrorSeverity> = {
   'load_settings': ErrorSeverity.SILENT,
   'validate_shortcut': ErrorSeverity.WARNING,
 
+  // 商业命令只进入商业构建，单机包不携带账号和支付错误映射。
+  ...(import.meta.env.VITE_EDITION === 'commercial' ? {
   // 用户认证相关 - 需要提示
   'login': ErrorSeverity.CRITICAL,
   'user_register': ErrorSeverity.CRITICAL,
@@ -46,6 +48,8 @@ const ERROR_SEVERITY_MAP: Record<string, ErrorSeverity> = {
   'refresh_vip_status': ErrorSeverity.INFO,
   'get_pay_url': ErrorSeverity.CRITICAL,
 
+  } : {}),
+
   // 更新检查和安装错误由更新弹窗统一展示
   'check_soft_version': ErrorSeverity.SILENT,
   'download_and_install_update': ErrorSeverity.SILENT,
@@ -62,12 +66,14 @@ export interface ApiResponse<T> {
   severity: ErrorSeverity;
 }
 
+/** 后端统一错误体；message 已适合用户阅读，详细内部错误留在后端日志。 */
 export interface CommandErrorBody {
   code: string;
   message: string;
   severity: ErrorSeverity;
 }
 
+/** IPC 原始响应信封，成功数据和失败信息使用固定字段表达。 */
 export interface CommandResponse<T> {
   success: boolean;
   code: string;
@@ -76,6 +82,7 @@ export interface CommandResponse<T> {
   error: CommandErrorBody | null;
 }
 
+/** 先检查响应信封的必要字段，再交给调用页面使用，避免误认旧格式。 */
 function isCommandResponse<T>(value: unknown): value is CommandResponse<T> {
   if (!value || typeof value !== 'object') {
     return false;
@@ -212,10 +219,10 @@ export const clipApi = {
     });
   },
 
-  // 复制单个文件
-  async copySingleFile(recordId: string, filePath: string) {
+  // 复制单个文件：传资源主键而非名称，避免同名附件被选错。
+  async copySingleFile(recordId: string, resourceId: string) {
     return apiInvoke<string>('copy_single_file', {
-      param: { record_id: recordId, file_path: filePath }
+      param: { record_id: recordId, resource_id: resourceId }
     });
   },
 
@@ -368,7 +375,9 @@ export function getFriendlyErrorMessage(error: string, command: string): string 
   const cleanedError = cleanupErrorMessage(error);
 
   // 对于所有带服务器API的操作（登录、注册、验证码等），如果是业务错误信息，直接使用
-  const apiCommands = ['login', 'user_register', 'send_email_code', 'logout'];
+  // 单机版没有服务端账号操作；仅商业构建接收这些接口的业务提示。
+  const apiCommands: string[] = import.meta.env.VITE_EDITION === 'commercial'
+    ? ['login', 'user_register', 'send_email_code', 'logout'] : [];
   const isNetworkError = cleanedError && (cleanedError.includes('连接') || cleanedError.includes('网络') || cleanedError.includes('超时') || cleanedError.includes('DNS') || cleanedError.includes('服务器'));
 
   if (apiCommands.includes(command) && cleanedError && !isNetworkError) {
@@ -394,6 +403,7 @@ export function getFriendlyErrorMessage(error: string, command: string): string 
     'del_record': '删除失败，请重试',
     'image_save_as': '图片保存失败',
 
+    ...(import.meta.env.VITE_EDITION === 'commercial' ? {
     // 用户认证相关（网络错误时的备选提示）
     'login': '登录失败，请检查网络或账号密码',
     'user_register': '注册失败，请检查网络或输入信息',
@@ -403,6 +413,7 @@ export function getFriendlyErrorMessage(error: string, command: string): string 
     'get_user_info': '获取用户信息失败',
     'check_login_status': '检查登录状态失败',
     'update_user_info': '更新用户信息失败'
+    } : {})
   };
 
   return friendlyMessages[command] || cleanedError || '操作失败';

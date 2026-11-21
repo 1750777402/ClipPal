@@ -1,3 +1,4 @@
+//! 每条记录维护独立内存索引，文本由注入的解密器读取，文件只索引显示名称。
 use crate::domain::clip::ClipRecord;
 use crate::domain::settings::{
     Settings, DEFAULT_BLOOM_FILTER_TRUST_THRESHOLD, DEFAULT_DIRECT_CONTAINS_THRESHOLD,
@@ -25,6 +26,7 @@ struct RecordSearchData {
 }
 
 impl RecordSearchData {
+    /// 为一条明文或文件名建立分词集合和布隆过滤器，不保存数据库密文。
     fn new(content: String) -> Self {
         // 将内容的所有可能搜索词汇添加到bloom filter
         let search_terms = Self::extract_search_terms(&content);
@@ -72,12 +74,14 @@ impl RecordSearchData {
         tokens
     }
 
+    /// 收集当前连续字母数字词，并清空缓冲准备下一个词。
     fn flush_word(word: &mut String, tokens: &mut HashSet<String>) {
         if !word.is_empty() {
             tokens.insert(std::mem::take(word));
         }
     }
 
+    /// 将连续中日韩字符生成 1～4 字组合，不跨标点拼接关键词。
     fn flush_cjk_run(run: &mut Vec<char>, tokens: &mut HashSet<String>) {
         let max_size = run.len().min(MAX_CJK_NGRAM_SIZE);
         for size in 1..=max_size {
@@ -88,6 +92,7 @@ impl RecordSearchData {
         run.clear();
     }
 
+    /// 判断字符是否属于本索引支持的中日韩文字区段。
     fn is_cjk(c: char) -> bool {
         matches!(
             c,
@@ -127,7 +132,7 @@ impl RecordSearchData {
             return self.content_contains(normalized_query);
         }
 
-        // 标点、单数字或 emoji 等无法分词的查询回退到精确包含搜索。
+        // 纯标点或 emoji 等没有分词结果时，回退到精确包含搜索。
         if query_terms.is_empty() {
             return self.content_contains(normalized_query);
         }
@@ -146,7 +151,7 @@ impl RecordSearchData {
             );
             return all_terms_in_bloom;
         }
-        // 所有关键词都未命中
+        // 未到信任阈值时，以原文包含结果为准，不能仅凭分词命中认定匹配。
         self.content_contains(normalized_query)
     }
 
@@ -159,11 +164,13 @@ impl RecordSearchData {
     }
 }
 
+/// 并发可读写的记录索引，键为 IPC 使用的字符串记录 ID。
 struct SimpleSearchIndex {
     records: DashMap<String, RecordSearchData>,
 }
 
 impl SimpleSearchIndex {
+    /// 创建空索引，记录会由启动重建或后续采集填充。
     fn new() -> Self {
         Self {
             records: DashMap::new(),
@@ -233,6 +240,7 @@ pub struct InMemorySearchEngine {
 }
 
 impl InMemorySearchEngine {
+    /// 共享当前设置和解密器；索引内容只保留在本进程内存。
     pub fn new(settings: Arc<RwLock<Settings>>, decoder: Arc<dyn TextDecoder>) -> Self {
         Self {
             index: SimpleSearchIndex::new(),
@@ -241,6 +249,7 @@ impl InMemorySearchEngine {
         }
     }
 
+    /// 读取布隆信任阈值和直接搜索阈值；读锁失败时使用默认配置。
     fn thresholds(&self) -> (usize, usize) {
         self.settings.read()
             .map(|settings| {
@@ -262,11 +271,13 @@ impl InMemorySearchEngine {
 
 #[async_trait]
 impl SearchEngine for InMemorySearchEngine {
+    /// 根据当前阈值搜索候选 ID，最终列表排序和记录有效性由仓储处理。
     async fn search(&self, query: &str) -> Vec<String> {
         let (bloom_threshold, direct_threshold) = self.thresholds();
         self.index.search(query, bloom_threshold, direct_threshold)
     }
 
+    /// 添加或替换一条索引，重复复制使用同一记录 ID，不增加索引条数。
     async fn add(&self, id: &str, content: &str) -> AppResult<()> {
         self.index.add_record(id, content);
         log::debug!(
@@ -277,6 +288,7 @@ impl SearchEngine for InMemorySearchEngine {
         Ok(())
     }
 
+    /// 批量删除已移除记录的索引；空列表无需处理。
     async fn remove(&self, ids: &[String]) -> AppResult<()> {
         if ids.is_empty() {
             return Ok(());
@@ -286,20 +298,23 @@ impl SearchEngine for InMemorySearchEngine {
         Ok(())
     }
 
+    /// 从数据库完整快照重建索引，单条文本解密失败只记录日志并跳过。
     async fn initialize(&self, records: Vec<ClipRecord>) -> AppResult<()> {
         self.index.clear();
         let total_count = records.len();
         let mut indexed_count = 0;
 
         for record in records {
+            // 数据库主键为 i64；索引与 IPC 统一使用十进制字符串。
+            let id = record.id.to_string();
             let should_index = match record.r#type.as_str() {
                 TEXT_TYPE => record
                     .content
-                    .as_str()
+                    .as_deref()
                     .and_then(
                         |content| match self.decoder.decode(content) {
                             Ok(content) => {
-                                self.index.add_record(&record.id, &content);
+                                self.index.add_record(&id, &content);
                                 Some(())
                             }
                             Err(error) => {
@@ -313,11 +328,10 @@ impl SearchEngine for InMemorySearchEngine {
                         },
                     )
                     .is_some(),
-                FILE_TYPE => record
-                    .content
-                    .as_str()
-                    .map(|content| self.index.add_record(&record.id, content))
-                    .is_some(),
+                FILE_TYPE | crate::domain::clip::DIRECTORY_TYPE => {
+                    // 只索引用户显示名，不把随机缓存路径作为搜索内容。
+                    self.index.add_record(&id, &record.search_names()); true
+                }
                 _ => false,
             };
 
@@ -340,8 +354,10 @@ impl SearchEngine for InMemorySearchEngine {
 mod tests {
     use super::*;
 
+    /// 测试解密替身：直接返回输入，让索引测试不依赖真实密钥。
     fn test_decode(text: &str) -> AppResult<String> { Ok(text.to_owned()) }
 
+    /// 验证重建通过注入能力解密文本，并能搜索文件原始显示名。
     #[tokio::test]
     async fn rebuild_uses_injected_decoder_and_keeps_file_names_searchable() {
         let decoder = |text: &str| {
@@ -349,16 +365,19 @@ mod tests {
             else { Err(crate::errors::AppError::Crypto("invalid test ciphertext".into())) }
         };
         let engine = InMemorySearchEngine::new(Arc::new(RwLock::new(Settings::default())), Arc::new(decoder));
-        let make_record = |id: &str, record_type: &str, content: &str| ClipRecord {
-            id: id.into(), r#type: record_type.into(), content: serde_json::json!(content), ..Default::default()
+        let make_record = |id: i64, record_type: &str, content: &str| ClipRecord {
+            id, r#type: record_type.into(), content: Some(content.into()), ..Default::default()
         };
-        engine.initialize(vec![make_record("text", TEXT_TYPE, "encrypted"), make_record("bad", TEXT_TYPE, "broken"), make_record("file", FILE_TYPE, "今日总结.md")]).await.unwrap();
-        assert_eq!(engine.search("解密").await, vec!["text"]);
-        assert_eq!(engine.search("总结").await, vec!["file"]);
+        let mut file=make_record(3,FILE_TYPE,"");
+        file.resources.push(crate::domain::clip::ClipRecordResource{display_name:"今日总结.md".into(),..Default::default()});
+        engine.initialize(vec![make_record(1,TEXT_TYPE,"encrypted"),make_record(2,TEXT_TYPE,"broken"),file]).await.unwrap();
+        assert_eq!(engine.search("解密").await, vec!["1"]);
+        assert_eq!(engine.search("总结").await, vec!["3"]);
         assert!(engine.search("encrypted").await.is_empty());
         assert!(engine.search("broken").await.is_empty());
     }
 
+    /// 验证添加、搜索、删除索引形成完整生命周期。
     #[tokio::test]
     async fn adds_searches_and_removes_records() {
         let engine = InMemorySearchEngine::new(Arc::new(RwLock::new(Settings::default())), Arc::new(test_decode));
@@ -370,6 +389,7 @@ mod tests {
         assert!(engine.search("clipboard").await.is_empty());
     }
 
+    /// 验证纯空白查询不返回全部记录。
     #[tokio::test]
     async fn blank_query_returns_no_records() {
         let engine = InMemorySearchEngine::new(Arc::new(RwLock::new(Settings::default())), Arc::new(test_decode));
@@ -378,6 +398,7 @@ mod tests {
         assert!(engine.search(" \t\r\n ").await.is_empty());
     }
 
+    /// 验证标点和表情无法分词时仍可用原文包含搜索。
     #[tokio::test]
     async fn query_without_tokens_uses_exact_contains_search() {
         let settings = Settings {
@@ -393,6 +414,7 @@ mod tests {
         assert_eq!(engine.search("😀").await, vec!["matching"]);
     }
 
+    /// 验证标点分隔两侧单词，不把它们错误拼成一个词。
     #[test]
     fn tokenizer_uses_punctuation_as_a_boundary() {
         let tokens = RecordSearchData::extract_search_terms("Foo-bar hello.world");
@@ -405,6 +427,7 @@ mod tests {
         assert!(!tokens.contains("helloworld"));
     }
 
+    /// 验证中文组合不跨标点或空白生成。
     #[test]
     fn tokenizer_keeps_cjk_ngrams_inside_contiguous_runs() {
         let tokens = RecordSearchData::extract_search_terms("甲-乙 中文");
@@ -417,6 +440,7 @@ mod tests {
         assert!(!tokens.contains("乙中"));
     }
 
+    /// 验证大小写转换、带重音字母以及日文韩文分词。
     #[test]
     fn tokenizer_supports_unicode_words_and_cjk_scripts() {
         let tokens = RecordSearchData::extract_search_terms("CAFÉ42 かな 한글");
@@ -426,6 +450,7 @@ mod tests {
         assert!(tokens.contains("한글"));
     }
 
+    /// 验证中文短语和单字在布隆搜索路径中可被检索。
     #[tokio::test]
     async fn bloom_search_matches_embedded_cjk_phrase_and_single_character() {
         let settings = Settings {

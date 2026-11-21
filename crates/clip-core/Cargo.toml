@@ -16,6 +16,7 @@ crypto = ["dep:aes-gcm", "dep:rand"]
 
 [dependencies]
 tempfile = "3"
+sha2 = "0.10"
 aes-gcm = { workspace = true, optional = true }
 rand = { workspace = true, optional = true }
 serde.workspace = true

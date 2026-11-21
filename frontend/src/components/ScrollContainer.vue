@@ -4,21 +4,7 @@
       <span class="panel-title">Clip Pal</span>
       <input v-model="search" class="search-input" placeholder="搜索剪贴记录..." />
       <div class="header-icons">
-        <button
-          v-if="appCapabilities?.cloud_sync"
-          :class="['icon-button', 'iconfont', cloudSyncEnabled ? 'icon-yuntongbu' : 'icon-weitongbu']"
-          title="云同步"
-          type="button"
-          @click="handleCloudSyncClick">
-        </button>
-        <button 
-          v-if="appCapabilities?.account"
-          class="icon-button iconfont icon-user" 
-          :class="{ 'logged-in': userStore.isLoggedIn() }"
-          :title="userButtonTitle" 
-          type="button" 
-          @click="handleUserButtonClick"
-        ></button>
+        <CommercialAccount v-if="CommercialAccount" @change="smartRefresh" />
         <button class="icon-button iconfont icon-setting settings-button" title="设置" type="button" @click="showSettings = true"></button>
       </div>
     </header>
@@ -51,10 +37,9 @@
             class="virtual-item"
             :style="{ transform: `translateY(${virtualItem.offsetY}px)` }">
             <ClipCard
-              v-memo="[virtualItem.item.id, virtualItem.item.pinned_flag, virtualItem.item.sync_flag, virtualItem.item.content, virtualItem.item.created, cloudSyncEnabled]"
+              v-memo="[virtualItem.item.id, virtualItem.item.pinned_flag, virtualItem.item.content, virtualItem.item.created, virtualItem.item.file_info]"
               :record="virtualItem.item"
               :is-mobile="responsive.isMobile.value"
-              :cloud-sync-enabled="cloudSyncEnabled"
               @click="handleCardClick"
               @pin="handlePin"
               @delete="handleDel" />
@@ -79,10 +64,9 @@
           class="virtual-item"
           :style="{ transform: `translateY(${virtualItem.offsetY}px)` }">
           <ClipCard
-            v-memo="[virtualItem.item.id, virtualItem.item.pinned_flag, virtualItem.item.sync_flag, virtualItem.item.content, virtualItem.item.created, cloudSyncEnabled]"
+            v-memo="[virtualItem.item.id, virtualItem.item.pinned_flag, virtualItem.item.content, virtualItem.item.created, virtualItem.item.file_info]"
             :record="virtualItem.item"
             :is-mobile="responsive.isMobile.value"
-            :cloud-sync-enabled="cloudSyncEnabled"
             @click="handleCardClick"
             @pin="handlePin"
             @delete="handleDel" />
@@ -101,31 +85,6 @@
 
     <SettingsDialog v-if="showSettings" v-model="showSettings" @save="handleSettingsSave" />
     
-    <!-- 登录对话框 -->
-    <LoginDialog v-if="showLoginDialog" v-model:visible="showLoginDialog" @login-success="handleLoginSuccess" />
-    
-    <!-- 用户菜单 -->
-    <UserMenu v-if="showUserMenu"
-      v-model:visible="showUserMenu" 
-      :user-info="userStore.getUserInfo()" 
-      @logout="handleLogout" 
-      @user-info="handleUserInfo"
-      @vip-account="handleVipAccount"
-    />
-    
-    <!-- 用户信息对话框 -->
-    <UserInfoDialog v-if="showUserInfoDialog"
-      v-model:visible="showUserInfoDialog" 
-      :user-info="userStore.getUserInfo()" 
-      @edit="handleUserInfoEdit"
-    />
-    
-    <!-- VIP账户对话框 -->
-    <VipAccountDialog v-if="showVipAccountDialog"
-      v-model:visible="showVipAccountDialog"
-      @login="showLoginDialog = true"
-    />
-    
     <!-- 回到顶部按钮 -->
     <button 
       v-show="showBackToTop" 
@@ -141,18 +100,13 @@
 
 
 <script setup lang="ts">
+// 主列表负责搜索、分页和虚拟滚动，卡片负责单条记录的展示与操作。
 import { listen } from '@tauri-apps/api/event';
-import { ref, onMounted, onBeforeUnmount, watch, nextTick, computed } from 'vue';
+import { ref, onMounted, onBeforeUnmount, watch, nextTick, defineAsyncComponent } from 'vue';
 import SettingsDialog from './SettingsDialog.vue';
 import ClipCard from './ClipCard.vue';
-import LoginDialog from './LoginDialog.vue';
-import UserMenu from './UserMenu.vue';
-import UserInfoDialog from './UserInfoDialog.vue';
-import VipAccountDialog from './VipAccountDialog.vue';
 import { useWindowAdaptive } from '../utils/responsive';
-import { clipApi, settingsApi, isSuccess } from '../utils/api';
-import { useUserStore } from '../utils/userStore';
-import { appCapabilities, loadAppCapabilities } from '../utils/capabilities';
+import { clipApi, isSuccess } from '../utils/api';
 import { createDebouncedFunction, useMemoryManager } from '../utils/memoryManager';
 import { useDynamicVirtualScroll } from '../utils/dynamicVirtualScroll';
 
@@ -174,9 +128,7 @@ const CACHE_DURATION = 2000; // 2秒内避免重复请求
 const lastSearchValue = ref('');
 let requestSequence = 0;
 
-// 防止单记录更新后立即全局刷新的防抖机制
-const recentlyUpdatedRecords = new Set<string>();
-const SINGLE_UPDATE_COOLDOWN = 1000; // 1秒内不重复刷新
+// 当前列表只监听统一的本地记录变化事件，刷新频率由 smartRefresh 控制。
 
 const scrollContainer = ref<HTMLElement | null>(null);
 const {
@@ -193,45 +145,24 @@ const responsive = useWindowAdaptive();
 // 使用内存管理器
 const memoryManager = useMemoryManager();
 
-// 用户状态管理
-const userStore = useUserStore();
+// 构建时决定是否引入商业前端，单机产物不包含账号/VIP/支付代码。
+const CommercialAccount = import.meta.env.VITE_EDITION === 'commercial'
+  ? defineAsyncComponent(() => import('../extensions/CommercialAccount.vue')) : null;
 
-// 登录对话框显示状态
-const showLoginDialog = ref(false);
-
-// 用户菜单显示状态
-const showUserMenu = ref(false);
-
-// 用户信息对话框显示状态
-const showUserInfoDialog = ref(false);
-
-// VIP账户对话框显示状态
-const showVipAccountDialog = ref(false);
-
-// 用户按钮提示文本
-const userButtonTitle = computed(() => {
-  if (userStore.isLoggedIn()) {
-    const userInfo = userStore.getUserInfo();
-    return `已登录: ${userInfo?.account || '用户'}`;
-  }
-  return '点击登录';
-});
-
+/** 列表使用的轻量记录；不包含数据库密文或同步状态。 */
 interface ClipRecord {
+  // i64 主键通过字符串传输，不能转换成 number 后再调用接口。
   id: string;
   type: string;
   content: string;
   created: number;
-  user_id?: number;
-  os_type: string;
   fileSize?: number;
   pinned_flag?: number;
   file_info?: FileInfo[];
   image_info?: ImageInfo;
-  sync_flag?: 0 | 1 | 2 | 3; // 0未同步 1同步中 2已同步 3跳过同步
-  cloud_source?: 0 | 1; // 0本地数据 1云端同步数据
 }
 
+/** 图片按需读取的本地路径和展示元数据。 */
 interface ImageInfo {
   path: string;
   size: number;
@@ -239,97 +170,29 @@ interface ImageInfo {
   height?: number;
 }
 
+/** 每个附件的展示信息，实际磁盘路径由后端根据资源主键解析。 */
 interface FileInfo {
+  // 同一条记录可有多个同名文件，操作时使用该主键精确选择。
+  resource_id: string;
   path: string;
   size: number;
   type?: string;
 }
 
+/** 接收卡片点击通知。复制动作已由卡片发起，这里只记录点击。 */
 const handleCardClick = async (item: ClipRecord) => {
   // ClipCard组件已经处理了复制逻辑，这里不需要重复调用
   // 可以在这里添加其他需要的逻辑，比如统计、日志等
   console.log('卡片被点击:', item.id);
 };
 
+/** 注册记录变化与设置窗口事件，返回所有注销函数供卸载时释放。 */
 const initEventListeners = async () => {
   const unlisteners: Array<() => void> = [];
   try {
-    unlisteners.push(await listen('clip_record_change', () => {
-      // 如果没有最近的单记录更新，则执行智能刷新
-      if (recentlyUpdatedRecords.size === 0) {
-        console.log('执行通用刷新：无最近单记录更新');
-        smartRefresh();
-      } else {
-        console.log('跳过通用刷新：有最近的单记录更新', Array.from(recentlyUpdatedRecords));
-      }
-    }));
+    unlisteners.push(await listen('clip_record_change', () => { smartRefresh(); }));
     unlisteners.push(await listen('open_settings_windows', () => {
       showSettings.value = true;
-    }));
-    // 单个同步状态更新
-    unlisteners.push(await listen('sync_status_update', (event) => {
-      const { clip_id, sync_flag } = event.payload as { clip_id: string, sync_flag: 0 | 1 | 2 | 3 };
-      const card = cards.value.find(c => c.id === clip_id);
-      if (card) card.sync_flag = sync_flag;
-    }));
-    // 批量同步状态更新
-    unlisteners.push(await listen('sync_status_update_batch', (event) => {
-      const { clip_ids, sync_flag } = event.payload as { clip_ids: string[], sync_flag: 0 | 1 | 2 | 3 };
-      // 批量更新卡片状态
-      clip_ids.forEach(clip_id => {
-        const card = cards.value.find(c => c.id === clip_id);
-        if (card) card.sync_flag = sync_flag;
-      });
-    }));
-    // 云文件下载完成事件 - 单记录更新，提供更好的用户体验
-    unlisteners.push(await listen('clip_record_download_completed', (event) => {
-      const { record_id, filename, path, file_info } = event.payload as { 
-        record_id: string, 
-        action: string, 
-        filename: string, 
-        path: string,
-        file_info?: FileInfo[]
-      };
-      console.log('收到单个记录下载完成事件:', record_id, { filename, path, file_info });
-      
-      // 找到对应的记录并更新其状态
-      const cardIndex = cards.value.findIndex(c => c.id === record_id);
-      if (cardIndex !== -1) {
-        const card = cards.value[cardIndex];
-        
-        // 更新同步状态为已完成
-        card.sync_flag = 2;
-        
-        // 对于文件类型，使用后端提供的file_info数据
-        if (card.type === 'File' && file_info) {
-          card.content = filename;
-          card.file_info = file_info;
-          console.log('文件记录已更新:', record_id, { content: filename, file_info });
-        } else {
-          // 对于非文件类型（如图片），只更新同步状态
-          console.log('非文件记录状态已更新:', record_id);
-        }
-        
-        // 强制触发响应式更新
-        cards.value = [...cards.value];
-        
-        // 标记该记录最近被更新，防止不必要的全局刷新
-        recentlyUpdatedRecords.add(record_id);
-        memoryManager.setTimeout(() => {
-          recentlyUpdatedRecords.delete(record_id);
-        }, SINGLE_UPDATE_COOLDOWN);
-        
-      } else {
-        // 如果找不到记录，可能是因为记录不在当前页面中（分页问题）
-        // 不立即刷新，而是标记为已处理，避免触发不必要的全局刷新
-        console.log('未找到对应记录，可能在其他页面，标记为已处理:', record_id);
-        
-        // 标记该记录最近被更新，防止后续的clip_record_change事件触发全局刷新
-        recentlyUpdatedRecords.add(record_id);
-        memoryManager.setTimeout(() => {
-          recentlyUpdatedRecords.delete(record_id);
-        }, SINGLE_UPDATE_COOLDOWN);
-      }
     }));
     return unlisteners;
   } catch (error) {
@@ -389,6 +252,7 @@ const silentRefresh = async () => {
   }
 };
 
+/** 回到列表顶部并重新请求第一页，适用于搜索词变化或空列表刷新。 */
 const resetAndFetch = () => {
   page.value = 1;
   hasMore.value = true;
@@ -399,6 +263,7 @@ const resetAndFetch = () => {
   fetchClipRecords(true);
 };
 
+/** 加载当前页。刷新覆盖列表，加载下一页时追加结果。 */
 const fetchClipRecords = async (isRefresh = false) => {
   if (!hasMore.value) return;
   
@@ -421,7 +286,7 @@ const fetchClipRecords = async (isRefresh = false) => {
       search: search.value
     });
     
-    // 使用新的API封装，静默处理失败
+    // 请求序号和搜索词必须仍匹配，旧响应不能覆盖新一轮搜索。
     if (requestId === requestSequence && requestSearch === search.value && isSuccess(response)) {
       const data = response.data;
       
@@ -445,6 +310,7 @@ const fetchClipRecords = async (isRefresh = false) => {
   }
 };
 
+/** 更新回顶按钮状态，并在接近底部时提前加载下一页。 */
 const handleScroll = () => {
   if (!scrollContainer.value) return;
 
@@ -513,116 +379,17 @@ watch(search, (newValue) => {
 
 const showSettings = ref(false);
 
-const cloudSyncEnabled = ref(false);
-let cloudSyncDisabledListener: (() => void) | null = null;
+// 设置更新后只刷新本地列表。
+const handleSettingsSave = async () => { smartRefresh(); };
 
-// 页面加载时自动加载设置
-const loadCloudSyncSetting = async () => {
-  const response = await settingsApi.loadSettings();
-  if (isSuccess(response)) {
-    cloudSyncEnabled.value = response.data.cloud_sync === 1;
-  } else {
-    cloudSyncEnabled.value = false;
-  }
-};
-
-// 顶部云同步按钮点击
-const handleCloudSyncClick = async () => {
-  if (!appCapabilities.value?.cloud_sync) return;
-  // 如果要开启云同步，先检查登录状态
-  if (!cloudSyncEnabled.value) {
-    // 用户尝试开启云同步，检查是否已登录
-    if (appCapabilities.value?.account && !userStore.isLoggedIn()) {
-      // 用户未登录，显示登录对话框
-      showLoginDialog.value = true;
-      return;
-    }
-  }
-  
-  const loadResponse = await settingsApi.loadSettings();
-  if (!isSuccess(loadResponse)) return;
-  
-  const settings = loadResponse.data;
-  const newValue = cloudSyncEnabled.value ? 0 : 1;
-  settings.cloud_sync = newValue;
-  
-  const saveResponse = await settingsApi.saveSettings(settings);
-  if (isSuccess(saveResponse)) {
-    cloudSyncEnabled.value = newValue === 1;
-    smartRefresh();
-  } else {
-    // 保存失败，显示具体错误信息
-    console.error('云同步设置失败:', saveResponse.error || '未知错误');
-    // 这里可以添加用户提示，比如使用消息条或弹窗
-    alert(saveResponse.error || '云同步设置失败，请重试');
-  }
-};
-
-// 设置弹窗保存后同步cloudSyncEnabled
-const handleSettingsSave = async (newSettings: any) => {
-  cloudSyncEnabled.value = newSettings.cloud_sync === 1;
-  smartRefresh();
-};
-
+/** 置顶会改变全列表顺序，成功后重新获取第一页。 */
 const handlePin = () => {
   smartRefresh();
 };
 
+/** 删除后重新查询页面，补齐因删除而前移的记录。 */
 const handleDel = () => {
   smartRefresh();
-};
-
-// 用户按钮点击处理
-const handleUserButtonClick = () => {
-  if (userStore.isLoggedIn()) {
-    // 已登录，显示用户菜单
-    showUserMenu.value = true;
-  } else {
-    // 未登录，显示登录对话框
-    showLoginDialog.value = true;
-  }
-};
-
-// 登录成功处理
-const handleLoginSuccess = (userData: any) => {
-  // 后端已经存储了token，只需要更新前端显示状态
-  userStore.setLoginState(userData.user_info);
-  // 登录成功后刷新数据
-  smartRefresh();
-};
-
-// 用户登出处理
-const handleLogout = async () => {
-  try {
-    const success = await userStore.logout();
-    if (success) {
-      // 登出成功后刷新数据
-      smartRefresh();
-      // 可选：显示登出成功消息
-      console.log('用户已登出');
-    }
-  } catch (error) {
-    console.error('登出失败:', error);
-    // 即使登出请求失败，也清除本地状态
-    userStore.clearLoginState();
-    smartRefresh();
-  }
-};
-
-// 用户信息处理
-const handleUserInfo = () => {
-  showUserInfoDialog.value = true;
-};
-
-// VIP账户处理
-const handleVipAccount = () => {
-  showVipAccountDialog.value = true;
-};
-
-// 用户信息编辑处理
-const handleUserInfoEdit = () => {
-  // TODO: 这里可以实现用户信息编辑功能
-  console.log('用户信息编辑功能，待实现');
 };
 
 let eventUnlisteners: Array<() => void> = [];
@@ -637,20 +404,8 @@ onMounted(async () => {
   }
   eventUnlisteners = registeredListeners;
   void fetchClipRecords();
-  loadCloudSyncSetting();
   
-  // 初始化用户状态
-  const capabilities = await loadAppCapabilities();
-  if (capabilities?.account) await userStore.initialize();
 
-  // 监听云同步禁用事件
-  const cloudSyncListener = await listen('cloud-sync-disabled', async () => {
-    console.log('主页面收到云同步禁用事件，更新云同步状态');
-    // 重新加载云同步设置状态
-    await loadCloudSyncSetting();
-  });
-  if (isScrollContainerUnmounted) cloudSyncListener();
-  else cloudSyncDisabledListener = cloudSyncListener;
 });
 
 onBeforeUnmount(() => {
@@ -662,20 +417,11 @@ onBeforeUnmount(() => {
   debouncedRefresh.cancel();
   searchDebounced.cancel();
 
-  // 清理Set中的所有项目，防止内存泄漏
-  recentlyUpdatedRecords.clear();
+  // 注销本次挂载注册的事件，避免组件销毁后仍触发列表请求。
   eventUnlisteners.forEach((unlisten) => unlisten());
   eventUnlisteners = [];
 
-  // 清理云同步事件监听器
-  if (cloudSyncDisabledListener) {
-    try {
-      cloudSyncDisabledListener();
-    } catch (error) {
-      console.warn('清理cloudSyncDisabledListener失败:', error);
-    }
-    cloudSyncDisabledListener = null;
-  }
+
 });
 </script>
 

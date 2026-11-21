@@ -9,8 +9,6 @@ use {
     crate::desktop::shell::window,
 };
 
-#[cfg(feature = "sync")]
-use crate::sync::runtime::{start_cloud_file_download_timer, start_cloud_sync_timer};
 
 /// 执行 Tauri `.setup()` 阶段初始化。
 ///
@@ -65,24 +63,5 @@ fn init_desktop_shell(app: &mut App, core: &BootstrapCore) -> tauri::Result<()> 
     Ok(())
 }
 
-/// 启动 setup 阶段即可运行的后台任务。
-///
-/// 这些任务需要 `AppHandle` 或数据库连接，但不依赖 `RunEvent::Ready`。
-#[cfg(feature = "sync")]
-fn start_setup_tasks(app: &mut App, core: &BootstrapCore) {
-    let app_handle = app.handle().clone();
-    let db = core.app_context.core().db().clone();
-    tokio::spawn(async move {
-        start_cloud_sync_timer(app_handle, db).await;
-    });
-
-    let app_handle_download = app.handle().clone();
-    tokio::spawn(async move {
-        start_cloud_file_download_timer(app_handle_download).await;
-    });
-}
-
-#[cfg(not(feature = "sync"))]
-fn start_setup_tasks(_app: &mut App, _core: &BootstrapCore) {
-    log::info!("当前构建未包含云同步运行时，跳过同步后台任务");
-}
+/// 旧同步运行时依赖旧数据库结构；新同步扩展完成前不启动旧任务。
+fn start_setup_tasks(_app: &mut App, _core: &BootstrapCore) {}

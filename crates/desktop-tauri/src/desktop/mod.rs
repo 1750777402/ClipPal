@@ -1,5 +1,6 @@
 //! 桌面系统适配与打包配置；本地业务位于 desktop-app-core。
 pub mod config;
+#[cfg(feature = "sync")]
 pub mod device;
 pub mod listener;
 pub mod logging;

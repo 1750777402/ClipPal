@@ -7,15 +7,16 @@ use {
     crate::desktop::system::settings::SettingsSystem,
 };
 
-#[cfg(feature = "sync")]
-use crate::sync::runtime::trigger_immediate_sync;
 
 /// 设置页面的数据包含系统实际状态；运行期状态不写入配置文件。
 #[derive(serde::Serialize)]
 pub struct SettingsView {
+    /// 直接展开已有设置字段，保持前端原来的平铺数据结构。
     #[serde(flatten)]
     pub settings: Settings,
+    /// 系统中的真实注册结果，不能用配置字符串非空代替。
     pub shortcut_registered: bool,
+    /// 系统实时权限状态，不写回 settings.json。
     pub auto_paste_permission: crate::desktop::system::accessibility::AutoPastePermission,
 }
 
@@ -52,17 +53,6 @@ impl<'a> SettingsService<'a> {
         // 先完成记录数、快捷键和权限等业务校验，校验失败时不产生任何副作用。
         self.validate_settings(&settings).await?;
 
-        // 保存变更前快照，后续系统能力应用失败时用于回滚。
-        let current_settings = self
-            .context
-            .with_settings(Clone::clone)?;
-
-        // 开启云同步前验证当前版本的认证和权限；校验先于任何系统副作用。
-        if settings.cloud_sync != current_settings.cloud_sync && settings.cloud_sync == 1 {
-            self.validate_cloud_sync_permission().await
-                .map_err(|error| AppError::Config(format!("开启云同步失败: {}", error)))?;
-        }
-
         // 保存实际系统快照；相同配置也执行注册检查，修复启动时未能注册的快捷键。
         let previous_shortcut = self.system.registered_shortcut()?;
         let previous_autostart = self.system.is_auto_start_enabled()?;
@@ -73,10 +63,6 @@ impl<'a> SettingsService<'a> {
             |enabled| self.system.set_auto_start(enabled),
             || self.repository.save(&settings),
         )?;
-
-        #[cfg(feature = "sync")]
-        let need_trigger_sync =
-            settings.cloud_sync != current_settings.cloud_sync && settings.cloud_sync == 1;
 
         // 配置文件写入成功后更新共享内存，使后台任务立即读取到新值。
         self.context
@@ -90,14 +76,6 @@ impl<'a> SettingsService<'a> {
             let _ = app.emit("clip_record_change", ());
         }
 
-        // 云同步刚被开启时主动唤醒同步任务，不等待下一次定时周期。
-        #[cfg(feature = "sync")]
-        if need_trigger_sync {
-            if let Err(error) = trigger_immediate_sync() {
-                log::warn!("触发立即云同步失败: {}", error);
-            }
-        }
-
         Ok(())
     }
 
@@ -107,25 +85,7 @@ impl<'a> SettingsService<'a> {
         self.system.validate_shortcut(&shortcut)
     }
 
-    /// 关闭云同步并同时更新配置文件和运行期设置缓存。
-    pub fn disable_cloud_sync(&self) -> Result<(), String> {
-        let mut settings = self
-            .context
-            .with_settings(Clone::clone)
-            .map_err(|error| error.to_string())?;
-        if settings.cloud_sync == 0 {
-            return Ok(());
-        }
-
-        settings.cloud_sync = 0;
-        self.repository
-            .save(&settings)
-            .map_err(|error| error.to_string())?;
-        self.context
-            .update_settings(|current| *current = settings)
-            .map_err(|error| error.to_string())
-    }
-
+    /// 先按版本策略校验记录上限和开关，再校验系统快捷键格式，不产生副作用。
     async fn validate_settings(&self, settings: &Settings) -> AppResult<()> {
         let max_allowed = self.context.policy().max_records(self.context)
             .unwrap_or(300);
@@ -142,9 +102,6 @@ impl<'a> SettingsService<'a> {
             })
     }
 
-    async fn validate_cloud_sync_permission(&self) -> Result<(), String> {
-        self.context.policy().authorize_sync(self.context).await
-    }
 
 }
 
@@ -152,6 +109,7 @@ impl<'a> SettingsService<'a> {
 mod tests {
     use super::*;
 
+    /// 验证设置响应保持平铺，快捷键和权限运行状态不写入配置。
     #[test]
     fn settings_view_keeps_existing_flat_ipc_fields_without_persisting_runtime_status() {
         let view = SettingsView { settings: Settings::default(), shortcut_registered: false,

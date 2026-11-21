@@ -1,471 +1,152 @@
+//! 两表共用的 SQLite 仓储：主记录和附件作为一个整体读取、写入和删除。
 use async_trait::async_trait;
-use rbatis::RBatis;
+use std::collections::HashMap;
+use rbatis::{RBatis, executor::Executor};
 use rbs::to_value;
+use crate::{domain::clip::{ClipRecord, ClipRecordResource}, errors::{AppError, AppResult}, repositories::ClipRecordRepository};
 
-use crate::{
-    domain::clip::ClipRecord,
-    errors::{AppError, AppResult},
-    repositories::ClipRecordRepository,
-};
+/// 本地记录仓储。只负责数据库，不操作搜索索引、缓存文件或系统剪贴板。
+pub struct SqliteClipRecordRepository { db: RBatis }
+impl SqliteClipRecordRepository {
+    /// 共享已有连接池；调用方负责先完成表结构初始化。
+    pub fn new(db: RBatis) -> Self { Self { db } }
 
-use super::insert_record;
-
-/// 基于 RBatis/SQLite 的剪贴记录仓储实现。
-pub struct SqliteClipRecordRepository {
-    pub(super) db: RBatis,
+    /// 主表与资源表必须来自同一个读快照，避免并发替换资源时返回不匹配的数据。
+    async fn read(&self, sql: &str, params: Vec<rbs::Value>) -> AppResult<Vec<ClipRecord>> {
+        let tx = self.db.acquire_begin().await?;
+        // 提前返回或读取报错时回滚，避免把未结束的事务留在连接池里。
+        let tx = tx.defer_async(|tx| async move {
+            if !tx.done() { let _ = tx.rollback().await; }
+        });
+        let records = load(&tx, sql, params).await?;
+        tx.commit().await?;
+        Ok(records)
+    }
 }
 
-impl SqliteClipRecordRepository {
-    /// 保存共享 RBatis 连接句柄；RBatis clone 复用同一连接池而不是新建数据库连接。
-    pub fn new(db: RBatis) -> Self {
-        Self { db }
+/// 执行主表查询，再按主键补齐有序资源；既能用于读事务，也能用于写事务。
+async fn load(executor: &dyn Executor, sql: &str, params: Vec<rbs::Value>) -> AppResult<Vec<ClipRecord>> {
+    let mut records: Vec<ClipRecord> = rbatis::decode(executor.query(sql, params).await?)?;
+    if records.is_empty() { return Ok(records); }
+    // 建立“记录 ID → 数组位置”的映射，分配每个附件时不用遍历整个记录列表。
+    let positions: HashMap<i64, usize> = records.iter().enumerate().map(|(index, record)| (record.id, index)).collect();
+    let ids: Vec<_> = records.iter().map(|record| record.id).collect();
+    // 启动索引重建会读取全部记录，资源查询也分批，不能只对搜索查询分批。
+    for chunk in ids.chunks(400) {
+        let placeholders = chunk.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+        let resources: Vec<ClipRecordResource> = rbatis::decode(executor.query(&format!("SELECT * FROM clip_record_resource WHERE record_id IN ({placeholders}) ORDER BY record_id, position"), chunk.iter().map(|id| to_value!(id)).collect()).await?)?;
+        for resource in resources {
+            if let Some(&index) = positions.get(&resource.record_id) { records[index].resources.push(resource); }
+        }
     }
+    Ok(records)
+}
+
+/// 在调用方事务中持久化记录与资源，用于采集及一次性旧数据迁移。
+/// 新记录的 id 由数据库生成；重复内容保留首次时间和置顶状态。
+pub async fn persist_record(executor: &dyn Executor, record: &ClipRecord) -> AppResult<i64> {
+    // 同内容更新最近复制时间和排序；故意不更新首次时间、主键和置顶状态。
+    executor.exec("INSERT INTO clip_record (content_key,type,content,created_at,last_copied_at,sort_order,pinned) VALUES (?,?,?,?,?,?,?) ON CONFLICT(content_key) DO UPDATE SET type=excluded.type, content=excluded.content, last_copied_at=excluded.last_copied_at, sort_order=excluded.sort_order", vec![
+        to_value!(&record.content_key), to_value!(&record.r#type), to_value!(&record.content), to_value!(record.created_at), to_value!(record.last_copied_at), to_value!(record.sort_order), to_value!(record.pinned),
+    ]).await?;
+    // 冲突更新时不能依赖 last_insert_rowid，按唯一内容键读回实际主键。
+    #[derive(serde::Deserialize)] struct Id { id: i64 }
+    let rows: Vec<Id> = rbatis::decode(executor.query("SELECT id FROM clip_record WHERE content_key=?", vec![to_value!(&record.content_key)]).await?)?;
+    let id = rows[0].id;
+    // 资源清单整组替换；任一插入失败，由外层事务恢复原清单。
+    executor.exec("DELETE FROM clip_record_resource WHERE record_id=?", vec![to_value!(id)]).await?;
+    for resource in &record.resources {
+        executor.exec("INSERT INTO clip_record_resource (record_id,position,display_name,resource_kind,storage_kind,path,byte_size,content_hash) VALUES (?,?,?,?,?,?,?,?)", vec![to_value!(id), to_value!(resource.position), to_value!(&resource.display_name), to_value!(&resource.resource_kind), to_value!(&resource.storage_kind), to_value!(&resource.path), to_value!(resource.byte_size), to_value!(&resource.content_hash)]).await?;
+    }
+    Ok(id)
 }
 
 #[async_trait]
 impl ClipRecordRepository for SqliteClipRecordRepository {
-    /// 加载数据库中的全部记录，供启动阶段重建搜索索引。
-    async fn list_all(&self) -> AppResult<Vec<ClipRecord>> {
-        self.db
-            .query_decode(
-                "SELECT * FROM clip_record ORDER BY sort DESC, created DESC",
-                vec![],
-            )
-            .await
-            .map_err(AppError::Database)
+    /// 读取全部记录及资源，主要供启动重建索引使用；-1 表示不限制条数。
+    async fn list_all(&self) -> AppResult<Vec<ClipRecord>> { self.list(-1, 0).await }
+    /// 根据本地主键查找，记录不存在时返回 None。
+    async fn find_by_id(&self, id: i64) -> AppResult<Option<ClipRecord>> {
+        Ok(self.read("SELECT * FROM clip_record WHERE id=?", vec![to_value!(id)]).await?.into_iter().next())
     }
-
-    /// 使用主键查询记录，并把空结果转换为 `None`。
-    async fn find_by_id(&self, id: &str) -> AppResult<Option<ClipRecord>> {
-        self.db
-            .query_decode(
-                "SELECT * FROM clip_record WHERE id = ?",
-                vec![to_value!(id)],
-            )
-            .await
-            .map(|records: Vec<ClipRecord>| records.into_iter().next())
-            .map_err(AppError::Database)
+    /// 根据内容身份查重，不依赖设备 ID 或记录 ID。
+    async fn find_by_content_key(&self, key: &str) -> AppResult<Option<ClipRecord>> {
+        Ok(self.read("SELECT * FROM clip_record WHERE content_key=?", vec![to_value!(key)]).await?.into_iter().next())
     }
-
-    /// 使用类型和 MD5 查询任意状态的一条记录，保持现有去重行为。
-    async fn find_by_type_and_md5(
-        &self,
-        record_type: &str,
-        md5: &str,
-    ) -> AppResult<Option<ClipRecord>> {
-        self.db
-            .query_decode(
-                "SELECT * FROM clip_record WHERE type = ? AND md5_str = ? LIMIT 1",
-                vec![to_value!(record_type), to_value!(md5)],
-            )
-            .await
-            .map(|records: Vec<ClipRecord>| records.into_iter().next())
-            .map_err(AppError::Database)
+    /// 先置顶、再按最近采集顺序分页；ID 用于顺序相同时稳定排序。
+    async fn list(&self, limit: i32, offset: i64) -> AppResult<Vec<ClipRecord>> {
+        self.read("SELECT * FROM clip_record ORDER BY pinned DESC,sort_order DESC,id DESC LIMIT ? OFFSET ?", vec![to_value!(limit),to_value!(offset)]).await
     }
-
-    /// 查询未删除记录，并按置顶、排序值、创建时间依次降序排列。
-    async fn list(&self, limit: i32, offset: i32) -> AppResult<Vec<ClipRecord>> {
-        self.db
-            .query_decode(
-                "SELECT * FROM clip_record WHERE del_flag = 0 ORDER BY pinned_flag DESC, sort DESC, created DESC LIMIT ? OFFSET ?",
-                vec![to_value!(limit), to_value!(offset)],
-            )
-            .await
-            .map_err(AppError::Database)
-    }
-
-    /// 在搜索结果 ID 集合中分页查询记录；空 ID 集合直接返回，避免生成无效 SQL。
-    async fn list_by_ids(
-        &self,
-        ids: &[String],
-        limit: i32,
-        offset: i32,
-    ) -> AppResult<Vec<ClipRecord>> {
-        if ids.is_empty() {
-            return Ok(Vec::new());
+    /// 搜索索引只提供候选 ID；回查数据库后统一排序分页，过滤失效结果。
+    async fn list_by_ids(&self, ids: &[String], limit: i32, offset: i64) -> AppResult<Vec<ClipRecord>> {
+        if ids.is_empty() { return Ok(vec![]); }
+        let tx = self.db.acquire_begin().await?;
+        let tx = tx.defer_async(|tx| async move {
+            if !tx.done() { let _ = tx.rollback().await; }
+        });
+        // 分批查询，搜索命中数不受 SQLite 占位符上限限制。
+        let mut found = Vec::new();
+        for chunk in ids.chunks(400) {
+            let sql = format!("SELECT * FROM clip_record WHERE id IN ({})", chunk.iter().map(|_| "?").collect::<Vec<_>>().join(","));
+            found.extend(load(&tx, &sql, chunk.iter().map(|id| to_value!(id)).collect()).await?);
         }
-
-        // 根据 ID 数量生成等量占位符，具体值仍通过参数绑定避免 SQL 注入。
-        let sql = format!(
-            "SELECT * FROM clip_record WHERE id IN ({}) AND del_flag = 0 ORDER BY pinned_flag DESC, sort DESC, created DESC LIMIT ? OFFSET ?",
-            ids.iter().map(|_| "?").collect::<Vec<_>>().join(",")
-        );
-        let mut params = ids.iter().map(|id| to_value!(id)).collect::<Vec<_>>();
-        params.push(to_value!(limit));
-        params.push(to_value!(offset));
-
-        self.db
-            .query_decode(&sql, params)
-            .await
-            .map_err(AppError::Database)
+        tx.commit().await?;
+        // 必须合并所有分批结果后排序，不能把每批当成独立页面。
+        found.sort_by_key(|row| std::cmp::Reverse((row.pinned, row.sort_order, row.id)));
+        Ok(found.into_iter().skip(offset as usize).take(limit as usize).collect())
     }
-
-    /// 查询指定同步状态且内容有效的记录。
-    async fn list_by_sync_status(&self, sync_flag: i32) -> AppResult<Vec<ClipRecord>> {
-        self.db
-            .query_decode(
-                "SELECT * FROM clip_record WHERE sync_flag = ? AND content IS NOT NULL ORDER BY created DESC",
-                vec![to_value!(sync_flag)],
-            )
-            .await
-            .map_err(AppError::Database)
-    }
-
-    /// 查询指定同步状态和来源的有限数量记录。
-    async fn list_by_sync_status_and_source(
-        &self,
-        sync_flag: i32,
-        cloud_source: i32,
-        limit: i32,
-    ) -> AppResult<Vec<ClipRecord>> {
-        self.db
-            .query_decode(
-                "SELECT * FROM clip_record WHERE sync_flag = ? AND cloud_source = ? ORDER BY created DESC LIMIT ?",
-                vec![
-                    to_value!(sync_flag),
-                    to_value!(cloud_source),
-                    to_value!(limit),
-                ],
-            )
-            .await
-            .map_err(AppError::Database)
-    }
-
-    /// 查询可以物理清理的已同步墓碑记录。
-    async fn list_synced_tombstones(&self) -> AppResult<Vec<ClipRecord>> {
-        self.db
-            .query_decode(
-                "SELECT * FROM clip_record WHERE sync_flag = 2 AND del_flag = 1",
-                vec![],
-            )
-            .await
-            .map_err(AppError::Database)
-    }
-
-    async fn list_tombstones(&self) -> AppResult<Vec<ClipRecord>> {
-        self.db.query_decode("SELECT * FROM clip_record WHERE del_flag = 1", vec![]).await.map_err(AppError::Database)
-    }
-
-    /// 通过参数化插入语句保存完整记录。
-    async fn insert(&self, record: &ClipRecord) -> AppResult<()> {
-        insert_record(&self.db, record).await
-    }
-
-    /// 在事务内根据创建时间腾出排序位置并插入记录。
-    async fn insert_by_created_sort(&self, mut record: ClipRecord) -> AppResult<()> {
+    /// 保存一次采集；写入顺序、内容去重及资源替换在同一事务完成。
+    async fn save_capture(&self, record: &ClipRecord) -> AppResult<ClipRecord> {
         let tx = self.db.acquire_begin().await?;
-        let next_records: Vec<ClipRecord> = self
-            .db
-            .query_decode(
-                "SELECT * FROM clip_record WHERE created >= ? ORDER BY created DESC LIMIT 1",
-                vec![to_value!(record.created)],
-            )
-            .await?;
-
-        if let Some(next_record) = next_records.first() {
-            tx.exec(
-                "UPDATE clip_record SET sort = IFNULL(sort, 0) + 1 WHERE created >= ?",
-                vec![to_value!(next_record.created)],
-            )
-            .await?;
-            record.sort = next_record.sort;
-        } else {
-            record.sort = self.next_sort().await?;
-        }
-
-        insert_record(&tx, &record).await?;
-        tx.commit()
-            .await
-            .map_err(|error| AppError::Database(rbatis::Error::from(error)))
+        let tx=tx.defer_async(|tx|async move{if !tx.done(){if let Err(error)=tx.rollback().await{log::error!("回滚本地事务失败: {}",error);}}});
+        // 写入顺序在事务内分配；首先写入避免读事务升级时的竞争。
+        let mut next = record.clone();
+        tx.exec("UPDATE clip_record SET sort_order=sort_order WHERE id=-1", vec![]).await?;
+        #[derive(serde::Deserialize)] struct Sort { next: i64 }
+        let rows: Vec<Sort> = tx.query_decode("SELECT COALESCE(MAX(sort_order),0)+1 AS next FROM clip_record", vec![]).await?;
+        next.sort_order = rows[0].next;
+        let id = persist_record(&tx, &next).await?;
+        // 返回数据库实际分配的记录和资源 ID，不能返回尚未入库的输入对象。
+        let result = load(&tx, "SELECT * FROM clip_record WHERE id=?", vec![to_value!(id)]).await?.remove(0);
+        tx.commit().await?;
+        Ok(result)
     }
-
-    /// 读取当前最大排序值并返回下一可用值。
-    async fn next_sort(&self) -> AppResult<i32> {
-        #[derive(serde::Deserialize)]
-        struct SortResult {
-            sort: i32,
-        }
-
-        self.db
-            .query_decode(
-                "SELECT sort FROM clip_record ORDER BY sort DESC, created DESC LIMIT 1",
-                vec![],
-            )
-            .await
-            .map(|records: Vec<SortResult>| {
-                records.first().map(|record| record.sort + 1).unwrap_or(0)
-            })
-            .map_err(AppError::Database)
-    }
-
-    /// 在事务中更新记录内容。
-    async fn update_content(&self, id: &str, content: &str) -> AppResult<()> {
+    /// 切换唯一置顶；目标不存在或更新失败时，原置顶记录保持不变。
+    async fn set_pinned(&self, id: i64, pinned: i32) -> AppResult<()> {
+        if !matches!(pinned,0|1) { return Err(AppError::Config("置顶状态无效".into())); }
         let tx = self.db.acquire_begin().await?;
-        tx.exec(
-            "UPDATE clip_record SET content = ? WHERE id = ?",
-            vec![to_value!(content), to_value!(id)],
-        )
-        .await?;
-        tx.commit()
-            .await
-            .map_err(|error| AppError::Database(rbatis::Error::from(error)))
+        let tx=tx.defer_async(|tx|async move{if !tx.done(){if let Err(error)=tx.rollback().await{log::error!("回滚本地事务失败: {}",error);}}});
+        tx.exec("UPDATE clip_record SET sort_order=sort_order WHERE id=-1", vec![]).await?;
+        if load(&tx,"SELECT * FROM clip_record WHERE id=?",vec![to_value!(id)]).await?.is_empty() { return Err(AppError::Config("记录不存在".into())); }
+        // 先确认目标存在，再释放旧置顶，整个过程仍在同一事务内。
+        if pinned == 1 { tx.exec("UPDATE clip_record SET pinned=0 WHERE pinned=1",vec![]).await?; }
+        tx.exec("UPDATE clip_record SET pinned=? WHERE id=?",vec![to_value!(pinned),to_value!(id)]).await?;
+        tx.commit().await?; Ok(())
     }
-
-    /// 更新排序值并递增记录版本。
-    async fn update_sort(&self, id: &str, sort: i32) -> AppResult<()> {
+    /// 物理删除并返回删除前快照，供提交后回收缓存；重复删除返回 None。
+    async fn delete(&self, id: i64) -> AppResult<Option<ClipRecord>> {
         let tx = self.db.acquire_begin().await?;
-        tx.exec(
-            "UPDATE clip_record SET sort = ?, version = IFNULL(version, 0) + 1 WHERE id = ?",
-            vec![to_value!(sort), to_value!(id)],
-        )
-        .await?;
-        tx.commit()
-            .await
-            .map_err(|error| AppError::Database(rbatis::Error::from(error)))
+        let tx=tx.defer_async(|tx|async move{if !tx.done(){if let Err(error)=tx.rollback().await{log::error!("回滚本地事务失败: {}",error);}}});
+        tx.exec("UPDATE clip_record SET sort_order=sort_order WHERE id=-1",vec![]).await?;
+        let record = load(&tx,"SELECT * FROM clip_record WHERE id=?",vec![to_value!(id)]).await?.into_iter().next();
+        // 资源行由 ON DELETE CASCADE 删除，磁盘文件交给应用层处理。
+        tx.exec("DELETE FROM clip_record WHERE id=?",vec![to_value!(id)]).await?;
+        tx.commit().await?; Ok(record)
     }
-
-    /// 更新记录关联的本地文件路径。
-    async fn update_local_file_path(&self, id: &str, local_path: &str) -> AppResult<()> {
+    /// 统计有效本地记录；本表没有逻辑删除状态。
+    async fn count(&self) -> AppResult<i64> {
+        #[derive(serde::Deserialize)] struct Count { count: i64 }
+        let rows: Vec<Count> = self.db.query_decode("SELECT COUNT(*) AS count FROM clip_record",vec![]).await?;
+        Ok(rows[0].count)
+    }
+    /// 保留最新的指定条数并保护置顶记录，返回被淘汰记录的资源快照。
+    async fn remove_overflow(&self, max_records: u32) -> AppResult<Vec<ClipRecord>> {
         let tx = self.db.acquire_begin().await?;
-        tx.exec(
-            "UPDATE clip_record SET local_file_path = ? WHERE id = ?",
-            vec![to_value!(local_path), to_value!(id)],
-        )
-        .await?;
-        tx.commit()
-            .await
-            .map_err(|error| AppError::Database(rbatis::Error::from(error)))
-    }
-
-    /// 更新云端文件下载完成后的本地资源信息和同步状态。
-    async fn update_after_cloud_download(
-        &self,
-        id: &str,
-        filename: &str,
-        absolute_path: &str,
-    ) -> AppResult<()> {
-        let tx = self.db.acquire_begin().await?;
-        tx.exec(
-            "UPDATE clip_record SET content = ?, local_file_path = ?, sync_flag = 2 WHERE id = ?",
-            vec![to_value!(filename), to_value!(absolute_path), to_value!(id)],
-        )
-        .await?;
-        tx.commit()
-            .await
-            .map_err(|error| AppError::Database(rbatis::Error::from(error)))
-    }
-
-    /// 用新内容覆盖已删除记录，同时保留原记录 ID。
-    async fn restore_deleted(&self, id: &str, record: &ClipRecord) -> AppResult<()> {
-        let tx = self.db.acquire_begin().await?;
-        tx.exec(
-            "UPDATE clip_record SET type = ?, content = ?, md5_str = ?, local_file_path = ?, created = ?, os_type = ?, sort = ?, pinned_flag = ?, sync_flag = ?, sync_time = ?, device_id = ?, version = ?, del_flag = ?, cloud_source = ?, skip_type = ? WHERE id = ?",
-            vec![
-                to_value!(&record.r#type),
-                to_value!(&record.content),
-                to_value!(&record.md5_str),
-                to_value!(&record.local_file_path),
-                to_value!(record.created),
-                to_value!(&record.os_type),
-                to_value!(record.sort),
-                to_value!(record.pinned_flag),
-                to_value!(&record.sync_flag),
-                to_value!(&record.sync_time),
-                to_value!(&record.device_id),
-                to_value!(&record.version),
-                to_value!(&record.del_flag),
-                to_value!(&record.cloud_source),
-                to_value!(&record.skip_type),
-                to_value!(id),
-            ],
-        )
-        .await?;
-        tx.commit()
-            .await
-            .map_err(|error| AppError::Database(rbatis::Error::from(error)))
-    }
-
-    /// 在事务中更新置顶状态；置顶新记录前先取消其他记录的置顶标记。
-    async fn set_pinned(&self, id: &str, pinned_flag: i32) -> AppResult<()> {
-        let tx = self.db.acquire_begin().await?;
-        // 业务规则要求置顶互斥，只在设置为置顶时执行批量取消。
-        if pinned_flag == 1 {
-            tx
-                .exec(
-                    "UPDATE clip_record SET pinned_flag = 0 WHERE pinned_flag = 1",
-                    vec![],
-                )
-                .await?;
-        }
-        // 同步递增版本号，确保后续云同步能够识别本地状态变化。
-        tx
-            .exec(
-                "UPDATE clip_record SET pinned_flag = ?, version = IFNULL(version, 0) + 1 WHERE id = ?",
-                vec![to_value!(pinned_flag), to_value!(id)],
-            )
-            .await?;
-        tx.commit()
-            .await
-            .map_err(|error| AppError::Database(rbatis::Error::from(error)))
-    }
-
-    /// 在事务中批量逻辑删除记录，并将删除动作标记为待同步。
-    async fn mark_deleted(&self, ids: &[String]) -> AppResult<()> {
-        // ID 只用于生成占位符数量，所有值通过绑定参数传入。
-        let sql = format!(
-            "UPDATE clip_record SET del_flag = 1, sync_flag = 0 WHERE id IN ({})",
-            ids.iter().map(|_| "?").collect::<Vec<_>>().join(",")
-        );
-        let params = ids.iter().map(|id| to_value!(id)).collect::<Vec<_>>();
-        let tx = self.db.acquire_begin().await?;
-        tx.exec(&sql, params).await?;
-        tx.commit()
-            .await
-            .map_err(|error| AppError::Database(rbatis::Error::from(error)))
-    }
-
-    /// 将云端墓碑批量应用到本地记录。
-    async fn apply_remote_deletions(&self, ids: &[String], sync_time: u64) -> AppResult<()> {
-        if ids.is_empty() {
-            return Ok(());
-        }
-        let sql = format!(
-            "UPDATE clip_record SET del_flag = 1, sync_flag = 2, sync_time = ? WHERE id IN ({})",
-            ids.iter().map(|_| "?").collect::<Vec<_>>().join(",")
-        );
-        let mut params = vec![to_value!(sync_time)];
-        params.extend(ids.iter().map(|id| to_value!(id)));
-        let tx = self.db.acquire_begin().await?;
-        tx.exec(&sql, params).await?;
-        tx.commit()
-            .await
-            .map_err(|error| AppError::Database(rbatis::Error::from(error)))
-    }
-
-    /// 在事务中物理删除指定记录。
-    async fn delete_permanently(&self, ids: &[String]) -> AppResult<()> {
-        if ids.is_empty() {
-            return Ok(());
-        }
-        let sql = format!(
-            "DELETE FROM clip_record WHERE id IN ({})",
-            ids.iter().map(|_| "?").collect::<Vec<_>>().join(",")
-        );
-        let params = ids.iter().map(|id| to_value!(id)).collect::<Vec<_>>();
-        let tx = self.db.acquire_begin().await?;
-        tx.exec(&sql, params).await?;
-        tx.commit()
-            .await
-            .map_err(|error| AppError::Database(rbatis::Error::from(error)))
-    }
-
-    /// 批量写入同步状态和服务端同步时间。
-    async fn update_sync_status(
-        &self,
-        ids: &[String],
-        sync_flag: i32,
-        sync_time: u64,
-    ) -> AppResult<()> {
-        if ids.is_empty() {
-            return Ok(());
-        }
-        let sql = format!(
-            "UPDATE clip_record SET sync_flag = ?, sync_time = ? WHERE id IN ({})",
-            ids.iter().map(|_| "?").collect::<Vec<_>>().join(",")
-        );
-        let mut params = vec![to_value!(sync_flag), to_value!(sync_time)];
-        params.extend(ids.iter().map(|id| to_value!(id)));
-        let tx = self.db.acquire_begin().await?;
-        tx.exec(&sql, params).await?;
-        tx.commit()
-            .await
-            .map_err(|error| AppError::Database(rbatis::Error::from(error)))
-    }
-
-    async fn list_skipped(&self, sync_flag: i32, skip_type: i32) -> AppResult<Vec<ClipRecord>> {
-        self.db
-            .query_decode(
-                "SELECT * FROM clip_record WHERE sync_flag = ? AND skip_type = ? AND del_flag = 0",
-                vec![to_value!(sync_flag), to_value!(skip_type)],
-            )
-            .await
-            .map_err(AppError::Database)
-    }
-
-    async fn update_sync_state(
-        &self,
-        id: &str,
-        sync_flag: i32,
-        skip_type: Option<i32>,
-    ) -> AppResult<()> {
-        let tx = self.db.acquire_begin().await?;
-        match skip_type {
-            Some(skip_type) => {
-                tx.exec(
-                    "UPDATE clip_record SET sync_flag = ?, skip_type = ?, version = IFNULL(version, 0) + 1 WHERE id = ?",
-                    vec![to_value!(sync_flag), to_value!(skip_type), to_value!(id)],
-                )
-                .await?;
-            }
-            None => {
-                tx.exec(
-                    "UPDATE clip_record SET sync_flag = ?, skip_type = NULL, version = IFNULL(version, 0) + 1 WHERE id = ?",
-                    vec![to_value!(sync_flag), to_value!(id)],
-                )
-                .await?;
-            }
-        }
-        tx.commit()
-            .await
-            .map_err(|error| AppError::Database(rbatis::Error::from(error)))
-    }
-
-    async fn count_active(&self) -> AppResult<i64> {
-        #[derive(serde::Deserialize)]
-        struct CountResult {
-            count: i64,
-        }
-
-        self.db
-            .query_decode(
-                "SELECT COUNT(*) AS count FROM clip_record WHERE del_flag = 0",
-                vec![],
-            )
-            .await
-            .map(|rows: Vec<CountResult>| rows.first().map(|row| row.count).unwrap_or(0))
-            .map_err(AppError::Database)
-    }
-
-    /// 统计可以物理清理的已同步数量。
-    async fn count_synced_tombstones(&self) -> AppResult<i64> {
-        #[derive(serde::Deserialize)]
-        struct CountResult {
-            count: i64,
-        }
-
-        self.db
-            .query_decode(
-                "SELECT COUNT(*) AS count FROM clip_record WHERE del_flag = 1 AND sync_flag = 2",
-                vec![],
-            )
-            .await
-            .map(|rows: Vec<CountResult>| rows.first().map(|row| row.count).unwrap_or(0))
-            .map_err(AppError::Database)
-    }
-
-    async fn delete_oldest_unpinned(&self, count: i32) -> AppResult<()> {
-        self.db
-            .exec(
-                "DELETE FROM clip_record WHERE id IN (
-                    SELECT id FROM clip_record
-                    WHERE del_flag = 0 AND pinned_flag = 0
-                    ORDER BY sort ASC, created ASC
-                    LIMIT ?
-                )",
-                vec![to_value!(count)],
-            )
-            .await
-            .map(|_| ())
-            .map_err(AppError::Database)
+        let tx=tx.defer_async(|tx|async move{if !tx.done(){if let Err(error)=tx.rollback().await{log::error!("回滚本地事务失败: {}",error);}}});
+        tx.exec("UPDATE clip_record SET sort_order=sort_order WHERE id=-1",vec![]).await?;
+        let rows = load(&tx,"SELECT * FROM clip_record ORDER BY pinned DESC,sort_order DESC,id DESC LIMIT -1 OFFSET ?",vec![to_value!(max_records)]).await?;
+        let rows: Vec<_> = rows.into_iter().filter(|row| !row.is_pinned()).collect();
+        for row in &rows { tx.exec("DELETE FROM clip_record WHERE id=?",vec![to_value!(row.id)]).await?; }
+        tx.commit().await?; Ok(rows)
     }
 }

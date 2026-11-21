@@ -13,16 +13,6 @@
                             </span>
                         </template>
                     </span>
-                    <div v-if="cloudSyncEnabled && record.sync_flag !== undefined" class="sync-dot">
-                        <span v-if="record.sync_flag === 0" class="sync-unsynced" title="未同步"></span>
-                        <span v-else-if="record.sync_flag === 1" class="sync-syncing" :title="getSyncingTitle">
-                            <i class="iconfont icon-loading sync-loading"></i>
-                        </span>
-                        <span v-else-if="record.sync_flag === 2" class="sync-synced" title="已同步"></span>
-                        <span v-else-if="record.sync_flag === 3" class="sync-skipped" title="不支持同步">
-                            <i class="iconfont icon-tishi"></i>
-                        </span>
-                    </div>
                 </div>
                 <span class="time-text">{{ formatTime(record.created) }}</span>
             </div>
@@ -71,7 +61,7 @@
                          @error="handleImageError" />
                     
                     <!-- 加载中状态 -->
-                    <div v-else-if="!isDownloadingFromCloud && (isLoadingImage || (!shouldLoadImage && !imageError))" class="image-placeholder" @click="loadImage">
+                    <div v-else-if="isLoadingImage || (!shouldLoadImage && !imageError)" class="image-placeholder" @click="loadImage">
                         <div v-if="isLoadingImage" class="placeholder-spinner"></div>
                         <i v-else class="iconfont icon-image placeholder-icon"></i>
                         <span class="loading-text">{{ getImageLoadingText }}</span>
@@ -81,39 +71,19 @@
                     </div>
                     
                     <!-- 错误状态 -->
-                    <div v-if="imageError && !isDownloadingFromCloud" class="image-error">
+                    <div v-if="imageError" class="image-error">
                         <i class="iconfont icon-tishi"></i>
                         <span class="error-text">图片加载失败</span>
                         <button class="retry-btn" @click="retryLoadImage">重试</button>
                     </div>
                     
-                    <!-- 云端下载状态 -->
-                    <div v-if="isDownloadingFromCloud" class="image-downloading">
-                        <div class="downloading-spinner"></div>
-                        <i class="iconfont icon-cloud downloading-icon"></i>
-                        <span class="downloading-text">正在从云端下载...</span>
-                        <div v-if="record.image_info" class="image-meta">
-                            {{ formatFileSize(record.image_info.size) }}
-                        </div>
-                    </div>
                 </div>
             </template>
 
             <!-- 文件类型 -->
             <template v-else-if="record.type === 'File'">
                 <div class="file-content">
-                    <!-- 云端下载状态显示 -->
-                    <div v-if="isDownloadingFromCloud" class="file-downloading">
-                        <div class="downloading-container">
-                            <div class="downloading-spinner"></div>
-                            <i class="iconfont icon-cloud downloading-icon"></i>
-                            <div class="downloading-info">
-                                <span class="downloading-text">正在从云端下载文件...</span>
-                                <span class="downloading-desc">下载完成后将自动显示文件信息</span>
-                            </div>
-                        </div>
-                    </div>
-                    <div v-else class="file-list">
+                    <div class="file-list">
                         <div v-for="(file, index) in fileList" :key="index" class="file-item">
                             <div class="file-icon-wrapper">
                                 <i class="iconfont icon-file"></i>
@@ -126,13 +96,13 @@
                                     <span v-else-if="file.size === -2" class="file-status file-error">（无法读取）</span>
                                 </span>
                             </div>
-                            <button v-if="fileList.length > 1" class="single-copy-btn" @click.stop="handleCopySingleFile(file.path)" 
+                            <button v-if="fileList.length > 1" class="single-copy-btn" @click.stop="handleCopySingleFile(file.resource_id)"
                                     title="仅复制此文件">
                                 仅复制此文件
                             </button>
                         </div>
                     </div>
-                    <div class="file-count" v-if="!isDownloadingFromCloud && fileList.length > 1">
+                    <div class="file-count" v-if="fileList.length > 1">
                         共 {{ fileList.length }} 个文件
                     </div>
                 </div>
@@ -220,7 +190,8 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
+// 单条历史记录卡片。列表先展示轻量数据，图片和长文本按需加载。
+import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { formatDistanceToNow } from 'date-fns';
 import { zhCN } from 'date-fns/locale';
 import { convertFileSrc } from '@tauri-apps/api/core';
@@ -235,7 +206,6 @@ import type { ClipRecord } from '../types/global';
 const props = defineProps<{
     record: ClipRecord;
     isMobile: boolean;
-    cloudSyncEnabled: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -266,10 +236,10 @@ const shouldLoadImage = ref(false);
 const imageContainer = ref<HTMLElement | null>(null);
 const intersectionObserver = ref<IntersectionObserver | null>(null);
 let imageCleanupTimer: ReturnType<typeof setTimeout> | null = null;
-let syncLoadTimer: ReturnType<typeof setTimeout> | null = null;
 
 // showMessageBar 现在通过全局错误处理器自动处理，不需要手动注入
 
+/** 取消尚未执行的图片内存回收，避免重新进入视口时图片被清空。 */
 const clearPendingImageCleanup = () => {
     if (imageCleanupTimer) {
         clearTimeout(imageCleanupTimer);
@@ -277,6 +247,7 @@ const clearPendingImageCleanup = () => {
     }
 };
 
+/** 提前 200px 视为接近视口，让图片加载与回收留有缓冲。 */
 const isImageContainerNearViewport = () => {
     if (!imageContainer.value) {
         return false;
@@ -300,7 +271,7 @@ const clearImageMemory = () => {
 
 // 懒加载图片（仅使用asset协议，专注性能）
 const loadImage = async () => {
-    if (isLoadingImage.value || props.record.type !== 'Image' || isDownloadingFromCloud.value) {
+    if (isLoadingImage.value || props.record.type !== 'Image') {
         return;
     }
 
@@ -332,32 +303,11 @@ const loadImage = async () => {
 
 // 触发图片加载（可见时或用户交互时）
 const triggerImageLoad = () => {
-    // 如果正在从云端下载，不触发本地加载
-    if (isDownloadingFromCloud.value) {
-        return;
-    }
     if (!shouldLoadImage.value && props.record.type === 'Image') {
         shouldLoadImage.value = true;
         loadImage();
     }
 };
-
-// 监听同步状态变化，当从云端下载完成时自动加载图片
-watch(() => props.record.sync_flag, (newFlag, oldFlag) => {
-    // 当从同步中(1)变为已同步(2)时，且是图片类型，自动加载图片
-    if (oldFlag === 1 && newFlag === 2 && props.record.type === 'Image') {
-        console.log('云端下载完成，自动加载图片:', props.record.id);
-        // 稍微延迟一下再加载，确保状态更新完成
-        if (syncLoadTimer) clearTimeout(syncLoadTimer);
-        syncLoadTimer = setTimeout(() => {
-            syncLoadTimer = null;
-            if (!shouldLoadImage.value && !imageProtocolUrl.value) {
-                shouldLoadImage.value = true;
-                loadImage();
-            }
-        }, 100);
-    }
-});
 
 // 检查是否需要显示自动粘贴提示
 const checkFirstAutoPasteUsage = () => {
@@ -450,12 +400,13 @@ const handleSmartCopy = (_content: string) => {
     // 移除成功提示，让操作更简洁
 };
 
-// 复制单个文件
-const handleCopySingleFile = async (filePath: string) => {
-    await clipApi.copySingleFile(props.record.id, filePath);
+// 通过后端资源主键选择附件，同一条记录中的同名文件也能精确复制。
+const handleCopySingleFile = async (resourceId: string) => {
+    await clipApi.copySingleFile(props.record.id, resourceId);
     // 错误处理由全局错误处理器自动处理
 };
 
+/** 把后端毫秒时间转成“几分钟前”等本地化展示文案。 */
 const formatTime = (timestamp: number) => {
     return formatDistanceToNow(new Date(timestamp), {
         addSuffix: true,
@@ -463,6 +414,7 @@ const formatTime = (timestamp: number) => {
     });
 };
 
+/** 只格式化展示大小；负数表示后端未找到资源或无法读取元数据。 */
 const formatFileSize = (bytes: number) => {
     if (bytes === -1) return '未知'; // 文件不存在
     if (bytes === -2) return '未知'; // 无法读取元数据
@@ -473,6 +425,7 @@ const formatFileSize = (bytes: number) => {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
 };
 
+/** 根据显示名扩展名选择类型文案，不参与后端内容识别和去重。 */
 const getFileType = (filename: string) => {
     const ext = filename.split('.').pop()?.toLowerCase() || '';
     const typeMap: Record<string, string> = {
@@ -499,6 +452,7 @@ const getFileType = (filename: string) => {
     return typeMap[ext] || '文件';
 };
 
+/** 为合法 JSON 增加展示缩进；无法解析时保留原文。 */
 const formatJSON = (json: string) => {
     try {
         const parsed = JSON.parse(json);
@@ -542,6 +496,7 @@ const getTypeTitle = computed(() => {
     }
 });
 
+/** 优先使用后端结构化附件信息，旧展示内容的解析失败则显示空列表。 */
 const fileList = computed(() => {
     if (props.record.type === 'File') {
         try {
@@ -553,6 +508,7 @@ const fileList = computed(() => {
     return [];
 });
 
+/** 仅提交记录 ID；保存位置选择与实际磁盘写入由后端完成。 */
 const handleSaveAs = async () => {
     await clipApi.imageSaveAs(props.record.id);
 };
@@ -577,6 +533,7 @@ const handleImageError = () => {
     imageError.value = true;
 };
 
+/** 清除上次的加载状态，再按当前记录 ID 请求图片路径。 */
 const retryLoadImage = async () => {
     if (isLoadingImage.value || props.record.type !== 'Image') {
         return;
@@ -589,10 +546,12 @@ const retryLoadImage = async () => {
     await loadImage();
 };
 
+/** 打开删除确认框，等待用户确认后再提交删除请求。 */
 const handleDelete = async () => {
     showConfirm.value = true;
 };
 
+/** 后端删除成功后关闭确认框，并通知父组件刷新列表。 */
 const confirmDelete = async () => {
     const response = await clipApi.deleteRecord(props.record.id);
     if (isSuccess(response)) {
@@ -601,57 +560,25 @@ const confirmDelete = async () => {
     }
 };
 
+/** 关闭确认框，保留当前记录。 */
 const cancelDelete = () => {
     showConfirm.value = false;
 };
 
+/** 提交新的置顶状态。全局只保留一条置顶的规则由后端执行。 */
 const handlePin = async () => {
     const newPinnedFlag = !props.record.pinned_flag ? 1 : 0;
     const response = await clipApi.setPinned(props.record.id, newPinnedFlag);
     if (isSuccess(response)) emit('pin', props.record);
 };
 
+/** 提取展示用文件名，同时兼容 Windows 和 Unix 路径分隔符。 */
 const getFileName = (filePath: string) => {
     return filePath.split(/[\\/]/).pop() || filePath;
 };
 
-// 检测是否正在从云端下载
-const isDownloadingFromCloud = computed(() => {
-    // sync_flag为1表示同步中
-    // cloud_source为1表示云端数据，为0或undefined表示本地数据
-    // 但是新创建的本地截图cloud_source可能暂时为undefined
-    // 所以只有明确是云端数据(cloud_source=1)且正在同步才显示下载状态
-    return props.record.sync_flag === 1 && props.record.cloud_source === 1;
-});
-
-// 获取同步状态的提示文本
-const getSyncingTitle = computed(() => {
-    if (props.record.sync_flag === 1) {
-        // 根据cloud_source判断是本地同步还是云端下载
-        if (props.record.cloud_source === 1) {
-            if (props.record.type === 'Image') {
-                return '正在从云端下载图片...';
-            } else if (props.record.type === 'File') {
-                return '正在从云端下载文件...';
-            }
-            return '正在从云端下载...';
-        } else {
-            return '同步中';
-        }
-    }
-    return '同步中';
-});
-
-// 获取图片加载状态文本
-const getImageLoadingText = computed(() => {
-    if (props.record.sync_flag === 2 && props.record.cloud_source === 1) {
-        // 如果是云端数据且已下载完成，但还没加载图片
-        return isLoadingImage.value ? '加载中...' : '点击加载图片';
-    }
-    return isLoadingImage.value ? '加载中...' : '点击加载图片';
-});
-
-
+// 图片加载状态与本地资源一致，不依赖远端下载状态。
+const getImageLoadingText = computed(() => isLoadingImage.value ? '加载中...' : '点击加载图片');
 
 // 图片懒加载和内存清理观察器
 onMounted(() => {
@@ -663,13 +590,8 @@ onMounted(() => {
                 if (entry.isIntersecting) {
                     clearPendingImageCleanup();
                     // 进入视窗 - 加载图片
-                    if (!shouldLoadImage.value && !isDownloadingFromCloud.value) {
-                        // 检查是否可以加载（非云端下载或已下载完成）
-                        const canLoad = props.record.cloud_source !== 1 || props.record.sync_flag === 2;
-
-                        if (canLoad) {
-                            triggerImageLoad();
-                        }
+                    if (!shouldLoadImage.value) {
+                        triggerImageLoad();
                     }
                 } else {
                     // 离开视窗 - 清理内存（但保持观察器运行）
@@ -699,10 +621,6 @@ onMounted(() => {
 // 组件卸载时清理
 onUnmounted(() => {
     clearPendingImageCleanup();
-    if (syncLoadTimer) {
-        clearTimeout(syncLoadTimer);
-        syncLoadTimer = null;
-    }
     if (intersectionObserver.value) {
         intersectionObserver.value.disconnect();
         intersectionObserver.value = null;
