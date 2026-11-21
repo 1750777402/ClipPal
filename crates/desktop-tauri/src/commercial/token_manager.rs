@@ -1,0 +1,197 @@
+use {
+    crate::app_context::try_app_context,
+    crate::core::application::settings_service::SettingsService,
+};
+use std::sync::{Arc, OnceLock, RwLock};
+use tauri::Emitter;
+
+/// JWT令牌管理器，负责自动刷新令牌
+pub struct TokenManager {
+    is_refreshing: Arc<RwLock<bool>>,
+}
+
+static TOKEN_MANAGER: OnceLock<TokenManager> = OnceLock::new();
+
+impl TokenManager {
+    pub fn new() -> Self {
+        Self {
+            is_refreshing: Arc::new(RwLock::new(false)),
+        }
+    }
+
+    /// 获取全局令牌管理器实例
+    pub fn instance() -> &'static TokenManager {
+        TOKEN_MANAGER.get_or_init(|| TokenManager::new())
+    }
+
+    /// 获取有效的访问令牌，如果过期则自动刷新
+    pub async fn get_valid_access_token(&self) -> Result<Option<String>, String> {
+        // 先尝试获取当前令牌
+        let current_token = self.get_stored_access_token();
+        if current_token.is_some() {
+            // 这里可以添加令牌过期检查逻辑
+            // 目前先返回现有令牌，实际使用中如果API返回401会触发刷新
+            return Ok(current_token);
+        }
+
+        // 如果没有令牌，返回None
+        Ok(None)
+    }
+
+    /// 当API返回401时调用此方法刷新令牌
+    pub async fn refresh_access_token(&self) -> Result<Option<String>, String> {
+        // 防止并发刷新
+        {
+            let is_refreshing = self
+                .is_refreshing
+                .read()
+                .map_err(|e| format!("获取刷新锁失败: {}", e))?;
+            if *is_refreshing {
+                // 等待其他线程完成刷新，然后返回新令牌
+                std::thread::sleep(std::time::Duration::from_millis(100));
+                return Ok(self.get_stored_access_token());
+            }
+        }
+
+        // 设置刷新状态
+        {
+            let mut is_refreshing = self
+                .is_refreshing
+                .write()
+                .map_err(|e| format!("设置刷新锁失败: {}", e))?;
+            *is_refreshing = true;
+        }
+
+        let result = self.do_refresh_token().await;
+
+        // 清除刷新状态
+        {
+            let mut is_refreshing = self
+                .is_refreshing
+                .write()
+                .map_err(|e| format!("清除刷新锁失败: {}", e))?;
+            *is_refreshing = false;
+        }
+
+        result
+    }
+
+    /// 执行实际的令牌刷新
+    async fn do_refresh_token(&self) -> Result<Option<String>, String> {
+        let context = try_app_context().ok_or_else(|| "AppContext 尚未初始化".to_string())?;
+        let refresh_token = self
+            .get_stored_refresh_token()
+            .ok_or("没有有效的刷新令牌")?;
+
+        log::info!("开始刷新访问令牌");
+
+        match context.commercial().auth_gateway().refresh_session(&refresh_token).await {
+            Ok(Some(session)) => {
+                log::info!("令牌刷新成功");
+
+                if let Err(e) = context.commercial().auth_store().save_session(&session) {
+                    log::error!("更新存储的令牌失败: {}", e);
+                    return Err(e);
+                }
+
+                Ok(Some(session.access_token))
+            }
+            Ok(None) => {
+                log::warn!("令牌刷新返回空响应");
+                // 刷新令牌可能已过期，清除所有认证数据
+                self.clear_auth_data()?;
+                // 通知前端登录状态失效
+                self.notify_auth_expired().await;
+                Err("刷新令牌已过期，需要重新登录".to_string())
+            }
+            Err(e) => {
+                log::error!("令牌刷新失败: {}", e);
+                // 刷新失败，清除所有认证数据
+                self.clear_auth_data()?;
+                // 通知前端登录状态失效
+                self.notify_auth_expired().await;
+                Err(format!("令牌刷新失败: {}", e))
+            }
+        }
+    }
+
+    /// 获取存储的访问令牌
+    fn get_stored_access_token(&self) -> Option<String> {
+        try_app_context().and_then(|context| context.commercial().auth_store().access_token())
+    }
+
+    /// 获取存储的刷新令牌
+    fn get_stored_refresh_token(&self) -> Option<String> {
+        try_app_context().and_then(|context| context.commercial().auth_store().refresh_token())
+    }
+
+    /// 清除认证数据
+    fn clear_auth_data(&self) -> Result<(), String> {
+        let context = try_app_context().ok_or_else(|| "AppContext 尚未初始化".to_string())?;
+        context.commercial().auth_store().clear()?;
+
+        log::info!("认证数据已清除");
+        Ok(())
+    }
+
+    /// 通知前端认证已过期
+    async fn notify_auth_expired(&self) {
+        log::info!("通知前端认证已过期");
+
+        // 通过Tauri事件系统通知前端
+        if let Some(app_handle) = try_app_context().and_then(|context| context.try_app_handle()) {
+            if let Err(e) = app_handle.emit("auth-expired", ()) {
+                log::error!("发送认证过期事件失败: {}", e);
+            }
+        }
+
+        // 关闭云同步功能
+        self.disable_cloud_sync().await;
+    }
+
+    /// 禁用云同步功能
+    async fn disable_cloud_sync(&self) {
+        log::info!("认证失效，禁用云同步功能");
+
+        // 实际修改设置中的云同步开关
+        match try_app_context() {
+            Some(context) => {
+                if let Err(error) =
+                    SettingsService::from_context(context.as_ref()).disable_cloud_sync()
+                {
+                    log::error!("禁用云同步设置失败: {}", error);
+                }
+            }
+            None => log::error!("禁用云同步设置失败: AppContext 尚未初始化"),
+        }
+
+        // 通知前端云同步已被禁用，前端需要更新UI状态
+        if let Some(app_handle) = try_app_context().and_then(|context| context.try_app_handle()) {
+            if let Err(e) = app_handle.emit("cloud-sync-disabled", ()) {
+                log::error!("发送云同步禁用事件失败: {}", e);
+            }
+        }
+    }
+
+    /// 检查是否有有效的登录状态
+    pub fn has_valid_auth(&self) -> bool {
+        try_app_context()
+            .map(|context| context.commercial().auth_store().has_complete_session())
+            .unwrap_or(false)
+    }
+}
+
+/// 便捷函数：获取有效的访问令牌
+pub async fn get_valid_access_token() -> Result<Option<String>, String> {
+    TokenManager::instance().get_valid_access_token().await
+}
+
+/// 便捷函数：刷新访问令牌
+pub async fn refresh_access_token() -> Result<Option<String>, String> {
+    TokenManager::instance().refresh_access_token().await
+}
+
+/// 便捷函数：检查是否有有效的登录状态
+pub fn has_valid_auth() -> bool {
+    TokenManager::instance().has_valid_auth()
+}

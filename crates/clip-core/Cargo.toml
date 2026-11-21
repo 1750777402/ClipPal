@@ -1,0 +1,38 @@
+[package]
+name = "clip-core"
+version = "2.0.0-alpha.1"
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "ClipPal local domain, persistence and search core"
+
+[features]
+default = ["sqlite", "search", "crypto"]
+sqlite = ["dep:rbatis", "dep:rbs", "dep:rbdc-sqlite", "dep:tokio"]
+search = ["dep:bloomfilter", "dep:dashmap"]
+
+crypto = ["dep:aes-gcm", "dep:rand"]
+
+[dependencies]
+tempfile = "3"
+aes-gcm = { workspace = true, optional = true }
+rand = { workspace = true, optional = true }
+serde.workspace = true
+serde_json.workspace = true
+async-trait.workspace = true
+thiserror.workspace = true
+anyhow.workspace = true
+base64.workspace = true
+log.workspace = true
+rbatis = { workspace = true, optional = true }
+rbs = { workspace = true, optional = true }
+rbdc-sqlite = { workspace = true, optional = true }
+tokio = { workspace = true, optional = true }
+# Bloom filter 用于高效搜索
+bloomfilter = { workspace = true, optional = true }
+dashmap = { workspace = true, optional = true }
+
+[dev-dependencies]
+tokio.workspace = true
+uuid = { workspace = true, features = ["v4"] }

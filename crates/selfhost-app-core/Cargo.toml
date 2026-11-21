@@ -1,0 +1,17 @@
+[package]
+name = "selfhost-app-core"
+version = "2.0.0-alpha.1"
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "ClipPal self-hosted application composition, extending standalone core"
+
+[dependencies]
+async-trait.workspace = true
+desktop-app-core = { path = "../desktop-app-core" }
+clip-sync-client = { path = "../clip-sync-client", features = ["sqlite"] }
+
+[dev-dependencies]
+tokio.workspace = true
+uuid = { workspace = true, features = ["v4"] }

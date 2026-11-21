@@ -26,7 +26,7 @@
             </div>
             <div class="number-input">
               <button class="number-button" @click="decreaseMaxRecords">-</button>
-              <input type="number" v-model.number="settings.max_records" min="50" max="1000" autocomplete="off">
+              <input type="number" v-model.number="settings.max_records" min="50" :max="recordLimit" autocomplete="off">
               <button class="number-button" @click="increaseMaxRecords">+</button>
             </div>
           </div>
@@ -51,7 +51,7 @@
             </div>
           </div>
 
-          <div class="settings-item">
+          <div v-if="appCapabilities?.cloud_sync" class="settings-item">
             <div class="settings-label">
               <span>云同步</span>
               <span class="settings-description">同步剪贴板内容到云端</span>
@@ -94,7 +94,7 @@
         </div>
         <div class="right-buttons">
           <button class="cancel-button" @click="handleClose">取消</button>
-          <button class="confirm-button" @click="handleConfirm" :disabled="isSaving || hasErrors">
+          <button class="confirm-button" @click="handleConfirm" :disabled="isSaving || isRecording || isValidatingShortcut || !settingsLoaded || hasErrors">
             {{ isSaving ? '保存中...' : '保存' }}
           </button>
         </div>
@@ -110,6 +110,7 @@ import { listen } from '@tauri-apps/api/event';
 import { useWindowAdaptive, generateResponsiveClasses } from '../utils/responsive';
 import { settingsApi, isSuccess } from '../utils/api';
 import { useUserStore } from '../utils/userStore';
+import { appCapabilities, loadAppCapabilities } from '../utils/capabilities';
 import type { AppSettings } from '../types/global';
 
 const props = defineProps<{
@@ -135,6 +136,8 @@ const settings = ref<Settings>({
 
 const isRecording = ref(false);
 const isSaving = ref(false);
+const isValidatingShortcut = ref(false);
+const settingsLoaded = ref(false);
 const shortcutError = ref('');
 const pressedKeys = ref<string[]>([]);
 
@@ -144,6 +147,7 @@ let isSettingsDialogUnmounted = false;
 
 // 用户状态管理
 const userStore = useUserStore();
+const recordLimit = computed(() => appCapabilities.value?.max_records ?? 300);
 
 // 使用响应式工具
 const responsive = useWindowAdaptive();
@@ -200,7 +204,7 @@ const KEY_CODE_MAP: Record<string, string> = {
 const hasErrors = computed(() => {
   return shortcutError.value !== '' || 
          settings.value.max_records < 50 || 
-         settings.value.max_records > 1000;
+         settings.value.max_records > recordLimit.value;
 });
 
 // 快捷键显示适配
@@ -272,7 +276,7 @@ const handleCloudSyncChange = (e: Event) => {
   
   if (isEnabled) {
     // 用户尝试开启云同步，检查是否已登录
-    if (!userStore.isLoggedIn()) {
+    if (appCapabilities.value?.account && !userStore.isLoggedIn()) {
       // 用户未登录，阻止开关切换并显示提示
       target.checked = false;
       settings.value.cloud_sync = 0;
@@ -292,17 +296,28 @@ const handleCloudSyncChange = (e: Event) => {
 
 // 加载设置的统一函数
 const loadSettings = async () => {
+  settingsLoaded.value = false;
   try {
+    const capabilities = await loadAppCapabilities(true);
+    if (!capabilities) return;
     const response = await settingsApi.loadSettings();
-    if (!isSuccess(response)) return;
+    if (!isSuccess(response)) {
+      showMessageBar(response.error || '系统异常，请稍后重试', 'error');
+      return;
+    }
     const currentSettings = response.data;
     console.log('当前设置:', currentSettings);
     settings.value = { ...currentSettings };
+    settingsLoaded.value = true;
     // 清除错误状态
     shortcutError.value = '';
     stopRecording();
+    if (currentSettings.shortcut_registered === false) {
+      showMessageBar('当前快捷键未注册成功，请重新选择快捷键或点击保存重试。', 'warning');
+    }
   } catch (error) {
     console.error('加载设置失败:', error);
+    showMessageBar('系统异常，请稍后重试', 'error');
   }
 };
 
@@ -313,7 +328,7 @@ watch(() => props.modelValue, async (newVal) => {
   if (newVal) {
     await loadSettings();
   }
-});
+}, { immediate: true });
 
 
 
@@ -323,7 +338,7 @@ const handleClose = () => {
 };
 
 const handleConfirm = async () => {
-  if (hasErrors.value) {
+  if (isSaving.value || isRecording.value || isValidatingShortcut.value || !settingsLoaded.value || hasErrors.value) {
     return;
   }
   
@@ -340,7 +355,7 @@ const handleConfirm = async () => {
     handleClose();
   } catch (error) {
     console.error('保存设置失败:', error);
-    showMessageBar(`保存设置失败: ${error}`, 'error');
+    showMessageBar('系统异常，请稍后重试', 'error');
   } finally {
     isSaving.value = false;
   }
@@ -353,13 +368,14 @@ const decreaseMaxRecords = () => {
 };
 
 const increaseMaxRecords = () => {
-  if (settings.value.max_records < 1000) {
-    settings.value.max_records += 50;
+  if (settings.value.max_records < recordLimit.value) {
+    settings.value.max_records = Math.min(settings.value.max_records + 50, recordLimit.value);
   }
 };
 
 // 开始录制时清空数组，确保每次独立记录
 const startRecording = (_e: any) => {
+  if (isSaving.value) return;
   isRecording.value = true;
   pressedKeys.value = [];
   shortcutError.value = '';
@@ -370,10 +386,13 @@ const startRecording = (_e: any) => {
 const stopRecording = () => {
   isRecording.value = false;
   pressedKeys.value = [];
+  shortcutValidationToken += 1;
+  isValidatingShortcut.value = false;
 };
 
 // 验证快捷键
 const validateShortcut = async (shortcut: string, token: number) => {
+  isValidatingShortcut.value = true;
   try {
     // 验证时需要转换为存储格式
     const storageFormat = convertDisplayToStorage(shortcut);
@@ -393,6 +412,8 @@ const validateShortcut = async (shortcut: string, token: number) => {
       shortcutError.value = '快捷键验证失败';
     }
     return false;
+  } finally {
+    if (token === shortcutValidationToken) isValidatingShortcut.value = false;
   }
 };
 
@@ -436,13 +457,8 @@ const handleKeyDown = async (e: KeyboardEvent) => {
   
   if (hasModifier && hasRegularKey) {
     const newShortcut = pressedKeys.value.join('+'); // 按顺序拼接
-    const currentShortcut = displayShortcut.value;
     
-    // 如果新快捷键和当前设置一样，直接保存
-    if (newShortcut === currentShortcut) {
-      stopRecording();
-      return;
-    }
+    // 当前设置也要核对系统可用性，避免启动注册失败后跳过检查。
     
     // 实时验证快捷键
     const validationToken = ++shortcutValidationToken;
@@ -508,6 +524,7 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   isSettingsDialogUnmounted = true;
+  stopRecording();
   window.removeEventListener('keydown', handleKeyDown);
   window.removeEventListener('keyup', handleKeyUp);
   window.removeEventListener('click', handleClickOutside);

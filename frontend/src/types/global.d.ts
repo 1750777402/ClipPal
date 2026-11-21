@@ -32,6 +32,8 @@ export interface FileInfo {
 
 // 设置类型
 export interface AppSettings {
+  /** 设置读取返回的运行状态，不参与持久化。 */
+  shortcut_registered?: boolean;
   max_records: number;
   auto_start: number;
   shortcut_key: string;

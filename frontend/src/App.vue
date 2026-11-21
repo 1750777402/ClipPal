@@ -19,6 +19,7 @@ import { useBreakpoint, generateResponsiveClasses } from './utils/responsive';
 import { apiInvoke, isSuccess, setErrorHandler, ErrorSeverity, getFriendlyErrorMessage } from './utils/api';
 import { useUserStore } from './utils/userStore';
 import { useVipStore } from './utils/vipStore';
+import { loadAppCapabilities } from './utils/capabilities';
 import type { UpdateInfo } from './types/global';
 
 const messageBar = ref({ visible: false, message: '', type: 'info' as 'info' | 'warning' | 'error' });
@@ -139,7 +140,8 @@ onMounted(async () => {
 
   // 身份和 VIP 初始化不阻塞事件监听器与自动更新检查注册。
   try {
-    await vipStore.initialize();
+    const capabilities = await loadAppCapabilities();
+    if (capabilities?.account) await vipStore.initialize();
   } catch (error) {
     console.error('VIP状态初始化失败:', error);
   }

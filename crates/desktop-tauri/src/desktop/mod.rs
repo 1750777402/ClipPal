@@ -1,0 +1,10 @@
+//! 桌面系统适配与打包配置；本地业务位于 desktop-app-core。
+pub mod config;
+pub mod device;
+pub mod listener;
+pub mod logging;
+pub mod paths;
+pub mod secret_key;
+pub mod security;
+pub mod shell;
+pub mod system;

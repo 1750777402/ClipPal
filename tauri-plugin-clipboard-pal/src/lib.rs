@@ -7,6 +7,7 @@ use tauri::{
 pub mod desktop;
 
 mod error;
+mod file_paths;
 
 pub use error::{Error, Result};
 

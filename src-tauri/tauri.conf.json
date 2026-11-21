@@ -44,9 +44,6 @@
       "icons/icon_-6.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ],
-    "resources": [
-      "tray"
     ]
   },
   "plugins": {

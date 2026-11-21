@@ -5,12 +5,14 @@
       <input v-model="search" class="search-input" placeholder="搜索剪贴记录..." />
       <div class="header-icons">
         <button
+          v-if="appCapabilities?.cloud_sync"
           :class="['icon-button', 'iconfont', cloudSyncEnabled ? 'icon-yuntongbu' : 'icon-weitongbu']"
           title="云同步"
           type="button"
           @click="handleCloudSyncClick">
         </button>
         <button 
+          v-if="appCapabilities?.account"
           class="icon-button iconfont icon-user" 
           :class="{ 'logged-in': userStore.isLoggedIn() }"
           :title="userButtonTitle" 
@@ -150,6 +152,7 @@ import VipAccountDialog from './VipAccountDialog.vue';
 import { useWindowAdaptive } from '../utils/responsive';
 import { clipApi, settingsApi, isSuccess } from '../utils/api';
 import { useUserStore } from '../utils/userStore';
+import { appCapabilities, loadAppCapabilities } from '../utils/capabilities';
 import { createDebouncedFunction, useMemoryManager } from '../utils/memoryManager';
 import { useDynamicVirtualScroll } from '../utils/dynamicVirtualScroll';
 
@@ -525,10 +528,11 @@ const loadCloudSyncSetting = async () => {
 
 // 顶部云同步按钮点击
 const handleCloudSyncClick = async () => {
+  if (!appCapabilities.value?.cloud_sync) return;
   // 如果要开启云同步，先检查登录状态
   if (!cloudSyncEnabled.value) {
     // 用户尝试开启云同步，检查是否已登录
-    if (!userStore.isLoggedIn()) {
+    if (appCapabilities.value?.account && !userStore.isLoggedIn()) {
       // 用户未登录，显示登录对话框
       showLoginDialog.value = true;
       return;
@@ -636,7 +640,8 @@ onMounted(async () => {
   loadCloudSyncSetting();
   
   // 初始化用户状态
-  await userStore.initialize();
+  const capabilities = await loadAppCapabilities();
+  if (capabilities?.account) await userStore.initialize();
 
   // 监听云同步禁用事件
   const cloudSyncListener = await listen('cloud-sync-disabled', async () => {

@@ -1,7 +1,7 @@
 use std::{
     fmt,
     str::FromStr,
-    sync::{Arc, RwLock},
+    sync::{Arc, RwLock, atomic::{AtomicBool, Ordering}},
 };
 
 use async_channel::{Receiver, Sender};
@@ -20,7 +20,8 @@ pub struct EventManager<T> {
     tx: Sender<T>,
     rt: Receiver<T>,
     listeners: Arc<RwLock<Vec<Arc<dyn ClipBoardEventListener<T>>>>>, // 单一监听器列表
-    pub shutdown: (Sender<()>, Receiver<()>),
+    shutdown: (Sender<()>, Receiver<()>),
+    running: Arc<AtomicBool>,
 }
 
 impl<T> EventManager<T>
@@ -35,6 +36,7 @@ where
             rt,
             listeners: Default::default(),
             shutdown: (shutdown_tx, shutdown_rt),
+            running: Arc::new(AtomicBool::new(false)),
         }
     }
     pub fn add_event_listener(&self, event_listener: Arc<dyn ClipBoardEventListener<T>>) {
@@ -56,58 +58,53 @@ where
     pub fn emit(&self, data: T) {
         let _ = self.tx.send_blocking(data);
     }
+    /// 退出请求不阻塞桌面事件线程，多次请求可合并。
+    pub fn request_shutdown(&self) {
+        let _ = self.shutdown.0.try_send(());
+    }
+
     pub fn start_event_loop(&self) {
-        let rx: async_channel::Receiver<T> = self.subscribe();
+        if self.running.swap(true, Ordering::AcqRel) { return; }
+        let rx = self.subscribe();
         let listeners = self.listeners.clone();
-        let shutdown_rt = self.shutdown.1.clone();
+        let shutdown = self.shutdown.1.clone();
+        let running = self.running.clone();
         tokio::spawn(async move {
-            let mut join_set = tokio::task::JoinSet::new();
-            loop {
-                tokio::select! {
-                    event = rx.recv() => match event {
-                        Ok(event) => {
-                            // 并发处理所有handler
-                            match listeners.read() {
-                                Ok(readers) => {
-                                    let handlers_clone = readers.clone();
-                                    join_set.spawn(async move {
-                                        // 并发处理所有handler
-                                        for handler in &handlers_clone {
-                                            handler.handle_event(&event).await;
-                                        }
-                                    });
-                                }
-                                Err(e) => {
-                                    log::error!("获取事件监听器读锁失败: {}", e);
-                                }
-                            }
-                        },
-                        Err(e) => {
-                            log::error!("rx.recv Error: {}", e);
-                            break;
-                        },
-                    },
-                    _ = shutdown_rt.recv() => {
-                        let _ = join_set.shutdown().await;
-                        break;
-                    },
-                    shutdown_signal = Box::pin(signal::ctrl_c()) => {
-                        match shutdown_signal {
-                            Ok(()) => {
-                                let _ = join_set.shutdown().await;
-                                break;
-                            },
-                            Err(e) => {
-                                log::error!("shutdown_signal Error: {}", e);
-                                let _ = join_set.shutdown().await;
-                                break;
-                            }
+            struct RunningGuard(Arc<AtomicBool>);
+            impl Drop for RunningGuard {
+                fn drop(&mut self) { self.0.store(false, Ordering::Release); }
+            }
+            let _guard = RunningGuard(running);
+            let mut handlers = tokio::task::JoinSet::new();
+            let consume = async {
+                while let Ok(event) = rx.recv().await {
+                    let snapshot = match listeners.read() {
+                        Ok(readers) => readers.clone(),
+                        Err(error) => {
+                            log::error!("获取事件监听器读锁失败: {}", error);
+                            continue;
                         }
-                    },
+                    };
+                    // 按采集顺序处理事件，每次回收任务，避免已完成任务和大图片持续积压。
+                    handlers.spawn(async move {
+                        for handler in snapshot { handler.handle_event(&event).await; }
+                    });
+                    if let Some(Err(error)) = handlers.join_next().await {
+                        log::error!("剪贴板事件处理任务异常: {}", error);
+                    }
+                }
+            };
+            tokio::select! {
+                _ = consume => {},
+                _ = shutdown.recv() => {},
+                result = signal::ctrl_c() => {
+                    if let Err(error) = result { log::error!("监听退出信号失败: {}", error); }
                 }
             }
+            handlers.shutdown().await;
         });
     }
+
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -161,4 +158,46 @@ pub struct ClipboardEvent {
     pub file: Option<Vec<u8>>,
     // 文件路径   文件类型使用
     pub file_path_vec: Option<Vec<String>>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Mutex;
+    use tokio::{sync::Notify, time::{timeout, Duration}};
+    struct Recorder { values: Arc<Mutex<Vec<u32>>>, finished: Arc<Notify> }
+    #[async_trait::async_trait]
+    impl ClipBoardEventListener<u32> for Recorder {
+        async fn handle_event(&self, value: &u32) {
+            tokio::task::yield_now().await;
+            self.values.lock().unwrap().push(*value);
+            self.finished.notify_one();
+        }
+    }
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn processes_bursts_once_in_order_and_shutdown_is_nonblocking() {
+        let manager = Arc::new(EventManager::default());
+        let values = Arc::new(Mutex::new(Vec::new()));
+        let finished = Arc::new(Notify::new());
+        manager.add_event_listener(Arc::new(Recorder { values: values.clone(), finished: finished.clone() }));
+        manager.start_event_loop();
+        manager.start_event_loop();
+        let sender = manager.clone();
+        let producer = tokio::task::spawn_blocking(move || {
+            for value in 0..300 { sender.emit(value); }
+        });
+        timeout(Duration::from_secs(5), async {
+            loop {
+                if values.lock().unwrap().len() == 300 { break; }
+                finished.notified().await;
+            }
+        }).await.unwrap();
+        producer.await.unwrap();
+        assert_eq!(*values.lock().unwrap(), (0..300).collect::<Vec<_>>());
+        manager.request_shutdown();
+        manager.request_shutdown();
+        timeout(Duration::from_secs(1), async {
+            while manager.running.load(Ordering::Acquire) { tokio::task::yield_now().await; }
+        }).await.unwrap();
+    }
 }

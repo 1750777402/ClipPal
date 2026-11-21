@@ -1,0 +1,10 @@
+{
+  "app_secret": {
+    "secret_key": "REPLACE_WITH_YOUR_EXISTING_DEPLOYMENT_DATA_KEY"
+  },
+  "cloud_sync": {
+    "domain": "https://clipboard.example.com",
+    "deployment_token": "REPLACE_WITH_A_RANDOM_DEPLOYMENT_TOKEN",
+    "max_file_size_kb": 102400
+  }
+}
