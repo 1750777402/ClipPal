@@ -7,7 +7,7 @@
     <key>NSSystemAdministrationUsageDescription</key>
     <string>ClipPal需要控制其他应用以实现自动粘贴功能</string>
     <key>NSAccessibilityUsageDescription</key>
-    <string>ClipPal需要辅助功能权限以监听全局快捷键和实现自动粘贴</string>
+    <string>ClipPal使用辅助功能权限向您选定的应用发送粘贴快捷键</string>
     <key>LSUIElement</key>
     <false/>
 </dict>

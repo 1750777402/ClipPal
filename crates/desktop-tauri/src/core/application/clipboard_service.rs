@@ -220,8 +220,9 @@ impl<'a> ClipboardService<'a> {
         .await
         .map_err(|error| AppError::AutoPaste(format!("自动粘贴任务执行失败: {}", error)))?;
 
-        if let Err(error) = &paste_result {
-            if error.to_string().contains("权限") {
+        if paste_result.is_err() {
+            // 权限可能在等待目标恢复时被撤销；直接读取系统状态，不匹配错误文案。
+            if crate::desktop::system::accessibility::status() == crate::desktop::system::accessibility::AutoPastePermission::Required {
                 if let Err(dialog_error) = show_accessibility_dialog(self.context) {
                     log::error!("显示辅助功能权限提示失败: {}", dialog_error);
                 }

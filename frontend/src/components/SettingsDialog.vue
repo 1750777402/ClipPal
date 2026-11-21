@@ -75,12 +75,25 @@
               </label>
             </div>
             
+            <div v-if="autoPastePermission && autoPastePermission !== 'not_required'" class="settings-warning">
+              <div class="warning-content">
+                <div class="warning-title">辅助功能权限：{{ autoPastePermission === 'granted' ? '已授权' : '未授权' }}</div>
+                <div class="warning-text" v-if="autoPastePermission === 'required'">
+                  自动粘贴需要在系统设置 → 隐私与安全性 → 辅助功能中启用 ClipPal。授权后返回应用会重新检测；若仍未生效，请退出并重新打开 ClipPal。
+                </div>
+                <div class="permission-actions" v-if="autoPastePermission === 'required'">
+                  <button class="update-button" :disabled="isRequestingPermission" @click="requestAutoPastePermission">请求授权</button>
+                  <button class="update-button" :disabled="isRequestingPermission" @click="openAccessibilitySettings">打开系统设置</button>
+                </div>
+              </div>
+            </div>
+
             <div v-if="settings.auto_paste === 1" class="settings-warning">
               <div class="warning-icon">⚠️</div>
               <div class="warning-content">
                 <div class="warning-title">使用注意</div>
                 <div class="warning-text">
-                  某些应用可能自定义了Ctrl+V快捷键，可根据实际使用情况选择是否开启自动粘贴。
+                  某些应用可能自定义了粘贴快捷键（macOS 为 ⌘V，Windows 为 Ctrl+V），可根据实际使用情况选择是否开启自动粘贴。
                 </div>
               </div>
             </div>
@@ -111,7 +124,8 @@ import { useWindowAdaptive, generateResponsiveClasses } from '../utils/responsiv
 import { settingsApi, isSuccess } from '../utils/api';
 import { useUserStore } from '../utils/userStore';
 import { appCapabilities, loadAppCapabilities } from '../utils/capabilities';
-import type { AppSettings } from '../types/global';
+import type { AppSettings, AutoPastePermission } from '../types/global';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 
 const props = defineProps<{
   modelValue: boolean
@@ -136,6 +150,42 @@ const settings = ref<Settings>({
 
 const isRecording = ref(false);
 const isSaving = ref(false);
+const autoPastePermission = ref<AutoPastePermission | null>(null);
+const isRequestingPermission = ref(false);
+let permissionFocusListener: (() => void) | null = null;
+let permissionCheckSequence = 0;
+
+// 重新聚焦仅查询授权状态，不重载表单，也不触发授权弹窗或自动粘贴。
+const refreshAutoPastePermission = async () => {
+  if (!props.modelValue || isSettingsDialogUnmounted) return;
+  const sequence = ++permissionCheckSequence;
+  const response = await settingsApi.getAutoPastePermission();
+  if (sequence === permissionCheckSequence && props.modelValue && !isSettingsDialogUnmounted && isSuccess(response)) {
+    autoPastePermission.value = response.data;
+  }
+};
+
+const requestAutoPastePermission = async () => {
+  if (isRequestingPermission.value) return;
+  isRequestingPermission.value = true;
+  const sequence = ++permissionCheckSequence;
+  try {
+    const response = await settingsApi.requestAutoPastePermission();
+    if (sequence === permissionCheckSequence && props.modelValue && isSuccess(response) && !isSettingsDialogUnmounted) {
+      autoPastePermission.value = response.data;
+      if (response.data === 'required') {
+        showMessageBar('请在系统提示或辅助功能设置中允许 ClipPal，授权后返回应用即可重新检测。', 'info');
+      }
+    }
+  } finally { isRequestingPermission.value = false; }
+};
+
+const openAccessibilitySettings = async () => {
+  if (isRequestingPermission.value) return;
+  isRequestingPermission.value = true;
+  try { await settingsApi.openAccessibilitySettings(); }
+  finally { isRequestingPermission.value = false; }
+};
 const isValidatingShortcut = ref(false);
 const settingsLoaded = ref(false);
 const shortcutError = ref('');
@@ -308,6 +358,7 @@ const loadSettings = async () => {
     const currentSettings = response.data;
     console.log('当前设置:', currentSettings);
     settings.value = { ...currentSettings };
+    autoPastePermission.value = currentSettings.auto_paste_permission ?? null;
     settingsLoaded.value = true;
     // 清除错误状态
     shortcutError.value = '';
@@ -315,6 +366,7 @@ const loadSettings = async () => {
     if (currentSettings.shortcut_registered === false) {
       showMessageBar('当前快捷键未注册成功，请重新选择快捷键或点击保存重试。', 'warning');
     }
+    await refreshAutoPastePermission();
   } catch (error) {
     console.error('加载设置失败:', error);
     showMessageBar('系统异常，请稍后重试', 'error');
@@ -333,6 +385,7 @@ watch(() => props.modelValue, async (newVal) => {
 
 
 const handleClose = () => {
+  permissionCheckSequence += 1;
   stopRecording();
   emit('update:modelValue', false);
 };
@@ -508,6 +561,14 @@ onMounted(async () => {
   window.addEventListener('keyup', handleKeyUp);
   window.addEventListener('click', handleClickOutside);
 
+  try {
+    const unlistenFocus = await getCurrentWindow().onFocusChanged(({ payload: focused }) => {
+      if (focused) void refreshAutoPastePermission();
+    });
+    if (isSettingsDialogUnmounted) unlistenFocus();
+    else permissionFocusListener = unlistenFocus;
+  } catch (error) { console.error('监听辅助功能权限刷新失败:', error); }
+
   // 监听云同步禁用事件
   const unlisten = await listen('cloud-sync-disabled', async () => {
     console.log('设置页面收到云同步禁用事件，重新加载设置');
@@ -524,6 +585,8 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   isSettingsDialogUnmounted = true;
+  permissionCheckSequence += 1;
+  permissionFocusListener?.();
   stopRecording();
   window.removeEventListener('keydown', handleKeyDown);
   window.removeEventListener('keyup', handleKeyUp);
@@ -537,6 +600,13 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+.permission-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-sm);
+  margin-top: var(--spacing-sm);
+}
+
 .settings-overlay {
   position: fixed;
   top: 0;

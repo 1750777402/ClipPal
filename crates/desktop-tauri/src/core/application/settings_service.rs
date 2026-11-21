@@ -16,6 +16,7 @@ pub struct SettingsView {
     #[serde(flatten)]
     pub settings: Settings,
     pub shortcut_registered: bool,
+    pub auto_paste_permission: crate::desktop::system::accessibility::AutoPastePermission,
 }
 
 /// 设置应用服务，负责配置校验、系统能力应用、持久化和内存缓存更新。
@@ -41,7 +42,8 @@ impl<'a> SettingsService<'a> {
         settings.auto_start = u32::from(self.system.is_auto_start_enabled()?);
         let actual = self.system.registered_shortcut()?;
         if let Some(key) = &actual { settings.shortcut_key = key.clone(); }
-        Ok(SettingsView { settings, shortcut_registered: actual.is_some() })
+        Ok(SettingsView { settings, shortcut_registered: actual.is_some(),
+            auto_paste_permission: crate::desktop::system::accessibility::status() })
     }
 
     /// 保存完整设置，并保证系统设置、配置文件和内存缓存按顺序一致更新。
@@ -152,12 +154,16 @@ mod tests {
 
     #[test]
     fn settings_view_keeps_existing_flat_ipc_fields_without_persisting_runtime_status() {
-        let view = SettingsView { settings: Settings::default(), shortcut_registered: false };
+        let view = SettingsView { settings: Settings::default(), shortcut_registered: false,
+            auto_paste_permission: crate::desktop::system::accessibility::AutoPastePermission::Required };
         let response = serde_json::to_value(view).unwrap();
         assert_eq!(response["shortcut_registered"], false);
+        assert_eq!(response["auto_paste_permission"], "required");
         assert!(response.get("settings").is_none());
         assert!(response.get("auto_start").is_some());
         let settings: Settings = serde_json::from_value(response).unwrap();
-        assert!(serde_json::to_value(settings).unwrap().get("shortcut_registered").is_none());
+        let persisted = serde_json::to_value(settings).unwrap();
+        assert!(persisted.get("shortcut_registered").is_none());
+        assert!(persisted.get("auto_paste_permission").is_none());
     }
 }

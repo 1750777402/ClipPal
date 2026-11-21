@@ -1,5 +1,5 @@
 import { invoke, type InvokeArgs } from '@tauri-apps/api/core';
-import type { AppSettings, ClipRecord, UserInfoDto } from '../types/global';
+import type { AppSettings, AutoPastePermission, ClipRecord, UserInfoDto } from '../types/global';
 
 // 错误类型定义
 export enum ErrorSeverity {
@@ -246,6 +246,17 @@ export const settingsApi = {
   // 加载设置
   async loadSettings() {
     return apiInvoke<AppSettings>('load_settings');
+  },
+
+  // 权限只从 macOS 系统读取，授权请求必须由用户主动触发。
+  async getAutoPastePermission() {
+    return apiInvoke<AutoPastePermission>('get_auto_paste_permission');
+  },
+  async requestAutoPastePermission() {
+    return apiInvoke<AutoPastePermission>('request_auto_paste_permission');
+  },
+  async openAccessibilitySettings() {
+    return apiInvoke<void>('open_accessibility_settings');
   },
 
   // 保存设置

@@ -33,3 +33,21 @@ pub async fn validate_shortcut(
     let service = SettingsService::from_context(state.inner().as_ref());
     Ok(crate::response::command_result(service.validate_shortcut(shortcut).await))
 }
+
+/// 辅助功能权限为系统状态；不能由客户端配置或前端缓存声明已授权。
+#[tauri::command]
+pub fn get_auto_paste_permission() -> CommandResponse<crate::desktop::system::accessibility::AutoPastePermission> {
+    crate::response::ok(crate::desktop::system::accessibility::status())
+}
+
+#[tauri::command]
+pub async fn request_auto_paste_permission(
+    state: tauri::State<'_, Arc<AppContext>>,
+) -> Result<CommandResponse<crate::desktop::system::accessibility::AutoPastePermission>, String> {
+    Ok(crate::response::command_result(crate::desktop::system::accessibility::request(state.inner()).await))
+}
+
+#[tauri::command]
+pub fn open_accessibility_settings(state: tauri::State<'_, Arc<AppContext>>) -> CommandResponse<()> {
+    crate::response::command_result(crate::desktop::system::accessibility::open_settings(state.inner()))
+}

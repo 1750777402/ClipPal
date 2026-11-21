@@ -116,15 +116,43 @@ impl Drop for PermissionPromptGuard {
 
 /// 在 macOS 等需要辅助功能权限的平台展示自动粘贴权限提示。
 pub fn show_accessibility_dialog(context: &crate::app_context::AppContext) -> crate::errors::AppResult<()> {
+    use tauri_plugin_dialog::{MessageDialogButtons, MessageDialogResult};
+    if super::accessibility::status() != super::accessibility::AutoPastePermission::Required { return Ok(()); }
     let app = context.app_handle()?;
+    let context = app.state::<std::sync::Arc<AppContext>>().inner().clone();
     let open = context.auto_paste_state().permission_prompt_open.clone();
     let Some(guard) = PermissionPromptGuard::try_acquire(open, context.window_hide_flag()) else { return Ok(()); };
     app.dialog()
-        .message("内容已复制。自动粘贴需要辅助功能权限，请前往系统设置 → 隐私与安全性 → 辅助功能，允许 ClipPal。授权后可再次尝试。")
+        .message("内容已复制。自动粘贴需要辅助功能权限。请选择请求系统授权，或打开系统设置 → 隐私与安全性 → 辅助功能，启用 ClipPal。授权后请返回应用重新选择记录粘贴。")
         .title("需要辅助功能权限")
         .kind(tauri_plugin_dialog::MessageDialogKind::Warning)
-        .show(move |_| drop(guard));
+        .buttons(MessageDialogButtons::YesNoCancelCustom("请求授权".into(), "打开系统设置".into(), "稍后".into()))
+        .show_with_result(move |result| {
+            // 对话框结束后释放保护；不自动重试粘贴，系统设置不应成为粘贴目标。
+            drop(guard);
+            match result {
+                MessageDialogResult::Yes | MessageDialogResult::Ok => request_native_permission(context),
+                MessageDialogResult::No => open_permission_settings(&context),
+                MessageDialogResult::Custom(label) if label == "请求授权" => request_native_permission(context),
+                MessageDialogResult::Custom(label) if label == "打开系统设置" => open_permission_settings(&context),
+                _ => {}
+            }
+        });
     Ok(())
+}
+
+fn request_native_permission(context: std::sync::Arc<AppContext>) {
+    tauri::async_runtime::spawn(async move {
+        if let Err(error) = super::accessibility::request(&context).await {
+            log::error!("请求辅助功能授权失败: {}", error);
+        }
+    });
+}
+
+fn open_permission_settings(context: &AppContext) {
+    if let Err(error) = super::accessibility::open_settings(context) {
+        log::error!("打开辅助功能设置失败: {}", error);
+    }
 }
 
 #[cfg(test)]

@@ -270,15 +270,6 @@ pub fn send_paste_shortcut() -> AppResult<()> {
 }
 
 #[cfg(target_os = "macos")]
-fn accessibility_permission_granted() -> bool {
-    #[link(name = "ApplicationServices", kind = "framework")]
-    extern "C" {
-        fn AXIsProcessTrusted() -> bool;
-    }
-    unsafe { AXIsProcessTrusted() }
-}
-
-#[cfg(target_os = "macos")]
 fn frontmost_process_id() -> Option<i32> {
     unsafe {
         let workspace: id = msg_send![objc::class!(NSWorkspace), sharedWorkspace];
@@ -331,7 +322,7 @@ pub fn send_paste_shortcut() -> AppResult<()> {
 /// 发送按键前和隐藏主窗口前都检查权限，权限不足时保留已复制内容。
 pub fn ensure_permission() -> AppResult<()> {
     #[cfg(target_os = "macos")]
-    if !accessibility_permission_granted() {
+    if super::accessibility::status() == super::accessibility::AutoPastePermission::Required {
         return Err(AppError::AutoPaste("需要辅助功能权限才能自动粘贴，内容已复制".into()));
     }
     Ok(())

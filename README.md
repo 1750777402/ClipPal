@@ -129,6 +129,8 @@ VIP界面
    ![MacOS允许任何来源应用](assets/7.png)
    ![MacOS软件添加辅助功能权限](assets/8.png)
 
+   安装后可在 ClipPal 设置的“自动粘贴”区域查看辅助功能权限，点击“请求授权”调用系统授权提示，或点击“打开系统设置”直接进入辅助功能页面。启用 ClipPal 后返回应用会重新检测权限；若仍未生效，请退出并重新打开。授权不会自动重放上一次粘贴，请切回目标应用后重新唤起 ClipPal 选择记录。
+
 ## 依赖
 - [Tauri](https://tauri.app/)（桌面端框架）
 - [rbatis](https://github.com/rbatis/rbatis)（Rust ORM）

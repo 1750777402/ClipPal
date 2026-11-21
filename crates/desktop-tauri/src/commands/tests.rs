@@ -44,6 +44,10 @@ fn local_ipc_keeps_record_queries_errors_and_edition_registration() {
     let capabilities: Value = invoke("get_app_capabilities", json!({})).unwrap().deserialize().unwrap();
     assert_eq!(capabilities["data"]["cloud_sync"], false);
     assert_eq!(capabilities["data"]["account"], false);
+    let permission: Value = invoke("get_auto_paste_permission", json!({})).unwrap().deserialize().unwrap();
+    assert_eq!(permission["success"], true);
+    assert_eq!(permission["code"], "ok");
+    assert!(matches!(permission["data"].as_str(), Some("required" | "granted" | "not_required")));
     assert!(invoke("login", json!({})).is_err());
     drop(webview);
     drop(app);
