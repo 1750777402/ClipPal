@@ -53,6 +53,8 @@ pub struct AppContext {
     window: WindowContext,
     /// 自动粘贴流程共享的运行状态。
     auto_paste: AutoPasteState,
+    /// 共享更新检查结果和操作锁，多个 IPC 调用使用同一份状态。
+    updater: crate::desktop::system::updater::UpdateState,
 }
 
 /// 自动粘贴的目标窗口。
@@ -268,11 +270,17 @@ impl AppContext {
             commercial,
             window: WindowContext::default(),
             auto_paste: AutoPasteState::default(),
+            updater: crate::desktop::system::updater::UpdateState::default(),
         }
     }
 
     /// 取得当前版本注入的能力策略，业务入口不自行判断账号或套餐。
     pub fn policy(&self) -> &dyn crate::core::policy::ApplicationPolicy { self.policy.as_ref() }
+
+    /// 返回当前进程唯一的更新状态。
+    pub fn updater(&self) -> &crate::desktop::system::updater::UpdateState {
+        &self.updater
+    }
 
     /// 获取核心资源分组。
     ///

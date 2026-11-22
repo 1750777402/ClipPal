@@ -23,6 +23,12 @@
           <button class="btn-close" @click="handleClose">关闭</button>
         </div>
 
+        <div v-else-if="updateState === 'manual' || updateState === 'unavailable'" class="no-update-state">
+          <p>{{ updateState === 'manual' ? '此安装包采用手动更新。请从原来源获取新版安装包。' : '更新源暂未提供适用于当前系统和架构的安装包。' }}</p>
+          <p class="version-info">当前版本: {{ currentVersion }}</p>
+          <button class="btn-close" @click="handleClose">关闭</button>
+        </div>
+
         <!-- 有更新状态 -->
         <div v-else-if="updateState === 'has-update'" class="has-update-state">
           <div class="version-info">
@@ -45,17 +51,24 @@
         <!-- 下载中状态 -->
         <div v-else-if="updateState === 'downloading'" class="downloading-state">
           <p>正在下载更新...</p>
-          <div class="progress-bar">
+          <div v-if="downloadProgress !== null" class="progress-bar" role="progressbar" aria-label="下载进度"
+            :aria-valuenow="downloadProgress">
             <div class="progress-fill" :style="{ width: downloadProgress + '%' }"></div>
           </div>
-          <p class="progress-text">{{ Math.round(downloadProgress) }}%</p>
+          <div v-else class="spinner" role="progressbar" aria-label="下载中"></div>
+          <p class="progress-text">{{ downloadProgress === null ? `已下载 ${downloadedText}` : `${downloadProgress}%` }}</p>
+        </div>
+
+        <div v-else-if="updateState === 'verifying'" class="installing-state">
+          <div class="spinner"></div>
+          <p>正在校验更新包签名...</p>
         </div>
 
         <!-- 安装中状态 -->
         <div v-else-if="updateState === 'installing'" class="installing-state">
           <div class="spinner"></div>
           <p>正在安装更新...</p>
-          <p class="hint">安装完成后应用将自动重启</p>
+          <p class="hint">安装期间请保持应用运行</p>
         </div>
 
         <!-- 成功状态 -->
@@ -78,8 +91,8 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue'
-import { listen } from '@tauri-apps/api/event'
+import { computed, ref } from 'vue'
+import { Channel } from '@tauri-apps/api/core'
 import DOMPurify from 'dompurify'
 import { marked } from 'marked'
 import { apiInvoke, isSuccess } from '../utils/api'
@@ -101,18 +114,25 @@ const isVisible = computed({
   set: (value) => emit('update:modelValue', value)
 })
 
-type UpdateState = 'checking' | 'no-update' | 'has-update' | 'downloading' | 'installing' | 'success' | 'error'
+type UpdateState = 'checking' | 'no-update' | 'manual' | 'unavailable' | 'has-update'
+  | 'downloading' | 'verifying' | 'installing' | 'success' | 'error'
 
 const updateState = ref<UpdateState>('checking')
 const updateInfo = ref<UpdateInfo | null>(null)
-const downloadProgress = ref(0)
+const downloaded = ref(0)
+const downloadTotal = ref<number | null>(null)
 const errorMessage = ref('')
-let unlistenDownloadProgress: (() => void) | null = null
-let unlistenInstalling: (() => void) | null = null
+let checkInFlight: Promise<void> | null = null
+let manuallyOpened = false
 
 const isBusy = computed(() =>
-  updateState.value === 'downloading' || updateState.value === 'installing'
+  ['downloading', 'verifying', 'installing', 'success'].includes(updateState.value)
 )
+
+const downloadProgress = computed(() => downloadTotal.value
+  ? Math.min(100, Math.floor(downloaded.value / downloadTotal.value * 100)) : null)
+const downloadedText = computed(() => downloaded.value < 1024 * 1024
+  ? `${(downloaded.value / 1024).toFixed(1)} KB` : `${(downloaded.value / (1024 * 1024)).toFixed(1)} MB`)
 
 const currentVersion = computed(() => updateInfo.value?.current_version ?? '')
 
@@ -121,11 +141,15 @@ const dialogTitle = computed(() => {
     case 'checking':
       return '检查更新中...'
     case 'no-update':
+    case 'manual':
+    case 'unavailable':
       return '软件更新'
     case 'has-update':
       return '发现新版本'
     case 'downloading':
       return '下载更新'
+    case 'verifying':
+      return '校验更新'
     case 'installing':
       return '安装更新'
     case 'success':
@@ -141,105 +165,72 @@ const formatChangelog = (body: string): string => {
 }
 
 const handleClose = () => {
-  if (updateState.value !== 'downloading' && updateState.value !== 'installing') {
+  if (!isBusy.value) {
     isVisible.value = false
   }
 }
 
 const handleRetry = () => {
-  checkUpdate()
+  void checkUpdate()
 }
 
-const checkUpdate = async () => {
+/** 手动检查接管已有的启动检查，避免同一时间发出两次请求。 */
+const checkUpdate = (manual = true) => {
+  if (isBusy.value) return
+  if (!checkInFlight) manuallyOpened = false
+  if (manual) {
+    manuallyOpened = true
+    isVisible.value = true
+  }
+  if (checkInFlight) return checkInFlight
+
   updateState.value = 'checking'
+  updateInfo.value = null
   errorMessage.value = ''
-  try {
+  checkInFlight = (async () => {
     const response = await apiInvoke<UpdateInfo>('check_soft_version')
     if (!isSuccess(response)) {
-      throw new Error(response.error || '检查更新失败')
+      errorMessage.value = response.error || '检查更新失败'
+      updateState.value = 'error'
+      return
     }
     const result = response.data
     updateInfo.value = result
-
-    if (result.has_update) {
-      updateState.value = 'has-update'
-    } else {
-      updateState.value = 'no-update'
-      // 不自动关闭，让用户看到"已是最新版本"的提示
-    }
-  } catch (error) {
-    errorMessage.value = String(error)
-    updateState.value = 'error'
-  }
+    const states = { available: 'has-update', up_to_date: 'no-update', manual: 'manual', unavailable: 'unavailable' } as const
+    updateState.value = states[result.status]
+    // 手动打开后如果用户已关闭窗口，迟到的结果也不重新弹出。
+    if (!manuallyOpened && result.status === 'available') isVisible.value = true
+  })().finally(() => { checkInFlight = null })
+  return checkInFlight
 }
 
-// 直接设置更新信息（来自后端自动检查）
-const setUpdateInfo = (info: UpdateInfo) => {
-  updateInfo.value = info
-  errorMessage.value = ''
-  downloadProgress.value = 0
-
-  if (info.has_update) {
-    updateState.value = 'has-update'
-  } else {
-    updateState.value = 'no-update'
-  }
-}
-
+/** 提交当前弹窗展示的版本，只消费本次请求的进度。 */
 const handleUpdate = async () => {
+  const version = updateInfo.value?.latest_version
+  if (updateState.value !== 'has-update' || !version) return
   updateState.value = 'downloading'
-  downloadProgress.value = 0
+  downloaded.value = 0
+  downloadTotal.value = null
   errorMessage.value = ''
-  
-  try {
-    const response = await apiInvoke<boolean>('download_and_install_update')
-    if (!isSuccess(response)) {
-      throw new Error(response.error || '下载安装更新失败')
-    }
-    const result = response.data
-    
-    downloadProgress.value = 100
-    
-    if (result) {
-      updateState.value = 'success'
+  const channel = new Channel<UpdateProgress>((progress) => {
+    if (!isBusy.value || updateState.value === 'success') return
+    if (progress.phase === 'downloading') {
+      downloaded.value = progress.downloaded
+      downloadTotal.value = progress.total
     } else {
-      throw new Error('安装程序未能完成更新')
+      updateState.value = progress.phase
     }
-  } catch (error) {
-    errorMessage.value = String(error)
+  })
+  const response = await apiInvoke<null>('download_and_install_update', { version, onProgress: channel })
+  if (response.success) {
+    updateState.value = 'success'
+  } else {
+    errorMessage.value = response.error || '下载安装更新失败'
     updateState.value = 'error'
   }
 }
 
-onMounted(async () => {
-  try {
-    unlistenDownloadProgress = await listen<UpdateProgress>('update-download-progress', event => {
-      if (updateState.value !== 'downloading') return
-      downloadProgress.value = Math.min(100, Math.max(0, event.payload.percentage))
-    })
-
-    unlistenInstalling = await listen('update-installing', () => {
-      if (updateState.value === 'downloading') {
-        downloadProgress.value = 100
-        updateState.value = 'installing'
-      }
-    })
-  } catch (error) {
-    console.error('注册更新进度监听器失败:', error)
-  }
-})
-
-onUnmounted(() => {
-  unlistenDownloadProgress?.()
-  unlistenInstalling?.()
-  unlistenDownloadProgress = null
-  unlistenInstalling = null
-})
-
-defineExpose({
-  checkUpdate,
-  setUpdateInfo
-})
+defineExpose({ checkUpdate })
 </script>
 
 <style scoped>

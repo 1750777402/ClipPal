@@ -76,20 +76,18 @@ interface ApiResponse<T = any> {
 
 // 更新信息类型
 export interface UpdateInfo {
-  has_update: boolean;
+  status: 'manual' | 'unavailable' | 'up_to_date' | 'available';
   current_version: string;
-  latest_version: string;
-  body?: string;
-  size?: number;
-  date?: string;
+  latest_version: string | null;
+  body: string | null;
+  date: string | null;
 }
 
 // 更新进度类型
-export interface UpdateProgress {
-  downloaded: number;
-  total: number;
-  percentage: number;
-}
+export type UpdateProgress =
+  | { phase: 'downloading'; downloaded: number; total: number | null }
+  | { phase: 'verifying' }
+  | { phase: 'installing' };
 
 // 组件事件类型
 interface ComponentEvents {

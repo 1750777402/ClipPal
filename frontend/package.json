@@ -6,6 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "vue-tsc --noEmit && vite build",
+    "package:local": "node ../scripts/package-desktop.mjs local",
+    "package:self-hosted": "node ../scripts/package-desktop.mjs self-hosted",
     "preview": "vite preview",
     "tauri": "tauri"
   },

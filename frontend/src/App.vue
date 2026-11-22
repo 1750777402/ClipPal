@@ -15,8 +15,7 @@ import ScrollContainer from './components/ScrollContainer.vue';
 import TutorialGuide from './components/TutorialGuide.vue';
 import UpdateDialog from './components/UpdateDialog.vue';
 import { useBreakpoint, generateResponsiveClasses } from './utils/responsive';
-import { apiInvoke, isSuccess, setErrorHandler, ErrorSeverity, getFriendlyErrorMessage } from './utils/api';
-import type { UpdateInfo } from './types/global';
+import { setErrorHandler, ErrorSeverity, getFriendlyErrorMessage } from './utils/api';
 
 const messageBar = ref({ visible: false, message: '', type: 'info' as 'info' | 'warning' | 'error' });
 const showUpdateDialog = ref(false);
@@ -62,28 +61,13 @@ function onMessageBarLeave() {
 
 provide('showMessageBar', showMessageBar);
 
-/** 已检测到更新时打开弹窗，复用查询结果，不重复请求后端。 */
-function showAvailableUpdate(updateInfo: UpdateInfo) {
-  showUpdateDialog.value = true;
-  updateDialogRef.value?.setUpdateInfo(updateInfo);
-}
-
-/** 启动后静默检查版本，仅在确有更新时展示弹窗。 */
-async function checkUpdateOnStartup() {
-  const response = await apiInvoke<UpdateInfo>('check_soft_version');
-  if (isSuccess(response) && response.data.has_update) {
-    showAvailableUpdate(response.data);
-  }
-}
-
 /** 手动检查优先：取消尚未开始的启动检查，并交给更新弹窗显示进度。 */
 function handleManualUpdateCheck() {
   if (updateCheckTimer) {
     clearTimeout(updateCheckTimer);
     updateCheckTimer = null;
   }
-  showUpdateDialog.value = true;
-  updateDialogRef.value?.checkUpdate();
+  void updateDialogRef.value?.checkUpdate();
 }
 
 // 设置全局错误处理器和事件监听
@@ -109,7 +93,8 @@ onMounted(async () => {
 
   // 等界面和 IPC 通道准备完成后静默检查更新，失败不会影响应用启动。
   updateCheckTimer = setTimeout(() => {
-    void checkUpdateOnStartup();
+    updateCheckTimer = null;
+    void updateDialogRef.value?.checkUpdate(false);
   }, 5000);
 
 
