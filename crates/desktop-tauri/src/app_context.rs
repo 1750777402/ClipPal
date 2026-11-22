@@ -296,6 +296,18 @@ impl AppContext {
         }
     }
 
+    /// 分发剪贴板采集。自建版可以追加同步动作，单机服务仍负责保存记录。
+    pub async fn capture_clipboard(
+        &self, input: desktop_app_core::capture::CaptureInput<'_>,
+    ) -> AppResult<()> {
+        let encoder = crate::desktop::security::encrypt_content;
+        #[cfg(feature = "sync")]
+        self.application.capture(input, &encoder).await?;
+        #[cfg(not(feature = "sync"))]
+        desktop_app_core::capture::CaptureService::new(self.core(), &encoder).capture(input).await?;
+        Ok(())
+    }
+
     /// 获取同步资源分组。
     #[cfg(feature = "sync")]
     pub fn sync(&self) -> &SyncContext {

@@ -26,6 +26,9 @@ impl SyncConnection {
         Ok(Self { endpoint, bearer_token: bearer_token.to_owned() })
     }
 
+    /// 返回规范化部署地址，供本机隔离同步范围，不含认证令牌。
+    pub fn endpoint(&self) -> &str { self.endpoint.as_str() }
+
     pub fn request_url(&self, path: &str) -> Result<String, String> {
         // 只允许客户端内定义的相对端点，防止凭据被发送到其他服务。
         if path.contains(':') || path.starts_with("//")

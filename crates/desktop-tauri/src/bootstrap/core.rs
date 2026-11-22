@@ -113,6 +113,10 @@ pub async fn init_core() -> AppResult<BootstrapCore> {
     }
     app_context.core().initialize_search_index().await;
 
+    // 在打开剪贴板监听前恢复本机队列，避免离线启动时漏记第一条复制。
+    #[cfg(all(feature = "sync", not(feature = "commercial-extension")))]
+    crate::sync::runtime::start(&app_context).await;
+
     Ok(BootstrapCore {
         app_context,
         clipboard_event_manager,

@@ -51,6 +51,13 @@
             </div>
           </div>
 
+          <div v-if="appCapabilities?.cloud_sync" class="settings-item">
+            <div class="settings-label">
+              <span>文本云同步</span>
+              <span class="settings-description" aria-live="polite">{{ syncStatusText }}</span>
+            </div>
+          </div>
+
           <div class="settings-item-wrapper auto-paste-setting">
             <div class="settings-item">
               <div class="settings-label">
@@ -109,7 +116,8 @@
 // 本地设置弹窗管理表单和权限提示，由后端应用快捷键、自启与保留数量。
 import { ref, watch, onMounted, onBeforeUnmount, computed, inject } from 'vue';
 import { useWindowAdaptive, generateResponsiveClasses } from '../utils/responsive';
-import { settingsApi, isSuccess } from '../utils/api';
+import { settingsApi, syncApi, isSuccess } from '../utils/api';
+import type { SyncStatus } from '../utils/api';
 import { appCapabilities, loadAppCapabilities } from '../utils/capabilities';
 import type { AppSettings, AutoPastePermission } from '../types/global';
 import { getCurrentWindow } from '@tauri-apps/api/window';
@@ -183,6 +191,39 @@ let isSettingsDialogUnmounted = false;
 
 // 记录上限来自后端版本策略；前端只用于显示和输入范围提示。
 const recordLimit = computed(() => appCapabilities.value?.max_records ?? 300);
+
+const syncStatus = ref<SyncStatus | null>(null);
+const syncStatusText = computed(() => {
+  const status = syncStatus.value;
+  if (!status) return '正在读取状态';
+  if (!status.enabled) return '启动失败，请检查部署配置';
+  if (status.upload === 'blocked' || status.pull === 'blocked') return '同步异常，待上传记录已保留';
+  if (status.upload === 'retrying' || status.pull === 'retrying') return '连接或同步失败，等待重试';
+  if (status.waiting_for_binding) return '正在验证部署';
+  if (status.upload === 'working' || status.pull === 'working') return '正在同步';
+  return '等待同步';
+});
+
+// 只在自建版设置可见时读取状态。上一条查询结束后再安排下一次。
+watch([() => props.modelValue, () => appCapabilities.value?.cloud_sync], ([visible, enabled], _, onCleanup) => {
+  if (!visible || !enabled) {
+    syncStatus.value = null;
+    return;
+  }
+  let stopped = false;
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  onCleanup(() => {
+    stopped = true;
+    clearTimeout(timeout);
+  });
+  const refresh = async () => {
+    const response = await syncApi.getStatus();
+    if (stopped) return;
+    if (isSuccess(response)) syncStatus.value = response.data;
+    timeout = setTimeout(refresh, 2000);
+  };
+  void refresh();
+}, { immediate: true });
 
 // 使用响应式工具
 const responsive = useWindowAdaptive();

@@ -1,7 +1,7 @@
 //! 两表共用的 SQLite 仓储：主记录和附件作为一个整体读取、写入和删除。
 use async_trait::async_trait;
 use std::collections::HashMap;
-use rbatis::{RBatis, executor::Executor};
+use rbatis::{RBatis, executor::{Executor, RBatisTxExecutorGuard}};
 use rbs::to_value;
 use crate::{domain::clip::{ClipRecord, ClipRecordResource}, errors::{AppError, AppResult}, repositories::ClipRecordRepository};
 
@@ -22,6 +22,74 @@ impl SqliteClipRecordRepository {
         tx.commit().await?;
         Ok(records)
     }
+}
+
+/// 可选应用扩展。在写事务中补充自己的数据，失败时随记录一起回滚。
+#[async_trait]
+pub trait RecordWriteHook: Send + Sync {
+    async fn on_write(&self, tx: &dyn Executor, record: &ClipRecord) -> AppResult<()>;
+}
+
+/// 打开本地记录写事务，先取得 SQLite 写锁，再允许调用方读取或计算排序。
+pub async fn begin_record_write(db: &RBatis) -> AppResult<RBatisTxExecutorGuard> {
+    let tx = db.acquire_begin().await?.defer_async(|tx| async move {
+        if !tx.done() {
+            if let Err(error) = tx.rollback().await {
+                log::error!("回滚本地事务失败: {}", error);
+            }
+        }
+    });
+    tx.exec("UPDATE clip_record SET sort_order=sort_order WHERE id=-1", vec![]).await?;
+    Ok(tx)
+}
+
+impl SqliteClipRecordRepository {
+    /// 保存记录，并允许上层在提交前写入同库扩展数据。
+    pub async fn save_with(
+        &self, record: &ClipRecord, hook: Option<&dyn RecordWriteHook>,
+    ) -> AppResult<ClipRecord> {
+        let tx = begin_record_write(&self.db).await?;
+        let result = save_in(&tx, record).await?;
+        if let Some(hook) = hook {
+            hook.on_write(&tx, &result).await?;
+        }
+        tx.commit().await?;
+        Ok(result)
+    }
+
+    /// 删除前保留记录快照，扩展写入与删除一起提交。
+    pub async fn delete_with(
+        &self, id: i64, hook: Option<&dyn RecordWriteHook>,
+    ) -> AppResult<Option<ClipRecord>> {
+        let tx = begin_record_write(&self.db).await?;
+        let record = delete_in(&tx, id).await?;
+        if let (Some(hook), Some(record)) = (hook, &record) {
+            hook.on_write(&tx, record).await?;
+        }
+        tx.commit().await?;
+        Ok(record)
+    }
+}
+
+/// 在调用方持有的写事务内分配排序并保存，返回数据库实际分配的主键。
+pub async fn save_in(tx: &dyn Executor, record: &ClipRecord) -> AppResult<ClipRecord> {
+    #[derive(serde::Deserialize)]
+    struct Sort { next: i64 }
+    let rows: Vec<Sort> = rbatis::decode(tx.query(
+        "SELECT COALESCE(MAX(sort_order),0)+1 AS next FROM clip_record", vec![],
+    ).await?)?;
+    let mut next = record.clone();
+    next.sort_order = rows[0].next;
+    let id = persist_record(tx, &next).await?;
+    Ok(load(tx, "SELECT * FROM clip_record WHERE id=?", vec![to_value!(id)]).await?.remove(0))
+}
+
+/// 在调用方事务内删除。外键级联资源行，磁盘和索引由应用层在提交后处理。
+pub async fn delete_in(tx: &dyn Executor, id: i64) -> AppResult<Option<ClipRecord>> {
+    let record = load(tx, "SELECT * FROM clip_record WHERE id=?", vec![to_value!(id)])
+        .await?.into_iter().next();
+    tx.exec("DELETE FROM clip_record WHERE id=?", vec![to_value!(id)]).await?;
+    Ok(record)
 }
 
 /// 执行主表查询，再按主键补齐有序资源；既能用于读事务，也能用于写事务。
@@ -97,19 +165,7 @@ impl ClipRecordRepository for SqliteClipRecordRepository {
     }
     /// 保存一次采集；写入顺序、内容去重及资源替换在同一事务完成。
     async fn save_capture(&self, record: &ClipRecord) -> AppResult<ClipRecord> {
-        let tx = self.db.acquire_begin().await?;
-        let tx=tx.defer_async(|tx|async move{if !tx.done(){if let Err(error)=tx.rollback().await{log::error!("回滚本地事务失败: {}",error);}}});
-        // 写入顺序在事务内分配；首先写入避免读事务升级时的竞争。
-        let mut next = record.clone();
-        tx.exec("UPDATE clip_record SET sort_order=sort_order WHERE id=-1", vec![]).await?;
-        #[derive(serde::Deserialize)] struct Sort { next: i64 }
-        let rows: Vec<Sort> = tx.query_decode("SELECT COALESCE(MAX(sort_order),0)+1 AS next FROM clip_record", vec![]).await?;
-        next.sort_order = rows[0].next;
-        let id = persist_record(&tx, &next).await?;
-        // 返回数据库实际分配的记录和资源 ID，不能返回尚未入库的输入对象。
-        let result = load(&tx, "SELECT * FROM clip_record WHERE id=?", vec![to_value!(id)]).await?.remove(0);
-        tx.commit().await?;
-        Ok(result)
+        self.save_with(record, None).await
     }
     /// 切换唯一置顶；目标不存在或更新失败时，原置顶记录保持不变。
     async fn set_pinned(&self, id: i64, pinned: i32) -> AppResult<()> {
@@ -125,13 +181,7 @@ impl ClipRecordRepository for SqliteClipRecordRepository {
     }
     /// 物理删除并返回删除前快照，供提交后回收缓存；重复删除返回 None。
     async fn delete(&self, id: i64) -> AppResult<Option<ClipRecord>> {
-        let tx = self.db.acquire_begin().await?;
-        let tx=tx.defer_async(|tx|async move{if !tx.done(){if let Err(error)=tx.rollback().await{log::error!("回滚本地事务失败: {}",error);}}});
-        tx.exec("UPDATE clip_record SET sort_order=sort_order WHERE id=-1",vec![]).await?;
-        let record = load(&tx,"SELECT * FROM clip_record WHERE id=?",vec![to_value!(id)]).await?.into_iter().next();
-        // 资源行由 ON DELETE CASCADE 删除，磁盘文件交给应用层处理。
-        tx.exec("DELETE FROM clip_record WHERE id=?",vec![to_value!(id)]).await?;
-        tx.commit().await?; Ok(record)
+        self.delete_with(id, None).await
     }
     /// 统计有效本地记录；本表没有逻辑删除状态。
     async fn count(&self) -> AppResult<i64> {

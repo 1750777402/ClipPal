@@ -94,6 +94,11 @@ impl LocalContext {
         &self.db
     }
 
+    /// 同一套记录写入与索引更新共用此锁，外部应用扩展完成提交后再释放它。
+    pub fn record_write_lock(&self) -> &tokio::sync::Mutex<()> {
+        &self.capture_lock
+    }
+
     /// 获取统一仓储入口，业务服务不需要自己创建数据库连接。
     pub fn repositories(&self) -> &AppRepositories {
         &self.repositories

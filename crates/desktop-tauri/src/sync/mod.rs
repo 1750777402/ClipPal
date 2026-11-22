@@ -1,2 +1,5 @@
-//! 自建扩展策略；旧运行时已归档，新表的同步扩展后续实现。
+//! 自建同步的桌面适配与策略。
 pub mod policy;
+
+#[cfg(not(feature = "commercial-extension"))]
+pub(crate) mod runtime;

@@ -13,6 +13,7 @@ export enum ErrorSeverity {
 const ERROR_SEVERITY_MAP: Record<string, ErrorSeverity> = {
   // 数据查询相关 - 静默处理
   'get_clip_records': ErrorSeverity.SILENT,
+  'get_sync_status': ErrorSeverity.SILENT,
 
   // 用户操作相关 - 需要提示
   'copy_clip_record': ErrorSeverity.CRITICAL,
@@ -233,9 +234,9 @@ export const clipApi = {
     });
   },
 
-  // 删除记录
-  async deleteRecord(recordId: string) {
-    return apiInvoke<string>('del_record', {
+  // 普通删除只影响本机。跨端删除由确认框显式选择。
+  async deleteRecord(recordId: string, everywhere = false) {
+    return apiInvoke<string>(everywhere ? 'delete_synced_record' : 'del_record', {
       param: { record_id: recordId }
     });
   },
@@ -245,6 +246,23 @@ export const clipApi = {
     return apiInvoke<string>('set_pinned', {
       param: { record_id: recordId, pinned_flag: pinnedFlag }
     });
+  }
+};
+
+type SyncTaskStatus = 'idle' | 'working' | 'retrying' | 'blocked';
+
+export interface SyncStatus {
+  enabled: boolean;
+  waiting_for_binding: boolean;
+  can_delete_everywhere: boolean;
+  upload: SyncTaskStatus;
+  pull: SyncTaskStatus;
+}
+
+export const syncApi = {
+  // 设置和删除确认框使用同一个接口，详情由后端日志记录。
+  getStatus() {
+    return apiInvoke<SyncStatus>('get_sync_status');
   }
 };
 

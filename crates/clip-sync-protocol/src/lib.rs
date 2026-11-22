@@ -101,3 +101,6 @@ pub struct DownloadCloudFileParam {
     /// 请求的旧协议记录类型。
     pub r#type: String,
 }
+
+/// 新版有序增删同步协议。
+pub mod v2;

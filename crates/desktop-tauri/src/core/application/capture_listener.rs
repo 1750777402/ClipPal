@@ -2,7 +2,7 @@
 use clipboard_listener::{ClipBoardEventListener, ClipType, ClipboardEvent};
 use tauri::Emitter;
 use crate::{app_context::{app_context, AppContext}, errors::AppResult};
-use desktop_app_core::capture::{CaptureInput, CaptureService};
+use desktop_app_core::capture::CaptureInput;
 
 #[derive(Debug, Clone)]
 /// 系统事件监听器，只转换事件并通知页面，本地入库规则归 CaptureService。
@@ -22,8 +22,7 @@ impl ClipBoardEventListener<ClipboardEvent> for ClipboardEventTrigger {
             ClipType::File => CaptureInput::Files(event.file_path_vec.as_ref()),
             _ => return,
         };
-        let encoder = crate::desktop::security::encrypt_content;
-        let result = CaptureService::new(context.core(), &encoder).capture(input).await;
+        let result = context.capture_clipboard(input).await;
         if let Err(error) = &result { log::error!("处理剪贴板事件失败: {}", error); }
         if let Err(error) = clean_records(context.as_ref()).await { log::error!("清理剪贴记录失败: {}", error); }
         // 事件只表示列表可能变化，不向前端广播完整正文或图片字节。

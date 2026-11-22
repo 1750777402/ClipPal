@@ -154,10 +154,16 @@
         <div class="confirm-mask" @click.self="cancelDelete">
             <div class="confirm-dialog">
                 <div class="confirm-title">删除确认</div>
-                <div class="confirm-content">确定要删除该条记录吗？删除后无法恢复</div>
+                <div class="confirm-content">
+                    {{ canDeleteEverywhere ? '跨端删除会移除云端及其他设备的这条记录。' : '确定要删除该条记录吗？删除后无法恢复' }}
+                </div>
                 <div class="confirm-actions">
                     <button class="confirm-btn confirm-cancel" @click="cancelDelete">取消</button>
-                    <button class="confirm-btn confirm-ok" @click="confirmDelete">确定</button>
+                    <button class="confirm-btn confirm-ok" :disabled="deleting" @click="confirmDelete(false)">
+                        {{ canDeleteEverywhere ? '仅删本机' : '确定' }}
+                    </button>
+                    <button v-if="canDeleteEverywhere" class="confirm-btn confirm-ok" :disabled="deleting"
+                        @click="confirmDelete(true)">跨端删除</button>
                 </div>
             </div>
         </div>
@@ -196,7 +202,8 @@ import { formatDistanceToNow } from 'date-fns';
 import { zhCN } from 'date-fns/locale';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import SmartContentDisplay from './SmartContentDisplay.vue';
-import { apiInvoke, clipApi, settingsApi, isSuccess } from '../utils/api';
+import { apiInvoke, clipApi, settingsApi, syncApi, isSuccess } from '../utils/api';
+import { loadAppCapabilities } from '../utils/capabilities';
 
 // 导入全局类型
 import type { ClipRecord } from '../types/global';
@@ -220,6 +227,9 @@ const imageError = ref(false);
 const showImagePreview = ref(false);
 const showTip = ref(false);
 const showConfirm = ref(false);
+const canDeleteEverywhere = ref(false);
+const deleting = ref(false);
+let deleteAttempt = 0;
 const showAutoPasteWarning = ref(false);
 
 // 大文本处理状态
@@ -546,22 +556,37 @@ const retryLoadImage = async () => {
     await loadImage();
 };
 
-/** 打开删除确认框，等待用户确认后再提交删除请求。 */
+/** 先打开现有确认框。只有已绑定的自建文本同步才添加跨端删除选项。 */
 const handleDelete = async () => {
+    const attempt = ++deleteAttempt;
+    canDeleteEverywhere.value = false;
     showConfirm.value = true;
-};
-
-/** 后端删除成功后关闭确认框，并通知父组件刷新列表。 */
-const confirmDelete = async () => {
-    const response = await clipApi.deleteRecord(props.record.id);
-    if (isSuccess(response)) {
-        emit('delete', props.record);
-        showConfirm.value = false;
+    if (props.record.type !== 'Text' || !(await loadAppCapabilities())?.cloud_sync) return;
+    const status = await syncApi.getStatus();
+    if (attempt === deleteAttempt && isSuccess(status)) {
+        canDeleteEverywhere.value = status.data.can_delete_everywhere;
     }
 };
 
-/** 关闭确认框，保留当前记录。 */
+/** 提交用户选定的删除范围。重复点击不会产生第二次请求。 */
+const confirmDelete = async (everywhere: boolean) => {
+    if (deleting.value) return;
+    deleting.value = true;
+    const record = props.record;
+    try {
+        const response = await clipApi.deleteRecord(record.id, everywhere);
+        if (isSuccess(response)) {
+            emit('delete', record);
+            cancelDelete();
+        }
+    } finally {
+        deleting.value = false;
+    }
+};
+
+/** 清除本次状态查询，让晚到的响应不会影响下一次确认。 */
 const cancelDelete = () => {
+    ++deleteAttempt;
     showConfirm.value = false;
 };
 

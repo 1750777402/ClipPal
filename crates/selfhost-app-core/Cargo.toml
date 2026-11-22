@@ -12,6 +12,12 @@ async-trait.workspace = true
 desktop-app-core = { path = "../desktop-app-core" }
 clip-sync-client = { path = "../clip-sync-client", features = ["sqlite"] }
 
-[dev-dependencies]
 tokio.workspace = true
 uuid = { workspace = true, features = ["v4"] }
+rbatis.workspace = true
+rbs.workspace = true
+serde.workspace = true
+log.workspace = true
+
+[dev-dependencies]
+tempfile = "3"

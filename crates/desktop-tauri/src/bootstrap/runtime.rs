@@ -23,17 +23,17 @@ fn handle_exit_requested(core: &BootstrapCore) {
         }
     }
     core.clipboard_event_manager.request_shutdown();
+    #[cfg(all(feature = "sync", not(feature = "commercial-extension")))]
+    crate::sync::runtime::stop(&core.app_context);
 }
 
 /// 应用 Ready 后启动的运行期任务。
 ///
 /// 这些任务放在 Ready 阶段，是为了保持和当前启动顺序一致：
-/// - 开始消费剪贴记录同步队列；
-/// - 启动文件上传同步定时任务；
 /// - 启动剪贴板事件循环；
 /// - 用户已登录时初始化 VIP 状态并执行权益限制检查。
 fn handle_ready(core: BootstrapCore) {
-    // 本地事件循环独立启动。自建版和商业版当前都不启动旧同步任务。
+    // 系统事件独立消费，启动阶段已为启用的自建部署恢复同步队列。
     core.clipboard_event_manager.start_event_loop();
     #[cfg(feature = "commercial-extension")]
     start_vip_initialization_task(core);

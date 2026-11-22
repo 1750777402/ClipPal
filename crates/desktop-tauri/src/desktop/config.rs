@@ -19,6 +19,9 @@ pub struct AppSecret {
 #[derive(Deserialize, Serialize, Clone)]
 #[cfg(feature = "sync")]
 pub struct CloudSync {
+    /// 旧配置即使带有部署令牌也不会自动开始上传。
+    #[serde(default)]
+    pub enabled: bool,
     #[serde(default, skip_serializing)]
     pub deployment_token: Option<String>,
     pub domain: String,
@@ -88,6 +91,7 @@ pub fn get_max_file_size_bytes() -> AppResult<u64> {
 impl std::fmt::Debug for CloudSync {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("CloudSync").field("domain", &self.domain)
+            .field("enabled", &self.enabled)
             .field("max_file_size_kb", &self.max_file_size_kb)
             .field("deployment_token", &"[REDACTED]").finish()
     }
@@ -120,6 +124,7 @@ mod tests {
     fn deployment_token_is_optional_and_never_serialized_or_debugged() {
         let old: CloudSync = serde_json::from_str(r#"{"domain":"https://sync.test","max_file_size_kb":100}"#).unwrap();
         assert!(old.deployment_token.is_none());
+        assert!(!old.enabled);
         let configured: CloudSync = serde_json::from_str(r#"{"domain":"https://sync.test","max_file_size_kb":100,"deployment_token":"test-private-token"}"#).unwrap();
         assert!(!format!("{configured:?}").contains("test-private-token"));
         let value = serde_json::to_value(configured).unwrap();

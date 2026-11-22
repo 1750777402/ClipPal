@@ -1,5 +1,5 @@
 use std::sync::Arc;
-use selfhost_app_core::{SelfhostContext, desktop_app_core::{LocalContext, clip_core::{domain::clip::ClipRecord, errors::AppResult}}, clip_sync_client::queue::QueueEvent};
+use selfhost_app_core::{SelfhostContext, desktop_app_core::{LocalContext, clip_core::{storage::has_table, errors::AppResult}}};
 
 /// 验证自建版复用单机上下文及仓储，不另建第二套本地数据。
 #[tokio::test]
@@ -16,13 +16,8 @@ async fn selfhost_extends_the_same_local_resources() {
     app.local().search_engine().add("record", "clipboard context").await.unwrap();
     assert_eq!(app.local().search_engine().search("context").await, vec!["record"]);
 
-    let producer = app.sync().record_queue();
-    producer.send_add(ClipRecord { id: 1, ..Default::default() }).await.unwrap();
-    assert!(matches!(app.sync().record_queue().try_recv().unwrap(), QueueEvent::Add(record) if record.id == 1));
-    let guard = app.sync().lock().try_lock().unwrap();
-    assert!(app.sync().lock().try_lock().is_none());
-    drop(guard);
-    assert!(app.sync().lock().try_lock().is_some());
+    assert!(!app.sync().status().await.enabled);
+    assert!(!has_table(app.local().db(), "clip_sync_record").await.unwrap());
     drop(app);
     let _ = std::fs::remove_dir_all(dir);
 }

@@ -2,6 +2,7 @@
 use std::{collections::HashMap,path::{Path,PathBuf}};
 use clip_core::{domain::clip::{ClipRecord,ClipRecordResource,TEXT_TYPE,IMAGE_TYPE,FILE_TYPE,DIRECTORY_TYPE},errors::{AppError,AppResult},repositories::ClipRecordRepository};
 use crate::{LocalContext,dto::*};
+use clip_core::storage::{RecordWriteHook, SqliteClipRecordRepository};
 
 /// 将 IPC 十进制字符串还原成正整数主键，拒绝空值、负数和溢出值。
 pub fn parse_id(value:&str)->AppResult<i64>{
@@ -99,18 +100,35 @@ impl<'a> ClipRecordService<'a>{
     }
     /// 物理删除记录；数据库提交成功后再移除索引并回收受管缓存。
     pub async fn delete_record(&self,id:String)->AppResult<String>{
-        let _guard=self.context.capture_lock.lock().await;
-        if let Some(record)=self.repository.delete(parse_id(&id)?).await?{
-            // 数据库已经提交删除；索引失败不能阻断缓存清理或让页面误以为记录未删除。
-            // 查询仍会回查数据库，失效索引不会让已删除记录重新显示。
-            if let Err(error)=self.context.search_engine().remove(&[record.id.to_string()]).await {
-                log::error!("移除已删除记录的搜索索引失败，ID: {}，错误: {}",record.id,error);
-            }
-            crate::cleanup::delete_managed_resources(self.context,&record).await;
-        }Ok(String::new())
+        self.delete_record_with(id, None).await
+    }
+
+    /// 允许扩展随本地删除完成同库写入。索引和缓存始终等到提交成功再清理。
+    pub async fn delete_record_with(
+        &self, id: String, hook: Option<&dyn RecordWriteHook>,
+    ) -> AppResult<String> {
+        let _guard = self.context.capture_lock.lock().await;
+        let id = parse_id(&id)?;
+        let deleted = if let Some(hook) = hook {
+            SqliteClipRecordRepository::new(self.context.db().clone()).delete_with(id, Some(hook)).await?
+        } else {
+            self.repository.delete(id).await?
+        };
+        if let Some(record) = deleted {
+            finish_record_removal(self.context, &record).await;
+        }
+        Ok(String::new())
     }
     /// 读取必须存在的记录，统一处理非法 ID 和记录已删除的情况。
     async fn required(&self,id:&str)->AppResult<ClipRecord>{
         self.repository.find_by_id(parse_id(id)?).await?.ok_or_else(||AppError::Config("记录不存在".into()))
     }
+}
+
+/// 数据库提交后清理索引和受管缓存。索引故障不改变已完成的删除结果。
+pub async fn finish_record_removal(context: &LocalContext, record: &ClipRecord) {
+    if let Err(error) = context.search_engine().remove(&[record.id.to_string()]).await {
+        log::error!("移除已删除记录的搜索索引失败，ID: {}，错误: {}", record.id, error);
+    }
+    crate::cleanup::delete_managed_resources(context, record).await;
 }

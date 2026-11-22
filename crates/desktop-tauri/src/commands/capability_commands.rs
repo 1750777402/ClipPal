@@ -7,7 +7,7 @@ use crate::{app_context::AppContext, response::{string_result, CommandResponse}}
 pub struct AppCapabilities {
     /// 当前编译版本：local / self-hosted / commercial。
     edition: &'static str,
-    /// 新同步实现完成前固定关闭，不能仅凭编译 feature 宣称同步可用。
+    /// 当前安装包是否已明确启用自建文本同步。
     cloud_sync: bool,
     /// 只有商业扩展提供账号入口。
     account: bool,
@@ -22,7 +22,9 @@ pub fn get_app_capabilities(state: tauri::State<'_, Arc<AppContext>>) -> Command
     string_result(context.policy().max_records(context).map(|max_records| AppCapabilities {
         edition: if cfg!(feature = "commercial-extension") { "commercial" }
             else if cfg!(feature = "sync") { "self-hosted" } else { "local" },
-        // 新本地表尚未接入同步扩展，禁止旧运行时写入新库。
+        #[cfg(all(feature = "sync", not(feature = "commercial-extension")))]
+        cloud_sync: crate::sync::runtime::enabled(),
+        #[cfg(not(all(feature = "sync", not(feature = "commercial-extension"))))]
         cloud_sync: false,
         account: cfg!(feature = "commercial-extension"),
         max_records,

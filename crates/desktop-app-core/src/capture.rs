@@ -2,6 +2,7 @@
 use std::{path::{Path,PathBuf},time::{SystemTime,UNIX_EPOCH}};
 use clip_core::{domain::clip::{ClipRecord,ClipRecordResource,TEXT_TYPE,IMAGE_TYPE,FILE_TYPE,DIRECTORY_TYPE},content_key,errors::{AppError,AppResult}};
 use crate::LocalContext;
+use clip_core::storage::{RecordWriteHook, SqliteClipRecordRepository};
 
 /// 从系统事件借用的原始数据；此处尚未计算摘要、加密或复制文件。
 pub enum CaptureInput<'a>{
@@ -30,6 +31,13 @@ impl<'a> CaptureService<'a>{
     pub fn new(local:&'a LocalContext,encoder:&'a dyn TextEncoder)->Self{Self{local,encoder}}
     /// 保存一个有效剪贴板事件；空内容返回 None，保存失败返回具体后端错误。
     pub async fn capture(&self,input:CaptureInput<'_>)->AppResult<Option<ClipRecord>>{
+        self.capture_with(input, None).await
+    }
+
+    /// 在本地采集事务中执行可选扩展写入，采集准备和提交后处理仍走同一条路径。
+    pub async fn capture_with(
+        &self, input: CaptureInput<'_>, hook: Option<&dyn RecordWriteHook>,
+    ) -> AppResult<Option<ClipRecord>> {
         // 与删除、置顶和超限清理互斥，避免资源准备期间记录被另一操作删掉。
         let _guard=self.local.capture_lock.lock().await;
         // 毫秒时间用于展示；真正的先后顺序由仓储在写事务内分配。
@@ -71,7 +79,12 @@ impl<'a> CaptureService<'a>{
         let repo=self.local.repositories().clip_records();
         let old=repo.find_by_content_key(&next.content_key).await?;
         // 先保留旧资源快照：写失败清理新副本，写成功才清理被替换的旧副本。
-        let saved=match repo.save_capture(&next).await{
+        let result = if let Some(hook) = hook {
+            SqliteClipRecordRepository::new(self.local.db().clone()).save_with(&next, Some(hook)).await
+        } else {
+            repo.save_capture(&next).await
+        };
+        let saved=match result{
             Ok(saved)=>saved,
             Err(error)=>{
                 if let Some(old)=&old{crate::cleanup::delete_replaced_resources(self.local,&next,old).await;}
