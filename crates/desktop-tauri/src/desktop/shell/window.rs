@@ -24,6 +24,13 @@ pub fn init_main_window(
         tauri::Error::FailedToReceiveMessage
     })?;
 
+    // 剪贴板弹窗由托盘和快捷键唤起，不参加 macOS 登录时的窗口恢复。
+    #[cfg(target_os = "macos")]
+    unsafe {
+        let native_window = main_window.ns_window()? as *mut objc::runtime::Object;
+        let _: () = msg_send![native_window, setRestorable: cocoa::base::NO];
+    }
+
     // 获取主显示器信息
     let monitor = main_window
         .primary_monitor()

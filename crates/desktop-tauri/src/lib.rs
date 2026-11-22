@@ -45,9 +45,10 @@ pub async fn run(
     let core_for_run = core.clone();
 
     // AppContext 作为 Tauri managed state 注入，所有 command 从同一上下文获取依赖。
-    let builder = bootstrap::register_plugins(tauri::Builder::default())
+    let autostart = bootstrap::is_autostart(std::env::args_os().skip(1));
+    let builder = bootstrap::register_plugins(tauri::Builder::default(), autostart)
         .manage(app_context)
-        .setup(move |app| Ok(bootstrap::setup_app(app, core_for_setup.clone())?));
+        .setup(move |app| Ok(bootstrap::setup_app(app, core_for_setup.clone(), autostart)?));
     // 不含商业扩展的包不注册账号、VIP 和支付 IPC。
     commands::register_commands(builder)
         .build(context)?

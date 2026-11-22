@@ -18,14 +18,20 @@ use {
 /// - 初始化菜单、托盘、主窗口、全局快捷键；
 /// - 接入剪贴板监听器；
 /// - 启动依赖 `AppHandle` 的后台任务。
-pub fn setup_app(app: &mut App, core: BootstrapCore) -> tauri::Result<()> {
+pub fn setup_app(app: &mut App, core: BootstrapCore, autostart: bool) -> tauri::Result<()> {
+    // 登录后只挂在菜单栏运行，避免 macOS 把进程作为普通前台应用激活。
+    #[cfg(target_os = "macos")]
+    if autostart {
+        app.set_activation_policy(tauri::ActivationPolicy::Accessory);
+    }
+
     let app_handle = app.handle().clone();
 
     if let Err(e) = core.app_context.set_app_handle(app_handle) {
         log::warn!("设置 AppHandle 到 AppContext 失败: {}", e);
     }
 
-    init_desktop_shell(app, &core)?;
+    init_desktop_shell(app, &core, autostart)?;
     start_setup_tasks(app, &core);
 
     Ok(())
@@ -35,7 +41,7 @@ pub fn setup_app(app: &mut App, core: BootstrapCore) -> tauri::Result<()> {
 ///
 /// 菜单、托盘、主窗口、全局快捷键、剪贴板监听都属于 Tauri / 系统能力，
 /// 所以放在 setup 阶段集中编排。
-fn init_desktop_shell(app: &mut App, core: &BootstrapCore) -> tauri::Result<()> {
+fn init_desktop_shell(app: &mut App, core: &BootstrapCore, autostart: bool) -> tauri::Result<()> {
     let _ = menu::init_menu(app);
 
     tray::create_tray(app.handle(), core.app_context.clone())?;
@@ -45,14 +51,15 @@ fn init_desktop_shell(app: &mut App, core: &BootstrapCore) -> tauri::Result<()> 
         core.app_context.window_focus_state(),
         core.app_context.window_hide_flag(),
     )?;
-    if let Some(main_window) = app.get_webview_window("main") {
-        if let Err(e) = core.app_context.set_main_window(main_window) {
-            log::warn!("设置主窗口到 AppContext 失败: {}", e);
-        }
-    }
+    let main_window = app.get_webview_window("main").ok_or(tauri::Error::FailedToReceiveMessage)?;
+    core.app_context.set_main_window(main_window.clone())
+        .map_err(|error| std::io::Error::other(error.to_string()))?;
 
     // 普通启动显示前捕获目标；自动启动保持后台运行。
-    if !std::env::args().any(|arg| arg == "--autostart") {
+    if autostart {
+        main_window.hide()?;
+        log::info!("登录自启，主窗口保持隐藏");
+    } else {
         window::show_main_window(&core.app_context).map_err(|error| std::io::Error::other(error.to_string()))?;
     }
 
