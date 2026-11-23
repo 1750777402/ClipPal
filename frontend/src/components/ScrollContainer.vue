@@ -225,6 +225,9 @@ const silentRefresh = async () => {
   const requestId = ++requestSequence;
   const requestSearch = search.value;
   try {
+    // 刷新接管当前请求，清除被替代的初始加载和分页状态。
+    isInitialLoading.value = false;
+    isFetchingMore.value = false;
     isRefreshing.value = true;
     const response = await clipApi.getClipRecords({
       page: 1,
@@ -236,6 +239,7 @@ const silentRefresh = async () => {
       const data = response.data;
       // 平滑更新数据
       await nextTick();
+      if (requestId !== requestSequence || requestSearch !== search.value) return;
       cards.value = [...data];
       page.value = 2;
       hasMore.value = data.length >= pageSize;
@@ -266,6 +270,8 @@ const resetAndFetch = () => {
 /** 加载当前页。刷新覆盖列表，加载下一页时追加结果。 */
 const fetchClipRecords = async (isRefresh = false) => {
   if (!hasMore.value) return;
+  // 分页不能打断正在进行的刷新，也不能重复请求同一页；显式刷新仍可接管旧请求。
+  if (!isRefresh && (isInitialLoading.value || isRefreshing.value || isFetchingMore.value)) return;
   
   const requestId = ++requestSequence;
   const requestSearch = search.value;
@@ -274,11 +280,10 @@ const fetchClipRecords = async (isRefresh = false) => {
   
   try {
     // 智能loading：只在真正需要时显示
-    if (currentPage === 1 && cards.value.length === 0) {
-      isInitialLoading.value = true;
-    } else if (currentPage > 1) {
-      isFetchingMore.value = true;
-    }
+    // 每个新请求完整接管加载状态，避免旧请求失效后留下无法清理的标记。
+    isRefreshing.value = false;
+    isInitialLoading.value = currentPage === 1 && cards.value.length === 0;
+    isFetchingMore.value = currentPage > 1;
 
     const response = await clipApi.getClipRecords({
       page: currentPage,
