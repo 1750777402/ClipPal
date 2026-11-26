@@ -32,8 +32,8 @@
 
 | 表 | 内容 |
 | --- | --- |
-| 云端记录表 `clip_record` | `id`、`content_key`、类型、内容、`deleted_at`、创建和更新时间。自建版按 `content_key` 唯一，商业版按 `(user_id, content_key)` 唯一。当前记录查询只返回仍存在的内容。 |
-| 云端变更表 `clip_sync_change` | 追加保存 `sync_seq`、`operation_id`、`content_key`、动作类型、提交时间。`upsert` 关联云端内部的内容记录，`delete` 只需要内容键。按同步范围和序号分页，`operation_id` 的唯一约束覆盖该同步范围，用这张表直接查重试确认。 |
+| 云端记录表 `clip_record` | `id`、`content_key`、`type`、`content`、`created`、`updated`、`del_flag`。自建版按 `content_key` 唯一，商业版按 `(user_id, content_key)` 唯一。当前记录查询只返回仍存在的内容。 |
+| 云端变更表 `clip_sync_change` | 追加保存 `id`、`operation_id`、`content_key`、`action`、`record_id`、`client_created`、`request_hash` 及基础字段。自增 `id` 直接映射为协议 `sync_seq`，`created` 映射为 `committed_at`。`upsert` 关联云端内部的内容记录，`delete` 只需要内容键。按同步范围和序号分页，`operation_id` 的唯一约束覆盖该同步范围，用这张表直接查重试确认。 |
 
 云端内容按内容键保存一份。文本对同一个 `content_key` 的原文固定，因此历史 `upsert` 可以引用同一份存储内容。云端删除更新当前状态并追加 `delete`，供离线设备回放。在保留旧增删历史期间，仍被 `upsert` 引用的正文也要保留，否则旧动作无法回放。待定义快照和旧游标恢复后，再一起设计历史、重试凭据及无引用内容的回收。附件接入后按同样规则管理 OSS 对象的保留期限。
 
@@ -104,3 +104,14 @@
 | `GET sync/v2/events` | 查询参数为 `scope_id`、`dataset_id`。连接返回 `text/event-stream`，变更通知用带 `data:` 的 `event: changed`。建议服务端每 15 秒发送注释心跳，客户端 45 秒没有收到数据时重连。 |
 
 上传和补拉各自分批，首版采用独立请求。每批最多 100 条，单条文本密文最多 4 MiB，上传批次最多携带 8 MiB 密文。超出同步上限的文本仍可在本机保存。补拉也建议按同样的条数和密文大小预算分页。客户端在每页的本地事务提交后推进游标，远端回放更新本机搜索和列表。设置中会显示同步、等待重试和异常状态。文本删除确认框提供本机删除与跨端删除，跨端删除在本机事务提交后即完成登记，离线时等待恢复连接再发送。
+
+
+## 云端首期落地约定（2026-11-24）
+
+服务端独立工程为同级目录 `clip-pal-sync`，使用单模块 Spring Boot。两张业务表保持旧 Java 基础字段 `id`、`created`、`updated`、`del_flag`，主键均为自增 BIGINT。记录表的删除改变最终状态；删除动作本身仍是一条有效日志，其 `del_flag` 固定为0。动作表不保存正文，按云端 `record_id` 关联第一份已验证密文。
+
+数据库手动执行服务端 `sql/init.sql` 创建，不使用 Flyway，不在应用启动时建表。部署身份 `scope_id`、`dataset_id` 和真实内容密钥在服务端持久配置中保存，重启保持不变。自建版不创建账号、设备进度或元数据业务表。
+
+首版限定一个服务端进程写一个自建库。`SyncService` 的进程锁包围完整 `TransactionTemplate`，从事务开始到提交完成才释放，保证动作自增 ID 的可见顺序。事务提交后再发布内部事件，统一通过 `requestNotify()` 合并SSE通知。多实例写入需要后续增加提交顺序协调，不能直接复制部署多个进程。
+
+正文在日志保留期间不物理删除，重复新增只更新最终状态和时间，保留首份验证通过的密文。同一操作ID重传时比较原请求摘要，相同则返回原序号，不同则整批回滚。上传确认不改变客户端补拉游标。

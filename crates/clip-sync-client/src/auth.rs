@@ -9,13 +9,33 @@ pub struct SyncConnection {
 }
 
 impl SyncConnection {
+    /// 正式连接始终要求 HTTPS；商业认证也继续使用这个入口。
     pub fn new(endpoint: &str, bearer_token: &str) -> Result<Self, String> {
+        Self::parse(endpoint, bearer_token, false)
+    }
+
+    /// 仅调试构建允许回环 HTTP，供本机 Tomcat 联调；发布构建仍要求 HTTPS。
+    /// 不允许局域网、公网地址，也不自动跟随重定向。
+    pub fn for_development(endpoint: &str, bearer_token: &str) -> Result<Self, String> {
+        Self::parse(endpoint, bearer_token, cfg!(debug_assertions))
+    }
+
+    /// 两种入口共用凭证、地址和路径校验，开发例外只改变回环地址的协议限制。
+    fn parse(endpoint: &str, bearer_token: &str, allow_loopback_http: bool) -> Result<Self, String> {
         let mut endpoint = Url::parse(endpoint).map_err(|_| "同步服务地址无效".to_owned())?;
-        if endpoint.scheme() != "https" || endpoint.host_str().is_none()
+        let loopback = match endpoint.host() {
+            Some(url::Host::Ipv4(address)) => address.is_loopback(),
+            Some(url::Host::Ipv6(address)) => address.is_loopback(),
+            Some(url::Host::Domain(name)) => name.eq_ignore_ascii_case("localhost"),
+            None => false,
+        };
+        let allowed_scheme = endpoint.scheme() == "https"
+            || (allow_loopback_http && endpoint.scheme() == "http" && loopback);
+        if !allowed_scheme || endpoint.host_str().is_none()
             || !endpoint.username().is_empty() || endpoint.password().is_some()
             || endpoint.query().is_some() || endpoint.fragment().is_some()
         {
-            return Err("同步服务地址必须为不含账号、查询参数和片段的 HTTPS 地址".into());
+            return Err("同步服务地址必须为 HTTPS；调试构建仅额外允许回环 HTTP，地址不能包含账号、查询参数或片段".into());
         }
         if bearer_token.is_empty() || !bearer_token.bytes().all(|b| b.is_ascii_graphic()) {
             return Err("同步认证令牌为空或格式无效".into());

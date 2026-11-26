@@ -6,9 +6,10 @@ const host = process.env.TAURI_DEV_HOST;
 
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => {
-  // 读取当前打包模式；默认 local，只有显式商业构建才引入账号和支付组件。
+  // 显式打包模式优先，避免终端里的开发变量让前端选错版本。
   const env = loadEnv(mode, '.', 'VITE_');
-  const edition = env.VITE_EDITION || (mode === 'commercial' ? 'commercial' : mode === 'self-hosted' ? 'self-hosted' : 'local');
+  const editions: Record<string, string> = { standalone: 'local', 'self-hosted': 'self-hosted', commercial: 'commercial' };
+  const edition = Object.hasOwn(editions, mode) ? editions[mode] : env.VITE_EDITION || 'local';
   return {
   // 编译期替换成常量，打包器才可以真正删除未启用版本的代码。
   define: { 'import.meta.env.VITE_EDITION': JSON.stringify(edition) },

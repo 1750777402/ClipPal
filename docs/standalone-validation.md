@@ -46,9 +46,8 @@ cargo test -p tauri-plugin-clipboard-pal native_clipboard_roundtrip -- --ignored
 
 ## 启动与验证边界
 
-调试构建支持 `CLIPPAL_DATA_DIR` 指定隔离数据根目录；正式构建忽略该变量。
-桌面测试使用独立应用标识及 `/tmp/clippal-standalone-stability`，不修改正式数据库、
-正式设置文件或原有内容加密密钥。启动日志确认数据库、搜索索引和快捷键初始化完成，
+早期桌面测试使用独立应用标识及 `/tmp/clippal-standalone-stability`。现在开发运行与安装版使用同一个系统数据目录。
+当时的启动日志确认数据库、搜索索引和快捷键初始化完成，
 并跳过同步后台任务。独立线程采样未发现主线程死锁。
 
 桌面自动化读取临时应用窗口超时，未完成 UI 的完整点击验收。自动粘贴的实际目标恢复、

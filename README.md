@@ -7,9 +7,43 @@ ClipPal 是基于 Tauri 2 和 Vue 3 的桌面剪贴板管理器。它在本机�
 | 版本 | 适合谁 | `v2.0.0` 分支当前状态 |
 | --- | --- | --- |
 | 单机版 | 只在一台电脑使用 | 默认版本，安装后即可使用本地剪贴板历史，无需账号或服务端。 |
-| 自建版桌面预览 | 想提前验证自建版本的桌面构建 | 可以打包、安装并使用单机功能。新版同步协议和服务端仍待接入，预览包当前仅提供本地使用。 |
+| 自建版 | 想连接自己的同步服务 | 提供单机功能和文本云同步。 |
 
 **只想使用 ClipPal**，可在发布页下载与你系统和架构匹配的现成安装包。发布页里的旧版功能以对应版本说明为准。**想自行生成安装包**，请下载 `v2.0.0` 分支源码，从下文第 1 步开始。 [Gitee 发布页](https://gitee.com/ygz123/clip-pal/releases)
+
+## 日常开发
+
+先按下文准备工具和前端依赖。除 Java 启动步骤外，以下命令都在 VS Code 的 ClipPal 仓库根目录执行。 [安装工具](#1-安装构建工具) · [安装依赖](#2-下载源码并安装依赖)
+
+### 常用命令
+
+macOS 和 Windows 使用相同的 Cargo 命令。
+
+| 版本 | 启动开发 | 打包安装包 |
+| --- | --- | --- |
+| 单机版 | `cargo dev-local` | `cargo build-local` |
+| 自建版（云同步） | `cargo dev-sync` | `cargo build-sync` |
+
+### 启动自建版并联调云同步
+
+1. 启动本机 MySQL 8。如果使用现有的 Docker 容器，运行 `docker start mysql84`。第一次使用开发库时，选中专用的 `clip_pal_sync` 库，执行服务端的 `sql/init.sql`。
+2. 用 IDEA 打开同级的 `clip-pal-sync` 工程，选择 JDK 21，运行 `ClipPal Sync Local`。它读取服务端的 `config/application-local.yml`。访问 `http://127.0.0.1:8080/actuator/health`，确认返回 `UP`。
+3. 首次配置时，在客户端的 `src-tauri/config.json` 中将 `cloud_sync.enabled` 设为 `true`，将 `cloud_sync.domain` 设为 `http://127.0.0.1:8080`。客户端部署令牌与服务端保持一致，客户端密钥解混淆后应与服务端 `clip-pal.sync.content-key` 一致。保留已有的 `app_secret`。 [配置字段与 IDEA 启动参数](docs/local-sync-development.md)
+4. 如果有旧的开发进程，先按 `Ctrl+C` 停止，并从托盘退出旧 ClipPal。在 VS Code 终端运行 `cargo dev-sync`。
+
+两个版本都使用和安装版相同的 ClipPal 数据目录。macOS 默认是 `~/Library/Application Support/ClipPal`，Windows 默认是 `%LOCALAPPDATA%\ClipPal\data`。平时切换版本只需换命令。自建版首次绑定时，会将符合条件的已有文本纳入同步。
+
+启动后从「设置 → 文本云同步」确认部署已连接，再复制一条新文本。本地列表应显示这条记录。开发库的 `clip_record` 应写入对应内容，`clip_sync_change` 应新增 `upsert` 动作。也可以停掉 Java 后再复制一条文本，重启服务并检查补传。 [手动验收与查库 SQL](docs/local-sync-development.md#4-手动验证)
+
+### 常用检查
+
+| 用途 | 从客户端仓库根目录执行 |
+| --- | --- |
+| 检查 Rust workspace | `cargo check --workspace --locked` |
+| 检查自建版 Rust 编译 | `cargo check -p ClipPal --no-default-features --features self-hosted --locked` |
+| 检查 Vue 类型并构建前端 | `npm --prefix frontend run build`，Windows PowerShell 用 `npm.cmd` |
+| 检查 v2 模块边界 | `python3 scripts/check-v2-structure.py` |
+| 用系统剪贴板验证自建同步 | 启动日常 Java 服务和 `cargo dev-sync` 后，运行 `python3 scripts/test-cloud-sync.py` |
 
 ## 从零打包桌面端
 
@@ -36,7 +70,12 @@ rustc --version
 cargo --version
 ```
 
-Windows PowerShell 把 `npm --version` 换成 `npm.cmd --version`，其余命令相同。项目通过 npm 安装锁定版本的 Tauri 2 CLI，SQLite 由 Rust 依赖提供。
+Windows PowerShell 把 `npm --version` 换成 `npm.cmd --version`，其余命令相同。首次使用 Cargo 打包时，安装已验证的 Tauri CLI 版本。已有该版本时可跳过安装。
+
+```sh
+cargo install tauri-cli --version 2.9.4 --locked
+cargo tauri --version
+```
 
 ### 2. 下载源码并安装依赖
 
@@ -65,14 +104,19 @@ npm.cmd --prefix frontend ci
 
 ### 3. 按需打包
 
-每次选择下面的一条命令。脚本会先编译对应版本的前端，再调用 Tauri 生成安装包。这里生成的是手动更新的个人包。需要搭建自动更新渠道时，按[自动更新配置](docs/auto-update.md)构建发布包。
+在仓库根目录执行对应版本的命令，macOS 终端和 Windows PowerShell 用法相同。Tauri 会自动编译对应版本的 Vue 前端、编译 Rust 并生成安装包。npm 负责安装前端依赖以及执行 Tauri 的前端构建钩子。这里生成的是手动更新的个人包。带自动更新的发布包请参照[自动更新配置](docs/auto-update.md)。
 
-| 版本 | macOS 终端 | Windows PowerShell |
-| --- | --- | --- |
-| 单机版 | `npm --prefix frontend run package:local` | `npm.cmd --prefix frontend run package:local` |
-| 自建版桌面预览 | `npm --prefix frontend run package:self-hosted` | `npm.cmd --prefix frontend run package:self-hosted` |
+```sh
+# 单机版
+cargo build-local
 
-自建预览版当前无需部署地址、令牌或服务器。联网同步开放后，自建配置将包括 HTTPS 服务地址、部署认证和附件限制，届时本节会加入对应的配置与联调步骤。
+# 自建版
+cargo build-sync
+```
+
+这两条命令封装了 `cargo tauri build` 的版本和个人包配置。想手动指定安装包格式时，可用下方常见问题里的完整命令。
+
+自建版已接入文本云同步，需要配置服务地址、部署令牌并启用 `cloud_sync.enabled`。单机开发命令 `cargo tauri dev` 默认不会启动同步。本机连接普通 Spring Boot HTTP 的步骤见[本地同步联调](docs/local-sync-development.md)。正式安装包仍要求 HTTPS，由 Nginx 转发到 HTTP 服务端。
 
 **需要两个版本时请依次构建。** 两个版本目前沿用 ClipPal 的包标识、产物名称和本地数据目录。每次成功后先把安装包复制到不同目录，例如 `packages/local` 和 `packages/self-hosted`，再构建下一个版本。安装时把它们视为同一个应用的两个构建，切换前先从托盘退出 ClipPal。用来试装的电脑若已有历史数据，建议先退出应用后备份完整 ClipPal 数据目录。
 
@@ -89,33 +133,7 @@ npm.cmd --prefix frontend ci
 
 - **macOS** 打开 `.dmg`，把 `ClipPal.app` 拖到「应用程序」。如果 macOS 拦截你亲自构建且确认来源的应用，可在「系统设置 → 隐私与安全性」使用系统提供的「仍要打开」。自动粘贴需要辅助功能授权，在 ClipPal 的「设置 → 自动粘贴」点击「请求授权」或「打开系统设置」。授权后先切回目标应用，再唤起 ClipPal 选择记录。
 - **Windows** 双击 `.exe` 或 `.msi`，任选一种即可。安装程序可能需要联网获取 WebView2 Runtime。对于系统安全提示，应先核对安装包来源。
-- **验收** 启动后复制一段测试文本和一张图片，打开 ClipPal，检查历史列表、搜索、复制回原应用和图片另存为。退出重开后确认历史仍在。自建预览版按同一组本地功能验收。完整桌面验收见 [单机版验证记录](docs/standalone-validation.md)。
-
-### 可选：用 Cargo 调用 Tauri 打包
-
-`cargo build` 编译 Rust 可执行文件。要生成 `.dmg`、`.msi` 或 NSIS 安装程序，使用 `cargo tauri build`。第 3 步的 npm 脚本把前端构建和 Tauri 打包合在一起，也可以分开执行。首次从源码构建仍需按第 2 步安装 Vue 前端依赖。
-
-首次使用 Cargo 入口时，安装项目已验证的 Tauri CLI 版本。
-
-```sh
-cargo install tauri-cli --version 2.9.4 --locked
-```
-
-从仓库根目录执行对应版本的两条命令。Windows PowerShell 将 `npm` 改为 `npm.cmd`。如果之前手动设置过 `VITE_EDITION`，先清除该环境变量，让下面的模式选择对应前端。
-
-```sh
-# 单机版
-npm --prefix frontend run build
-cargo tauri build --config src-tauri/tauri.personal.json --features local -- --no-default-features --locked
-```
-
-```sh
-# 自建桌面预览版
-npm --prefix frontend run build -- --mode self-hosted
-cargo tauri build --config src-tauri/tauri.personal.json --features self-hosted -- --no-default-features --locked
-```
-
-前端构建成功后再执行对应的 Cargo 命令。如果 `dist` 已经由对应版本的前端构建生成，可以直接运行该 Cargo 命令。安装包位置和个人更新配置与第 3 步相同。
+- **验收** 启动后复制一段测试文本和一张图片，打开 ClipPal，检查历史列表、搜索、复制回原应用和图片另存为。退出重开后确认历史仍在。自建版还可以按联调文档检查文本上传。完整桌面验收见 [单机版验证记录](docs/standalone-validation.md)。
 
 ### 常见问题
 
@@ -124,11 +142,11 @@ cargo tauri build --config src-tauri/tauri.personal.json --features self-hosted 
 | 找不到 `node`、`npm` 或 `cargo` | 安装相应工具后重开终端，用第 1 步的版本命令检查。PowerShell 中使用 `npm.cmd`。 |
 | `npm ci` 或 Cargo 下载失败 | 先排查网络、代理和对应软件源的连通性。按原命令重试，保留仓库锁文件。 |
 | Windows 报 `link.exe` 找不到或缺 Windows SDK | 回到 Visual Studio Installer 补装「使用 C++ 的桌面开发」，确认 `rustc -vV` 的 `host` 是 MSVC，再重开终端。 |
-| 只想打某种安装包 | Windows 用 `npm.cmd --prefix frontend run package:local -- --bundles nsis` 单独生成 `.exe`。macOS 用 `npm --prefix frontend run package:local -- --bundles app` 单独生成 `.app`。自建预览使用对应的 `package:self-hosted` 命令。 |
-| macOS 报 `failed to run bundle_dmg.sh` | 在真实的 macOS 桌面会话运行打包命令。DMG 制作需要挂载临时磁盘映像。如果只供本机试用，可先用 `-- --bundles app` 生成 `.app` 并复制到「应用程序」。 |
+| 只想打某种安装包 | 单机版示例 `cargo tauri build --bundles app --config src-tauri/tauri.personal.json -- --locked`。Windows 将 `app` 换成 `nsis`。自建版再加上 `--config src-tauri/tauri.self-hosted.json`，并在末尾的 `--locked` 前加上 `--no-default-features`。 |
+| macOS 报 `failed to run bundle_dmg.sh` | 在真实的 macOS 桌面会话运行打包命令。DMG 制作需要挂载临时磁盘映像。本机试用可用 `--bundles app` 生成 `.app` 并复制到「应用程序」。 |
 | 生成的文件名仍显示 `1.0.7` | `v2.0.0` 是开发分支名。目前应用打包版本仍为 `1.0.7`，正式发布前会统一版本号。 |
 | 找不到安装包或只看到编译产物 | 找终端里第一处 `error`，修复后重新打包。以本次终端列出的 `Finished ... bundle` 路径为准。 |
-| 另一个版本好像把原版覆盖了 | 当前两版共用 ClipPal 安装标识，先按第 3 步分目录保存产物。Mac 数据位于 `~/Library/Application Support/ClipPal`，Windows 数据位于 `%APPDATA%\ClipPal`。 |
+| 另一个版本好像把原版覆盖了 | 当前两版共用 ClipPal 安装标识，先按第 3 步分目录保存产物。Mac 数据位于 `~/Library/Application Support/ClipPal`，Windows 数据位于 `%LOCALAPPDATA%\ClipPal\data`。 |
 
 ## 界面与项目结构
 

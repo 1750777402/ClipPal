@@ -10,7 +10,7 @@ impl DeploymentConfig {
     pub fn new(endpoint: &str, token: &str, max_file_size_kb: u64) -> Result<Self, String> {
         let max_file_size_bytes = max_file_size_kb.checked_mul(1024)
             .ok_or_else(|| "同步文件大小配置超出范围".to_owned())?;
-        Ok(Self { connection: SyncConnection::new(endpoint, token)?, max_file_size_bytes })
+        Ok(Self { connection: SyncConnection::for_development(endpoint, token)?, max_file_size_bytes })
     }
     pub fn max_file_size_bytes(&self) -> u64 { self.max_file_size_bytes }
 }

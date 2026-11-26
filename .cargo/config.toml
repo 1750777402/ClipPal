@@ -1,0 +1,5 @@
+[alias]
+dev-local = ["tauri", "dev", "--", "--locked"]
+dev-sync = ["tauri", "dev", "--config", "src-tauri/tauri.self-hosted.json", "--", "--no-default-features", "--locked"]
+build-local = ["tauri", "build", "--config", "src-tauri/tauri.personal.json", "--", "--locked"]
+build-sync = ["tauri", "build", "--config", "src-tauri/tauri.personal.json", "--config", "src-tauri/tauri.self-hosted.json", "--", "--no-default-features", "--locked"]

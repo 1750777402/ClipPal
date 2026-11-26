@@ -10,14 +10,6 @@ fn ensure_directory(path: &Path) {
 
 /// 获取根目录 ClipPal，不包含 data/config/cache 自动子路径
 fn get_clippal_root() -> Option<PathBuf> {
-    // 仅调试构建允许隔离运行目录，不触碰已安装版本的正式数据。
-    #[cfg(debug_assertions)]
-    if let Some(root) = std::env::var_os("CLIPPAL_DATA_DIR") {
-        let root = PathBuf::from(root);
-        if !root.is_absolute() { log::error!("调试数据目录必须为绝对路径"); return None; }
-        ensure_directory(&root);
-        return Some(root);
-    }
     ProjectDirs::from("", "", "ClipPal").map(|dirs| {
         // 直接使用 data_local_dir，它已经包含了应用名称
         // Windows: C:\Users\<User>\AppData\Roaming\ClipPal

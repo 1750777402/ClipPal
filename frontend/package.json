@@ -9,7 +9,9 @@
     "package:local": "node ../scripts/package-desktop.mjs local",
     "package:self-hosted": "node ../scripts/package-desktop.mjs self-hosted",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "dev:self-hosted": "node ../scripts/dev-desktop.mjs self-hosted",
+    "dev:local": "node ../scripts/dev-desktop.mjs local"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.5.0",

@@ -30,3 +30,14 @@ fn rejects_invalid_deployment_configuration_and_credential_routing() {
     }
     assert!(DeploymentConfig::new("https://sync.test", "token", u64::MAX).is_err());
 }
+
+/// 直接验证桌面自建配置接入了受限的回环HTTP规则，发布构建仍然拒绝HTTP。
+#[tokio::test]
+async fn self_hosted_debug_configuration_supports_local_tomcat() {
+    let config = DeploymentConfig::new("http://127.0.0.1:8080", "test-token", 0);
+    assert_eq!(config.is_ok(), cfg!(debug_assertions));
+    if let Ok(config) = config {
+        assert_eq!(config.connection().await.unwrap().request_url("sync/v2/scope").unwrap(),
+            "http://127.0.0.1:8080/sync/v2/scope");
+    }
+}

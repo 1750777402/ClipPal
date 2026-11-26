@@ -52,7 +52,7 @@ Tauri 更新签名用于验证下载的更新包。公开分发时，按平台�
 }
 ```
 
-`createUpdaterArtifacts` 决定打包时是否生成更新产物，`endpoints` 决定客户端去哪里查版本。单机、自建和商业构建使用各自的更新清单地址，只在该地址发布对应类型的包，避免升级时切换版本类型。自建预览版仍只提供本地剪贴板功能。
+`createUpdaterArtifacts` 决定打包时是否生成更新产物，`endpoints` 决定客户端去哪里查版本。单机、自建和商业构建使用各自的更新清单地址，只在该地址发布对应类型的包，避免升级时切换版本类型。
 
 ## 3. 提高版本号并构建签名产物
 
@@ -69,8 +69,7 @@ export TAURI_SIGNING_PRIVATE_KEY="$HOME/.tauri/clippal-update.key"
 read -rs 'TAURI_SIGNING_PRIVATE_KEY_PASSWORD?请输入更新私钥密码：'
 echo
 export TAURI_SIGNING_PRIVATE_KEY_PASSWORD
-VITE_EDITION=local npm --prefix frontend run build && \
-  cargo tauri build --config src-tauri/tauri.release.json --features local -- --no-default-features --locked
+cargo tauri build --config src-tauri/tauri.release.json -- --locked
 unset TAURI_SIGNING_PRIVATE_KEY TAURI_SIGNING_PRIVATE_KEY_PASSWORD
 ```
 
@@ -80,19 +79,20 @@ unset TAURI_SIGNING_PRIVATE_KEY TAURI_SIGNING_PRIVATE_KEY_PASSWORD
 $env:TAURI_SIGNING_PRIVATE_KEY = "$HOME/.tauri/clippal-update.key"
 $clippalSigningPassword = Read-Host "请输入更新私钥密码" -AsSecureString
 $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD = [System.Net.NetworkCredential]::new("", $clippalSigningPassword).Password
-$env:VITE_EDITION = "local"
 try {
-    npm.cmd --prefix frontend run build
-    if ($LASTEXITCODE -ne 0) { throw "前端构建失败" }
-    cargo tauri build --config src-tauri/tauri.release.json --features local -- --no-default-features --locked
+    cargo tauri build --config src-tauri/tauri.release.json -- --locked
     if ($LASTEXITCODE -ne 0) { throw "安装包构建失败" }
 } finally {
-    Remove-Item Env:TAURI_SIGNING_PRIVATE_KEY, Env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD, Env:VITE_EDITION
+    Remove-Item Env:TAURI_SIGNING_PRIVATE_KEY, Env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD
     $clippalSigningPassword.Dispose()
 }
 ```
 
-自建桌面预览若要连自己的更新源，先将配置中的地址改成自建渠道，例如 `https://updates.example.com/clippal/self-hosted/latest.json`。将构建命令中的 `VITE_EDITION=local`（PowerShell 为 `"local"`）和 `--features local` 改成对应的 `self-hosted`，并保留 `--no-default-features`。每个渠道分别归档产物。
+自建版使用自己的更新清单地址，例如 `https://updates.example.com/clippal/self-hosted/latest.json`。设置签名密钥后，用下面的命令构建。各渠道分别归档产物。
+
+```sh
+cargo tauri build --config src-tauri/tauri.self-hosted.json --config src-tauri/tauri.release.json -- --no-default-features --locked
+```
 
 ## 4. 上传产物，再发布 `latest.json`
 

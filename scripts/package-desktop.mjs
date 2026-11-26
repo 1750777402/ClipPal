@@ -9,26 +9,21 @@ if (!['local', 'self-hosted'].includes(edition)) {
 }
 
 const repo = fileURLToPath(new URL('../', import.meta.url));
-const frontend = fileURLToPath(new URL('../frontend/', import.meta.url));
 const tauriCli = fileURLToPath(new URL('../frontend/node_modules/@tauri-apps/cli/tauri.js', import.meta.url));
 const personalConfig = fileURLToPath(new URL('../src-tauri/tauri.personal.json', import.meta.url));
+const args = ['build', '--config', personalConfig];
+const cargoArgs = ['--locked'];
 
-/** 等待当前打包步骤结束，失败时停止，防止拿旧的前端产物继续打包。 */
-function runNode(script, args, cwd, env = process.env) {
-  const result = spawnSync(process.execPath, [script, ...args], { cwd, env, stdio: 'inherit' });
-  if (result.error) console.error(result.error.message);
-  if (result.status !== 0) process.exit(result.status ?? 1);
+// 和 Cargo 入口共用 Tauri 配置，由构建钩子执行前端构建。
+if (edition === 'self-hosted') {
+  const selfHostedConfig = fileURLToPath(new URL('../src-tauri/tauri.self-hosted.json', import.meta.url));
+  args.push('--config', selfHostedConfig);
+  cargoArgs.push('--no-default-features');
 }
 
-// 前端和 Rust 使用同一个版本参数，避免本机已有的 VITE_EDITION 混入其他版本代码。
-const viteMode = edition === 'local' ? 'production' : edition;
-runNode(process.env.npm_execpath, ['run', 'build', '--', '--mode', viteMode], frontend, {
-  ...process.env,
-  VITE_EDITION: edition,
+const result = spawnSync(process.execPath, [tauriCli, ...args, ...options, '--', ...cargoArgs], {
+  cwd: repo,
+  stdio: 'inherit',
 });
-
-// 使用 npm 锁文件中的 Tauri CLI。每次只启用所选产品版本，按 Cargo.lock 编译。
-runNode(tauriCli, [
-  'build', '--config', personalConfig, '--features', edition, ...options,
-  '--', '--no-default-features', '--locked',
-], repo);
+if (result.error) console.error(result.error.message);
+process.exitCode = result.status ?? 1;

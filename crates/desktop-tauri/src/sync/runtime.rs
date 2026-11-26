@@ -10,7 +10,11 @@ pub(crate) fn enabled() -> bool {
 
 /// 恢复本机绑定和队列。握手在后台运行，失败时仍能打开单机界面。
 pub(crate) async fn start(context: &Arc<AppContext>) {
-    if !enabled() { return; }
+    if !enabled() {
+        log::info!("自建版已启动，但 cloud_sync.enabled 未开启，同步保持关闭");
+        return;
+    }
+    log::info!("自建版开始连接同步服务，握手与传输状态可在设置中查看");
     let weak = Arc::downgrade(context);
     let notify = Arc::new(move || {
         if let Some(app) = weak.upgrade().and_then(|context| context.try_app_handle()) {
