@@ -196,3 +196,18 @@ cargo check --workspace、默认前端构建、结构检查、单机产物检查
 
 逻辑删除暂不加入单机两表，原因和后续同步删除事件的事务边界见
 [删除策略](local-database-v2.md#删除策略)。
+
+## Windows 桌面测试启动修复（2026-11-23）
+
+Windows MSVC 下独立运行 `cargo test -p desktop-tauri --lib` 时，测试程序未携带
+Common Controls v6 清单，加载 `TaskDialogIndirect` 时以 `0xc0000139`
+（`STATUS_ENTRYPOINT_NOT_FOUND`）退出，尚未进入测试代码。
+
+适配包新增自身的 `build.rs` 和 `windows-tests.manifest`，在 Windows MSVC 链接时
+自动嵌入控件依赖清单。按编译目标判断平台，不新增依赖；本包的链接参数不传递给
+打包壳，也不读取打包壳的配置、图标或清单。
+
+本轮在 Windows 11 原生 MSVC 环境直接运行单机、自建、商业三种桌面适配测试，
+分别为 19、23、29 项通过，各有 1 项更新验签测试按原配置跳过。已提取生成的测试
+程序资源，确认包含 Common Controls v6 声明。`cargo check --workspace --locked`、
+结构检查和差异检查通过；未执行实际系统剪贴板、自动粘贴或安装包 UI 验收。
