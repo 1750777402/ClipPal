@@ -1244,6 +1244,7 @@ dependencies = [
  "core-graphics 0.25.0",
  "desktop-app-core",
  "directories",
+ "image",
  "log",
  "log4rs",
  "objc",

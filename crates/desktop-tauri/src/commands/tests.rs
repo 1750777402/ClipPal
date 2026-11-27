@@ -5,6 +5,90 @@ use tauri::{Manager, test::{mock_builder, mock_context, noop_assets, get_ipc_res
     webview::InvokeRequest, ipc::{CallbackFn, InvokeBody}};
 use crate::{app_context::AppContext, core::policy::LocalPolicy};
 
+#[test]
+fn image_viewer_opens_and_switches_verified_local_images() {
+    use desktop_app_core::capture::{CaptureInput, CaptureService};
+
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+    let dir = std::env::temp_dir().join(format!("clippal-viewer-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let (local, first, second) = runtime.block_on(async {
+        let decode = |text: &str| Ok(text.to_owned());
+        let local = desktop_app_core::LocalContext::open_with_resources(
+            &dir.join("test.db"),
+            Some(dir.join("settings.json")),
+            Arc::new(decode),
+            Some(dir.join("resources")),
+        )
+        .await
+        .unwrap();
+        let capture = CaptureService::new(&local, &decode);
+        // Mock WebView 验证命令与文件选择，图片解码由真实前端负责。
+        let first = capture
+            .capture(CaptureInput::Image(Some(&vec![1])))
+            .await
+            .unwrap()
+            .unwrap();
+        let second = capture
+            .capture(CaptureInput::Image(Some(&vec![2])))
+            .await
+            .unwrap()
+            .unwrap();
+        (local, first, second)
+    });
+    let context = Arc::new(AppContext::new(local, Arc::new(LocalPolicy)));
+    let app = super::register_commands(mock_builder())
+        .manage(context)
+        .build(mock_context(noop_assets()))
+        .unwrap();
+    let main = tauri::WebviewWindowBuilder::new(&app, "main", Default::default())
+        .build()
+        .unwrap();
+    let invoke = |window: &tauri::WebviewWindow<tauri::test::MockRuntime>, command: &str, body| {
+        get_ipc_response(window, InvokeRequest {
+            cmd: command.into(),
+            callback: CallbackFn(0),
+            error: CallbackFn(1),
+            url: "http://tauri.localhost".parse().unwrap(),
+            body: InvokeBody::Json(body),
+            headers: Default::default(),
+            invoke_key: INVOKE_KEY.into(),
+        })
+        .unwrap()
+        .deserialize::<Value>()
+        .unwrap()
+    };
+    let open = |id: &str| {
+        invoke(&main, "open_image_viewer", json!({"param": {"record_id": id}}))
+    };
+    let label = crate::desktop::shell::image_viewer::LABEL;
+    assert_eq!(open("0")["success"], false);
+    assert!(app.get_webview_window(label).is_none());
+
+    assert_eq!(open(&first.id.to_string())["success"], true);
+    let viewer = app.get_webview_window(label).unwrap();
+    let read = || invoke(&viewer, "get_image_viewer_image", json!({}));
+    let initial = read();
+    let image_file = |response: &Value| std::fs::read(response["data"]["filePath"].as_str().unwrap()).unwrap();
+    assert_eq!(image_file(&initial), vec![1]);
+    assert_eq!(invoke(&main, "get_image_viewer_image", json!({}))["success"], false);
+
+    assert_eq!(open(&second.id.to_string())["success"], true);
+    let updated = read();
+    assert_eq!(image_file(&updated), vec![2]);
+    assert!(updated["data"]["revision"].as_u64() > initial["data"]["revision"].as_u64());
+    assert_eq!(app.webview_windows().len(), 2);
+
+    std::fs::remove_file(updated["data"]["filePath"].as_str().unwrap()).unwrap();
+    assert_eq!(open(&second.id.to_string())["success"], false);
+    assert_eq!(read()["data"]["revision"], updated["data"]["revision"]);
+    drop(viewer);
+    drop(main);
+    drop(app);
+    drop(runtime);
+    let _ = std::fs::remove_dir_all(dir);
+}
+
 /// 在 Tauri mock 中验证采集、查询、主键、删除、错误信封和版本命令注册。
 #[test]
 fn local_ipc_keeps_record_queries_errors_and_edition_registration() {

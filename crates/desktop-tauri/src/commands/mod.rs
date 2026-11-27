@@ -2,6 +2,7 @@
 pub mod auth_commands;
 pub mod clip_commands;
 pub mod clipboard_commands;
+mod image_viewer_commands;
 pub mod settings_commands;
 pub mod update_commands;
 #[cfg(feature = "commercial-extension")]
@@ -19,6 +20,8 @@ pub fn register_commands<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri
         capability_commands::get_app_capabilities,
         clip_commands::get_clip_records,
         clip_commands::get_image_path,
+        image_viewer_commands::open_image_viewer,
+        image_viewer_commands::get_image_viewer_image,
         clip_commands::get_image_info_batch,
         clip_commands::get_full_text_content,
         clipboard_commands::copy_clip_record,
@@ -63,6 +66,8 @@ macro_rules! register_standard_commands {
         capability_commands::get_app_capabilities,
         clip_commands::get_clip_records,
         clip_commands::get_image_path,
+        image_viewer_commands::open_image_viewer,
+        image_viewer_commands::get_image_viewer_image,
         clip_commands::get_image_info_batch,
         clip_commands::get_full_text_content,
         clipboard_commands::copy_clip_record,

@@ -31,7 +31,7 @@ macOS 和 Windows 使用相同的 Cargo 命令。
 3. 首次配置时，在客户端的 `src-tauri/config.json` 中将 `cloud_sync.enabled` 设为 `true`，将 `cloud_sync.domain` 设为 `http://127.0.0.1:8080`。客户端部署令牌与服务端保持一致，客户端密钥解混淆后应与服务端 `clip-pal.sync.content-key` 一致。保留已有的 `app_secret`。 [配置字段与 IDEA 启动参数](docs/local-sync-development.md)
 4. 如果有旧的开发进程，先按 `Ctrl+C` 停止，并从托盘退出旧 ClipPal。在 VS Code 终端运行 `cargo dev-sync`。
 
-两个版本都使用和安装版相同的 ClipPal 数据目录。macOS 默认是 `~/Library/Application Support/ClipPal`，Windows 默认是 `%LOCALAPPDATA%\ClipPal\data`。平时切换版本只需换命令。自建版首次绑定时，会将符合条件的已有文本纳入同步。
+两个版本都使用和安装版相同的 ClipPal 数据根目录。macOS 默认是 `~/Library/Application Support/ClipPal`，Windows 默认是 `%LOCALAPPDATA%\ClipPal\data`。数据库位于根目录下的 `data/clip_record.db`，Windows 完整路径为 `%LOCALAPPDATA%\ClipPal\data\data\clip_record.db`。平时切换版本只需换命令。自建版首次绑定时，会将符合条件的已有文本纳入同步。
 
 启动后从「设置 → 文本云同步」确认部署已连接，再复制一条新文本。本地列表应显示这条记录。开发库的 `clip_record` 应写入对应内容，`clip_sync_change` 应新增 `upsert` 动作。也可以停掉 Java 后再复制一条文本，重启服务并检查补传。 [手动验收与查库 SQL](docs/local-sync-development.md#4-手动验证)
 
@@ -146,7 +146,7 @@ cargo build-sync
 | macOS 报 `failed to run bundle_dmg.sh` | 在真实的 macOS 桌面会话运行打包命令。DMG 制作需要挂载临时磁盘映像。本机试用可用 `--bundles app` 生成 `.app` 并复制到「应用程序」。 |
 | 生成的文件名仍显示 `1.0.7` | `v2.0.0` 是开发分支名。目前应用打包版本仍为 `1.0.7`，正式发布前会统一版本号。 |
 | 找不到安装包或只看到编译产物 | 找终端里第一处 `error`，修复后重新打包。以本次终端列出的 `Finished ... bundle` 路径为准。 |
-| 另一个版本好像把原版覆盖了 | 当前两版共用 ClipPal 安装标识，先按第 3 步分目录保存产物。Mac 数据位于 `~/Library/Application Support/ClipPal`，Windows 数据位于 `%LOCALAPPDATA%\ClipPal\data`。 |
+| 另一个版本好像把原版覆盖了 | 当前两版共用 ClipPal 安装标识，先按第 3 步分目录保存产物。数据库路径见[日常开发](#日常开发)。 |
 
 ## 界面与项目结构
 

@@ -8,11 +8,11 @@ fn ensure_directory(path: &Path) {
     }
 }
 
-/// 获取根目录 ClipPal，不包含 data/config/cache 自动子路径
+/// 获取 ClipPal 的运行数据根目录，供数据库、资源、配置和日志目录共用。
 fn get_clippal_root() -> Option<PathBuf> {
     ProjectDirs::from("", "", "ClipPal").map(|dirs| {
-        // 直接使用 data_local_dir，它已经包含了应用名称
-        // Windows: C:\Users\<User>\AppData\Roaming\ClipPal
+        // data_local_dir 已包含应用名称，Windows 上还包含一层 data。
+        // Windows: %LOCALAPPDATA%\ClipPal\data
         // macOS: /Users/<User>/Library/Application Support/ClipPal
         let clippal_root = dirs.data_local_dir().to_path_buf();
         ensure_directory(&clippal_root);
@@ -20,7 +20,7 @@ fn get_clippal_root() -> Option<PathBuf> {
     })
 }
 
-/// win: "C:\\Users\\<User>\\AppData\\Roaming\\ClipPal\\data"
+/// win: `%LOCALAPPDATA%\ClipPal\data\data`
 /// mac: "/Users/<User>/Library/Application Support/ClipPal/data"
 pub fn get_data_dir() -> Option<PathBuf> {
     get_clippal_root().map(|mut path| {
@@ -30,7 +30,7 @@ pub fn get_data_dir() -> Option<PathBuf> {
     })
 }
 
-/// win: "C:\\Users\\<User>\\AppData\\Roaming\\ClipPal\\resources"
+/// win: `%LOCALAPPDATA%\ClipPal\data\resources`
 /// mac:  "/Users/<User>/Library/Application Support/ClipPal/resources"
 pub fn get_resources_dir() -> Option<PathBuf> {
     get_clippal_root().map(|mut path| {
@@ -40,7 +40,7 @@ pub fn get_resources_dir() -> Option<PathBuf> {
     })
 }
 
-/// win: "C:\\Users\\<User>\\AppData\\Roaming\\ClipPal\\config"
+/// win: `%LOCALAPPDATA%\ClipPal\data\config`
 /// mac:  "/Users/<User>/Library/Application Support/ClipPal/config"
 pub fn get_config_dir() -> Option<PathBuf> {
     get_clippal_root().map(|mut path| {
@@ -50,7 +50,7 @@ pub fn get_config_dir() -> Option<PathBuf> {
     })
 }
 
-/// win: "C:\\Users\\<User>\\AppData\\Roaming\\ClipPal\\logs"
+/// win: `%LOCALAPPDATA%\ClipPal\data\logs`
 /// mac:  "/Users/<User>/Library/Application Support/ClipPal/logs"
 pub fn get_logs_dir() -> Option<PathBuf> {
     get_clippal_root().map(|mut path| {

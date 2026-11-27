@@ -13,6 +13,7 @@ where
 
     // 后台启动也跳过位置、全屏等首次恢复，避免系统恢复操作间接唤醒窗口。
     let mut window_state = tauri_plugin_window_state::Builder::new()
+        .with_denylist(&[crate::desktop::shell::image_viewer::LABEL])
         .with_state_flags(tauri_plugin_window_state::StateFlags::all() - tauri_plugin_window_state::StateFlags::VISIBLE);
     if autostart {
         window_state = window_state.skip_initial_state("main");

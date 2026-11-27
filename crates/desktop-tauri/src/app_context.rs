@@ -239,6 +239,7 @@ pub struct WindowContext {
     ///
     /// 主窗口在 Tauri 窗口系统准备好后才能获取，所以用 `InitCell`。
     main_window: InitCell<WebviewWindow>,
+    image_viewer: tokio::sync::Mutex<crate::desktop::shell::image_viewer::ImageViewerState>,
 }
 
 impl Default for WindowContext {
@@ -248,11 +249,18 @@ impl Default for WindowContext {
             focus_state: Arc::new(WindowFocusState::default()),
             hide_flag: Arc::new(WindowHideFlag::default()),
             main_window: InitCell::new("主窗口"),
+            image_viewer: Default::default(),
         }
     }
 }
 
 impl AppContext {
+    pub(crate) fn image_viewer(
+        &self,
+    ) -> &tokio::sync::Mutex<crate::desktop::shell::image_viewer::ImageViewerState> {
+        &self.window.image_viewer
+    }
+
     /// 创建应用上下文。
     ///
     /// 应用核心及可选同步资源由外部注入；此处只创建桌面运行状态。

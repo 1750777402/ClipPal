@@ -6,7 +6,7 @@ use std::sync::{
     Arc,
 };
 
-use tauri::{App, WindowEvent};
+use tauri::{App, Runtime, WebviewWindow, WindowEvent};
 use tauri::{Manager, PhysicalPosition, PhysicalSize};
 
 // macOS系统API导入
@@ -129,33 +129,23 @@ pub fn init_main_window(
     }
 
     // 先注册焦点监听，启动显示统一由 setup 在上下文准备完毕后执行。
-    let main1 = main_window.clone();
-    let focus_state = window_focus_state;
-    let hide_flag = window_hide_flag;
+    track_main_window_focus(&main_window, window_focus_state, window_hide_flag);
+    Ok(())
+}
 
-    main_window.on_window_event(move |event| match event {
+fn track_main_window_focus<R: Runtime>(
+    main: &WebviewWindow<R>,
+    focus_state: Arc<WindowFocusState>,
+    hide_flag: Arc<WindowHideFlag>,
+) {
+    let main_window = main.clone();
+    main.on_window_event(move |event| match event {
         WindowEvent::Focused(false) => {
             log::debug!("窗口失去焦点事件触发");
 
             // 只有已获得焦点后的失焦才隐藏，避免启动时误隐藏；各平台策略一致。
-            let should_hide = focus_state.lost_focus() && hide_flag.is_can_hide();
-
-            // 短暂异步延后，让托盘点击先确定显隐意图，不阻塞桌面事件线程。
-            if should_hide {
-                let revision = focus_state.revision.load(Ordering::SeqCst);
-                let state = focus_state.clone();
-                let flag = hide_flag.clone();
-                let window = main1.clone();
-                tauri::async_runtime::spawn(async move {
-                    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-                    let app = window.app_handle().clone();
-                    if let Err(error) = app.run_on_main_thread(move || {
-                        if state.is_current_blur(revision) && flag.is_can_hide()
-                            && !window.is_focused().unwrap_or(true) {
-                            if let Err(error) = window.hide() { log::error!("隐藏窗口失败: {}", error); }
-                        }
-                    }) { log::error!("调度窗口失焦处理失败: {}", error); }
-                });
+            if focus_state.lost_focus() {
+                schedule_focus_check(&main_window, &focus_state, &hide_flag);
             }
         }
         WindowEvent::Focused(true) => {
@@ -166,12 +156,70 @@ pub fn init_main_window(
             // 关闭主窗口只收起到托盘，退出仍通过托盘菜单执行。
             api.prevent_close();
             if hide_flag.is_can_hide() {
-                if let Err(error) = main1.hide() { log::error!("收起主窗口失败: {}", error); }
+                if let Err(error) = main_window.hide() {
+                    log::error!("收起主窗口失败: {}", error);
+                }
             }
         }
         _ => {}
     });
-    Ok(())
+}
+
+pub(super) fn track_image_viewer_focus<R: Runtime>(
+    viewer: &WebviewWindow<R>,
+    main: &WebviewWindow<R>,
+    focus_state: Arc<WindowFocusState>,
+    hide_flag: Arc<WindowHideFlag>,
+) {
+    let main_window = main.clone();
+    viewer.on_window_event(move |event| match event {
+        WindowEvent::Focused(true) => focus_state.cancel_pending_check(),
+        WindowEvent::Focused(false) | WindowEvent::Destroyed => {
+            schedule_focus_check(&main_window, &focus_state, &hide_flag);
+        }
+        _ => {}
+    });
+}
+
+fn schedule_focus_check<R: Runtime>(
+    main: &WebviewWindow<R>,
+    focus_state: &Arc<WindowFocusState>,
+    hide_flag: &Arc<WindowHideFlag>,
+) {
+    let revision = focus_state.next_check();
+    if !hide_flag.is_can_hide() {
+        return;
+    }
+    let state = focus_state.clone();
+    let flag = hide_flag.clone();
+    let window = main.clone();
+    tauri::async_runtime::spawn(async move {
+        // 短暂异步延后，让托盘点击先确定显隐意图，也给两个窗口之间的焦点切换留出时间。
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        let app = window.app_handle().clone();
+        if let Err(error) = app.run_on_main_thread(move || {
+            if !state.is_current_check(revision)
+                || !flag.is_can_hide()
+                || !window.is_visible().unwrap_or(false)
+                || window.is_focused().unwrap_or(true)
+            {
+                return;
+            }
+            // 在 UI 线程读取实时焦点，避免依赖各平台发送焦点事件的先后顺序。
+            if window
+                .app_handle()
+                .get_webview_window(super::image_viewer::LABEL)
+                .is_some_and(|viewer| viewer.is_focused().unwrap_or(true))
+            {
+                return;
+            }
+            if let Err(error) = window.hide() {
+                log::error!("隐藏窗口失败: {error}");
+            }
+        }) {
+            log::error!("调度窗口失焦处理失败: {error}");
+        }
+    });
 }
 
 /// 计算最佳窗口宽度
@@ -300,7 +348,7 @@ fn get_windows_work_area(screen_width: i32, window_width: i32, scale_factor: f64
     (work_area_top, x_position)
 }
 
-/// 记录真实焦点，启动时的初始失焦不会隐藏窗口。
+/// 记录主窗口的焦点变化和两个窗口共用的失焦检查序号。
 #[derive(Default, Debug)]
 pub struct WindowFocusState {
     focused: AtomicBool,
@@ -309,15 +357,24 @@ pub struct WindowFocusState {
 
 impl WindowFocusState {
     pub fn gained_focus(&self) {
-        self.revision.fetch_add(1, Ordering::SeqCst);
         self.focused.store(true, Ordering::SeqCst);
+        self.cancel_pending_check();
     }
     pub fn lost_focus(&self) -> bool {
-        self.revision.fetch_add(1, Ordering::SeqCst);
+        // 初始或重复的失焦事件不应触发或取消已安排的检查。
         self.focused.swap(false, Ordering::SeqCst)
     }
-    fn is_current_blur(&self, revision: u64) -> bool {
-        self.revision.load(Ordering::SeqCst) == revision && !self.focused.load(Ordering::SeqCst)
+
+    fn next_check(&self) -> u64 {
+        self.revision.fetch_add(1, Ordering::SeqCst) + 1
+    }
+
+    fn cancel_pending_check(&self) {
+        self.next_check();
+    }
+
+    fn is_current_check(&self, revision: u64) -> bool {
+        self.revision.load(Ordering::SeqCst) == revision
     }
 }
 
@@ -404,12 +461,28 @@ mod tests {
         let state = WindowFocusState::default();
         state.gained_focus();
         state.lost_focus();
-        let revision = state.revision.load(super::Ordering::SeqCst);
-        assert!(state.is_current_blur(revision));
+        let revision = state.next_check();
+        assert!(state.is_current_check(revision));
         state.gained_focus();
-        assert!(!state.is_current_blur(revision));
+        assert!(!state.is_current_check(revision));
         state.lost_focus();
-        assert!(!state.is_current_blur(revision));
+        assert!(!state.is_current_check(revision));
+    }
+
+    #[test]
+    fn viewer_focus_cancels_main_blur_and_viewer_blur_allows_a_new_check() {
+        let state = WindowFocusState::default();
+        state.gained_focus();
+        assert!(state.lost_focus());
+        let main_blur = state.next_check();
+        assert!(!state.lost_focus());
+        assert!(state.is_current_check(main_blur));
+        state.cancel_pending_check();
+        assert!(!state.is_current_check(main_blur));
+        let viewer_blur = state.next_check();
+        assert!(state.is_current_check(viewer_blur));
+        state.gained_focus();
+        assert!(!state.is_current_check(viewer_blur));
     }
 
     #[test]

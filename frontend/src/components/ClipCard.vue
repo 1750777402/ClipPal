@@ -140,16 +140,6 @@
         </div>
     </div>
 
-    <!-- 图片预览模态框 -->
-    <div v-if="showImagePreview" class="image-preview-modal" @click.self="showImagePreview = false">
-        <div class="image-preview-container">
-            <button class="preview-close-btn" @click="showImagePreview = false" title="关闭">
-                <i class="iconfont icon-close"></i>
-            </button>
-            <img :src="imageProtocolUrl" class="preview-image" alt="预览图片" />
-        </div>
-    </div>
-
     <template v-if="showConfirm">
         <div class="confirm-mask" @click.self="cancelDelete">
             <div class="confirm-dialog">
@@ -224,7 +214,6 @@ const emit = defineEmits<{
 
 const isImageLoaded = ref(false);
 const imageError = ref(false);
-const showImagePreview = ref(false);
 const showTip = ref(false);
 const showConfirm = ref(false);
 const canDeleteEverywhere = ref(false);
@@ -523,16 +512,9 @@ const handleSaveAs = async () => {
     await clipApi.imageSaveAs(props.record.id);
 };
 
-// 处理图片预览
-const handleImagePreview = () => {
-    // 只有在图片已加载的情况下才能预览
-    if (imageProtocolUrl.value && !imageError.value) {
-        showImagePreview.value = true;
-    } else if (!isLoadingImage.value) {
-        // 如果图片还没加载或之前加载失败，先触发一次加载
-        shouldLoadImage.value = true;
-        loadImage();
-    }
+// 独立看图窗口按记录 ID 加载图片，点击时无需等待卡片缩略图。
+const handleImagePreview = async () => {
+    await clipApi.openImageViewer(props.record.id);
 };
 
 // 处理图片加载错误
@@ -620,13 +602,13 @@ onMounted(() => {
                     }
                 } else {
                     // 离开视窗 - 清理内存（但保持观察器运行）
-                    if (imageProtocolUrl.value && !showImagePreview.value) {
+                    if (imageProtocolUrl.value) {
                         // 延迟清理，避免快速滚动时频繁加载
                         clearPendingImageCleanup();
                         imageCleanupTimer = setTimeout(() => {
                             imageCleanupTimer = null;
-                            // 再次检查当前是否仍然在视口外且未在预览，避免旧定时器误清理
-                            if (!isImageContainerNearViewport() && !showImagePreview.value) {
+                            // 再次检查卡片是否仍在视口外，避免旧定时器误清理。
+                            if (!isImageContainerNearViewport()) {
                                 clearImageMemory();
                             }
                         }, 2000); // 2秒延迟清理
@@ -2122,66 +2104,6 @@ onUnmounted(() => {
 @keyframes spin {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
-}
-
-/* 图片预览模态框 */
-.image-preview-modal {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(0, 0, 0, 0.9);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 10000;
-  animation: fadeIn 0.3s ease-in-out;
-}
-
-.image-preview-container {
-  position: relative;
-  max-width: 90vw;
-  max-height: 90vh;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.preview-image {
-  max-width: 100%;
-  max-height: 100%;
-  object-fit: contain;
-  border-radius: 8px;
-}
-
-.preview-close-btn {
-  position: absolute;
-  top: -40px;
-  right: 0;
-  background: none;
-  border: none;
-  color: white;
-  font-size: 24px;
-  cursor: pointer;
-  padding: 8px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: transform 0.2s;
-}
-
-.preview-close-btn:hover {
-  transform: scale(1.2);
-}
-
-@keyframes fadeIn {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
 }
 
 </style>

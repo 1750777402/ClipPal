@@ -55,7 +55,7 @@ IDEA 将 `$PROJECT_DIR$` 展开为服务端工程目录。服务端通过被Git�
 cargo dev-sync
 ```
 
-命令会启动自建版的 Vite 和 Rust 客户端，并使用和安装版相同的 ClipPal 数据目录。macOS 默认是 `~/Library/Application Support/ClipPal`，Windows 默认是 `%LOCALAPPDATA%\ClipPal\data`。首次绑定时，符合条件的已有文本会进入同步队列。
+命令会启动自建版的 Vite 和 Rust 客户端，并使用和安装版相同的 ClipPal 数据根目录。macOS 默认是 `~/Library/Application Support/ClipPal`，Windows 默认是 `%LOCALAPPDATA%\ClipPal\data`。数据库位于根目录下的 `data/clip_record.db`，Windows 完整路径为 `%LOCALAPPDATA%\ClipPal\data\data\clip_record.db`。首次绑定时，符合条件的已有文本会进入同步队列。
 
 也可用 `npm --prefix frontend run dev:self-hosted` 启动相同的自建开发版本。单机开发命令和其余常用命令见 [README 的日常开发](../README.md#日常开发)。
 

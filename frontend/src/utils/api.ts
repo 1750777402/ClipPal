@@ -206,6 +206,10 @@ export const clipApi = {
     });
   },
 
+  async openImageViewer(recordId: string) {
+    return apiInvoke<void>('open_image_viewer', { param: { record_id: recordId } });
+  },
+
   // 复制记录
   async copyRecord(recordId: string) {
     return apiInvoke<string>('copy_clip_record', {

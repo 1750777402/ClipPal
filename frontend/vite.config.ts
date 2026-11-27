@@ -1,5 +1,6 @@
 import { defineConfig, loadEnv } from "vite";
 import vue from "@vitejs/plugin-vue";
+import { fileURLToPath } from "node:url";
 
 // @ts-expect-error process is a nodejs global
 const host = process.env.TAURI_DEV_HOST;
@@ -18,6 +19,12 @@ export default defineConfig(({ mode }) => {
     outDir: "../dist",
     // 输出目录只含生成文件；清理旧版本资源，防止商业脚本残留进单机安装包。
     emptyOutDir: true,
+    rollupOptions: {
+      input: {
+        main: fileURLToPath(new URL("./index.html", import.meta.url)),
+        imageViewer: fileURLToPath(new URL("./image-viewer.html", import.meta.url)),
+      },
+    },
   },
 
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
