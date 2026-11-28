@@ -1,106 +1,103 @@
-//! 当前线上协议的兼容契约，不包含 HTTP、Tauri、密钥或账号逻辑。
-//! v2 的 SSE/Outbox 协议将在明确版本之后增加，当前字段保持不变。
+//! 自建同步契约。协议只传内容身份和动作，不传客户端数据库主键。
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 
-/// 旧服务批量同步响应，只承载线协议数据，不代表本地数据库实体。
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CloudSyncResponse {
-    /// 服务端返回的记录清单，未返回清单时为 None。
-    pub clips: Option<Vec<ClipRecordParam>>,
+/// 每批或每页的条数上限。正文还受字节数约束，大批历史需要分轮处理。
+pub const BATCH_LIMIT: usize = 100;
+/// 未配置额外限制时，单条文本原文或单个附件允许 5 MiB。
+pub const DEFAULT_RECORD_BYTES: usize = 5 * 1024 * 1024;
+/// AES-GCM 的 12 字节 nonce、16 字节认证标签与 Base64 的传输开销。
+pub const TEXT_LIMIT: usize = (DEFAULT_RECORD_BYTES + 28).div_ceil(3) * 4;
+/// 上传批次的总密文字节预算，HTTP 层另有完整响应体限制。
+pub const BATCH_BYTES: usize = 8 * 1024 * 1024;
+
+/// 部署公布的同步限制和附件能力。
+#[derive(Clone, Copy, Serialize, Deserialize)]
+pub struct SyncLimits {
+    pub max_record_bytes: usize,
+    pub max_records: Option<u32>,
+    pub attachments: bool,
 }
-/// 旧服务记录契约。字段命名保持兼容，新单机实体不再依赖这些同步字段。
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ClipRecordParam {
-    /// 旧兼容输入中的本地标识，不参与网络序列化。
-    #[serde(skip)]
-    pub id: Option<String>,
-    // 类型
-    pub r#type: Option<String>,
-    // 内容
-    pub content: Value,
-    // 内容md5值
-    pub md5_str: Option<String>,
-    // 时间戳
-    pub created: Option<u64>,
-    // os类型
-    pub os_type: Option<String>,
-    // 排序字段
-    pub sort: Option<i32>,
-    // 是否置顶
-    pub pinned_flag: Option<i32>,
-    // 是否已同步云端  0:未同步，1:已同步
-    pub sync_flag: Option<i32>,
-    // 同步时间
-    pub sync_time: Option<u64>,
-    // 设备标识
-    pub device_id: Option<String>,
-    // 云同步版本号
-    pub version: Option<i32>,
-    // 是否逻辑删除
-    pub del_flag: Option<i32>,
-    // 本地文件地址
-    #[serde(skip)]
-    pub local_file_path: Option<String>,
+
+impl Default for SyncLimits {
+    fn default() -> Self {
+        Self { max_record_bytes: DEFAULT_RECORD_BYTES, max_records: None, attachments: false }
+    }
 }
-/// 旧服务的批量同步请求；保留原字段形式供兼容测试和后续替换参考。
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CloudSyncRequest {
-    /// 待交换的旧协议记录。
-    pub clips: Vec<ClipRecordParam>,
-    /// 本次请求的毫秒时间戳。
-    pub timestamp: u64,
-    /// 上次同步游标时间，不是本地记录自增 ID。
-    pub last_sync_time: u64,
-    /// 发送设备的旧协议标识。
-    pub device_id: String,
+
+/// 加密后存入云端 content 的附件描述。对象引用在部署范围内长期有效。
+#[derive(Clone, Serialize, Deserialize)]
+pub struct Attachment {
+    pub object_id: String,
+    pub name: String,
+    pub sha256: String,
+    pub size: usize,
 }
-/// 旧单条同步响应中的服务时间。
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SingleCloudSyncResponse {
-    /// 服务返回的毫秒时间戳。
-    pub timestamp: u64,
-}
-/// 旧单条同步请求，用操作类型与一条记录表达变更。
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SingleCloudSyncParam {
-    /// 旧服务约定的操作类型数值，当前仅保持协议原样。
-    pub r#type: i32,
-    /// 本次操作对应的旧协议记录。
-    pub clip: ClipRecordParam,
-}
-/// 旧附件同步身份参数，使用服务端原有的 MD5 字段名。
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct FileCloudSyncParam {
-    /// 旧服务附件摘要；与新版本地 content_key 分开维护。
-    pub md5_str: String,
-    /// 旧服务约定的记录类型。
-    pub r#type: String,
-}
-/// 旧附件下载响应，描述临时下载位置及服务端文件名。
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct DownloadCloudFileResponse {
-    /// 服务端提供的下载地址。
+
+/// 短期直传地址及必须随请求发送的签名头。
+#[derive(Serialize, Deserialize)]
+pub struct AttachmentUrl {
     pub url: String,
-    /// 旧服务附件摘要。
-    pub md5_str: String,
-    /// 旧服务记录类型。
-    pub r#type: String,
-    /// 下载后展示给用户的文件名。
-    pub file_name: String,
-}
-/// 根据旧摘要和类型请求附件下载信息。
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct DownloadCloudFileParam {
-    /// 旧服务用于定位附件的摘要。
-    pub md5_str: String,
-    /// 请求的旧协议记录类型。
-    pub r#type: String,
+    #[serde(default)]
+    pub headers: std::collections::BTreeMap<String, String>,
 }
 
-/// 新版有序增删同步协议。
-pub mod v2;
+/// 一次可重试的本机动作。同一操作 ID 始终对应相同的动作、内容键和创建时间。
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Operation {
+    pub operation_id: String,
+    pub content_key: String,
+    pub created_at: i64,
+    #[serde(flatten)]
+    pub action: Action,
+}
+
+/// 新增携带加密内容，删除只携带操作元数据和内容键。
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "action", rename_all = "snake_case")]
+pub enum Action {
+    Upsert { ciphertext: String },
+    Delete,
+}
+
+/// 一个批次必须按数组顺序在服务端提交。
+#[derive(Serialize, Deserialize)]
+pub struct UploadRequest {
+    pub operations: Vec<Operation>,
+}
+
+/// 服务端为首次提交分配序号，重复请求返回原序号。
+#[derive(Clone, Serialize, Deserialize)]
+pub struct Ack {
+    pub operation_id: String,
+    pub sync_seq: i64,
+}
+
+/// 响应须确认整个批次，客户端收到完整确认后才会清理本地队列。
+#[derive(Serialize, Deserialize)]
+pub struct UploadResponse {
+    pub acknowledgements: Vec<Ack>,
+}
+
+/// 一条已提交的云端变更。提交时间仅用于本机展示。
+#[derive(Clone, Serialize, Deserialize)]
+pub struct Change {
+    pub sync_seq: i64,
+    pub committed_at: i64,
+    pub content_key: String,
+    #[serde(flatten)]
+    pub action: Action,
+}
+
+/// 从 after 之后向前分页，序号允许留空，由服务端保证提交顺序。
+#[derive(Serialize, Deserialize)]
+pub struct PullRequest {
+    pub after: i64,
+    pub limit: usize,
+}
+
+/// 一页已提交变更。客户端从最后一条实际落库的动作推导新游标。
+#[derive(Serialize, Deserialize)]
+pub struct PullPage {
+    pub changes: Vec<Change>,
+    pub has_more: bool,
+}

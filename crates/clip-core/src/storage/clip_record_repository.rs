@@ -62,9 +62,12 @@ impl SqliteClipRecordRepository {
         &self, id: i64, hook: Option<&dyn RecordWriteHook>,
     ) -> AppResult<Option<ClipRecord>> {
         let tx = begin_record_write(&self.db).await?;
-        let record = delete_in(&tx, id).await?;
-        if let (Some(hook), Some(record)) = (hook, &record) {
-            hook.on_write(&tx, record).await?;
+        let record = load_record_in(&tx, id).await?;
+        if let Some(record) = &record {
+            if let Some(hook) = hook {
+                hook.on_write(&tx, record).await?;
+            }
+            tx.exec("DELETE FROM clip_record WHERE id=?", vec![to_value!(id)]).await?;
         }
         tx.commit().await?;
         Ok(record)
@@ -84,10 +87,15 @@ pub async fn save_in(tx: &dyn Executor, record: &ClipRecord) -> AppResult<ClipRe
     Ok(load(tx, "SELECT * FROM clip_record WHERE id=?", vec![to_value!(id)]).await?.remove(0))
 }
 
+/// 读取指定记录和资源，沿用调用方事务中的数据库快照。
+pub async fn load_record_in(tx: &dyn Executor, id: i64) -> AppResult<Option<ClipRecord>> {
+    Ok(load(tx, "SELECT * FROM clip_record WHERE id=?", vec![to_value!(id)])
+        .await?.into_iter().next())
+}
+
 /// 在调用方事务内删除。外键级联资源行，磁盘和索引由应用层在提交后处理。
 pub async fn delete_in(tx: &dyn Executor, id: i64) -> AppResult<Option<ClipRecord>> {
-    let record = load(tx, "SELECT * FROM clip_record WHERE id=?", vec![to_value!(id)])
-        .await?.into_iter().next();
+    let record = load_record_in(tx, id).await?;
     tx.exec("DELETE FROM clip_record WHERE id=?", vec![to_value!(id)]).await?;
     Ok(record)
 }
@@ -110,7 +118,7 @@ async fn load(executor: &dyn Executor, sql: &str, params: Vec<rbs::Value>) -> Ap
     Ok(records)
 }
 
-/// 在调用方事务中持久化记录与资源，用于采集及一次性旧数据迁移。
+/// 在调用方事务中持久化记录与资源。
 /// 新记录的 id 由数据库生成；重复内容保留首次时间和置顶状态。
 pub async fn persist_record(executor: &dyn Executor, record: &ClipRecord) -> AppResult<i64> {
     // 同内容更新最近复制时间和排序；故意不更新首次时间、主键和置顶状态。

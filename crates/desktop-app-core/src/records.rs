@@ -17,12 +17,31 @@ pub fn resolve_resource(local:&LocalContext,resource:&ClipRecordResource)->AppRe
         return Ok(path);
     }
     if resource.storage_kind!="managed" || Path::new(&resource.path).is_absolute(){return Err(AppError::Config("资源存储路径无效".into()));}
-    let base=local.resources_dir().ok_or_else(||AppError::Config("资源目录不可用".into()))?.canonicalize()?;
-    let path=base.join(&resource.path);
-    // 不存在仍返回候选路径供展示缺失；存在时防止符号链接和 .. 越界。
-    if resource.path.split(['/', '\\']).any(|part|part==".."){return Err(AppError::Config("资源路径越界".into()));}
-    if path.exists() && !path.canonicalize()?.starts_with(&base){return Err(AppError::Config("资源路径越界".into()));}
-    Ok(path)
+    let relative = Path::new(&resource.path);
+    if !relative.components().all(|part| matches!(part, std::path::Component::Normal(_)))
+        || resource.path.split(['/', '\\']).any(|part| part == "..")
+    {
+        return Err(AppError::Config("资源路径越界".into()));
+    }
+    let roots: Vec<_> = if relative.starts_with("files") {
+        local.file_backup_roots()
+    } else {
+        local.resources_dir().into_iter().collect()
+    };
+    let mut missing = None;
+    for root in roots.into_iter().filter(|root| root.is_absolute()) {
+        let path = root.join(relative);
+        if !path.exists() {
+            missing.get_or_insert(path);
+            continue;
+        }
+        let base = root.canonicalize()?;
+        if path.canonicalize()?.starts_with(&base) {
+            return Ok(path);
+        }
+        return Err(AppError::Config("资源路径越界".into()));
+    }
+    missing.ok_or_else(|| AppError::Config("资源目录不可用".into()))
 }
 
 /// 本地记录业务入口。负责校验和页面数据转换，系统剪贴板操作由桌面层执行。
@@ -32,6 +51,13 @@ impl<'a> ClipRecordService<'a>{
     pub fn new(context:&'a LocalContext)->Self{Self{context,repository:context.repositories().clip_records()}}
     /// 查询一页轻量记录；有关键词时先搜候选 ID，再回查数据库排序分页。
     pub async fn query_clip_records(&self,param:QueryParam)->AppResult<Vec<ClipRecordLiteDTO>>{
+        self.query_clip_records_with(param, |_, dto| dto).await
+    }
+
+    /// 为可选应用扩展附加展示信息，查询和分页仍由同一条路径执行。
+    pub async fn query_clip_records_with<T>(
+        &self, param: QueryParam, view: impl Fn(&ClipRecord, ClipRecordLiteDTO) -> T,
+    ) -> AppResult<Vec<T>> {
         if param.page<1 || param.size<1{return Err(AppError::Config("页码和每页条数必须大于零".into()));}
         // 页码从 1 开始；使用较宽整数并检查乘法，避免偏移量溢出。
         let offset=(param.page as i64-1).checked_mul(param.size as i64).ok_or_else(||AppError::Config("分页超出范围".into()))?;
@@ -39,10 +65,10 @@ impl<'a> ClipRecordService<'a>{
             let ids=self.context.search_engine().search(search).await;
             self.repository.list_by_ids(&ids,param.size,offset).await?
         }else{self.repository.list(param.size,offset).await?};
-        records.into_iter().map(|record|self.to_dto(record)).collect()
+        records.iter().map(|record| self.to_dto(record).map(|dto| view(record, dto))).collect()
     }
     /// 转换成原有页面协议：保留 Text/Image/File 名称，隐藏存储层细节。
-    fn to_dto(&self,record:ClipRecord)->AppResult<ClipRecordLiteDTO>{
+    fn to_dto(&self,record:&ClipRecord)->AppResult<ClipRecordLiteDTO>{
         let mut content;let mut truncated=false;let mut length=None;let mut file_info=vec![];
         let kind=match record.r#type.as_str(){
             TEXT_TYPE=>{

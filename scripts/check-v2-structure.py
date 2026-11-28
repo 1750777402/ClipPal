@@ -18,7 +18,7 @@ packages = {package["name"]: package for package in metadata["packages"]}
 allowed = {
     "clip-core": set(),
     "clip-sync-protocol": set(),
-    "clip-sync-client": {"clip-core", "clip-sync-protocol"},
+    "clip-sync-client": {"clip-sync-protocol"},
     "desktop-app-core": {"clip-core"},
     "selfhost-app-core": {"desktop-app-core", "clip-sync-client"},
 }
@@ -87,11 +87,9 @@ for source in (ROOT / "crates/desktop-app-core/src").rglob("*.rs"):
     for forbidden in ("tauri::", "crate::app_context", "crate::commercial", "clip_sync_client::"):
         if forbidden in code:
             raise SystemExit(f"{source.relative_to(ROOT)}: 单机核心意外依赖宿主或扩展 {forbidden}")
-# 单机领域/应用核心不得继续承载同步状态；仅一次性旧数据迁移允许识别旧表。
+# 单机领域和应用核心与同步状态隔离。
 for folder in ("crates/clip-core/src", "crates/desktop-app-core/src"):
     for source in (ROOT / folder).rglob("*.rs"):
-        if source.name == "migration.rs":
-            continue
         code = source.read_text()
         for forbidden in ("SkipSyncReason", "SyncStatus", "VipLimit", "SKIP_SYNC", "NOT_SYNCHRONIZED",
                           "sync_flag", "cloud_source", "skip_type", "cloud_sync", "retain_tombstones",

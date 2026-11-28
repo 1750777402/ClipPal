@@ -55,6 +55,9 @@ pub struct AppContext {
     auto_paste: AutoPasteState,
     /// 共享更新检查结果和操作锁，多个 IPC 调用使用同一份状态。
     updater: crate::desktop::system::updater::UpdateState,
+    /// 串行读取、保存自建同步偏好和启停后台会话。
+    #[cfg(all(feature = "sync", not(feature = "commercial-extension")))]
+    sync_switch_lock: tokio::sync::Mutex<()>,
 }
 
 /// 自动粘贴的目标窗口。
@@ -279,6 +282,8 @@ impl AppContext {
             window: WindowContext::default(),
             auto_paste: AutoPasteState::default(),
             updater: crate::desktop::system::updater::UpdateState::default(),
+            #[cfg(all(feature = "sync", not(feature = "commercial-extension")))]
+            sync_switch_lock: Default::default(),
         }
     }
 
@@ -320,6 +325,11 @@ impl AppContext {
     #[cfg(feature = "sync")]
     pub fn sync(&self) -> &SyncContext {
         self.application.sync()
+    }
+
+    #[cfg(all(feature = "sync", not(feature = "commercial-extension")))]
+    pub(crate) fn sync_switch_lock(&self) -> &tokio::sync::Mutex<()> {
+        &self.sync_switch_lock
     }
 
     /// 获取商业扩展资源分组。

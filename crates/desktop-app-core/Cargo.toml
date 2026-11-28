@@ -10,7 +10,6 @@ description = "ClipPal standalone application composition and shared resources"
 [dependencies]
 clip-core = { path = "../clip-core" }
 rbatis.workspace = true
-rbs.workspace = true
 log.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -19,9 +18,4 @@ md5.workspace = true
 chrono.workspace = true
 tokio.workspace = true
 uuid = { workspace = true, features = ["v4"] }
-
-
-
-[dev-dependencies]
 tempfile = "3"
-rbdc-sqlite.workspace = true

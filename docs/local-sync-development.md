@@ -10,6 +10,8 @@ Tauri 自建版调试客户端 → http://127.0.0.1:8080 → Spring Boot 内嵌 
 
 生产部署仍采用客户端 HTTPS → Nginx → HTTP Tomcat。只有调试构建额外允许 `127.0.0.1` 等回环 IP、`localhost` 的 HTTP，局域网和公网 HTTP 会被拒绝。正式 release 构建保持 HTTPS 要求。
 
+客户端和服务端使用同一套 `/sync/*` 接口。两端应使用同一批源码构建。需要清理旧格式数据时，可重新初始化 SQLite 和本地 MySQL 的 `clip_pal_sync`。
+
 ## 1. 在 IDEA 启动服务端
 
 打开同级 `clip-pal-sync` 工程，JDK 21，选择已配置的 `ClipPalSyncApplication` 或 `ClipPal Sync Local`。
@@ -20,7 +22,7 @@ Tauri 自建版调试客户端 → http://127.0.0.1:8080 → Spring Boot 内嵌 
 --spring.profiles.active=local --spring.config.additional-location=file:$PROJECT_DIR$/config/
 ```
 
-IDEA 将 `$PROJECT_DIR$` 展开为服务端工程目录。服务端通过被Git忽略的 `config/application-local.yml` 加载固定部署令牌、数据集标识和内容密钥。MySQL `mysql84` 容器需要处于运行状态。日常启动使用配置指定的数据库，默认是 `clip_pal_sync`。首次初始化时执行 `sql/init.sql`。
+IDEA 将 `$PROJECT_DIR$` 展开为服务端工程目录。服务端通过被 Git 忽略的 `config/application-local.yml` 加载固定部署令牌和内容密钥。MySQL `mysql84` 容器需要处于运行状态。本机日常联调固定使用 `clip_pal_sync`，首次初始化或重置时在该库执行 `sql/init.sql`。
 
 服务应在 `http://127.0.0.1:8080/actuator/health` 返回 `UP`。本机 Tomcat 不配置 TLS，也不需要 Nginx。
 
@@ -35,8 +37,7 @@ IDEA 将 `$PROJECT_DIR$` 展开为服务端工程目录。服务端通过被Git�
   "cloud_sync": {
     "enabled": true,
     "domain": "http://127.0.0.1:8080",
-    "deployment_token": "填写与服务端相同的部署令牌",
-    "max_file_size_kb": 102400
+    "deployment_token": "填写与服务端相同的部署令牌"
   }
 }
 ```
@@ -75,7 +76,7 @@ FROM clip_sync_change ORDER BY id DESC LIMIT 20;
 
 新增应有一条 `upsert` 动作，日志中的 `id` 就是对外的 `sync_seq`。不要仅用Java控制台有没有SQL判断成功，项目默认关闭SQL参数日志以免泄露内容。
 
-4. 在文本删除确认框选择“跨端删除”，应新增 `delete` 动作，云端记录的 `del_flag` 变为1。“仅删本机”和本地容量淘汰不会生成云端删除。
+4. 在自建版确认删除一条文本记录，应新增 `delete` 动作，云端记录的 `del_flag` 变为 1。本地容量淘汰只清理当前设备的历史。
 5. 停止Java后继续复制，再启动Java，等待重试。记录应补传，客户端上传队列最终清空。
 
 要验证多设备，请使用第二台设备或下方的隔离自动测试；同一份应用的单实例机制不允许直接同时打开两个正常桌面进程。

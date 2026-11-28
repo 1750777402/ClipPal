@@ -10,6 +10,9 @@ export interface ClipRecord {
   fileSize?: number;
   pinned_flag?: number;
   file_info?: FileInfo[];
+  sync_skip_reason?: string;
+  sync_content_key?: string;
+  download_name?: string;
   image_info?: {
     path: string;
     size: number;
@@ -18,6 +21,19 @@ export interface ClipRecord {
   };
   content_truncated?: boolean; // 内容是否被截断
   original_content_length?: number; // 原始内容长度
+}
+
+export type CardSyncStatus = 'pending_upload' | 'uploading' | 'uploaded' | 'pending_download' | 'downloading';
+
+export interface SyncCardStates {
+  enabled: boolean;
+  cards: Record<string, CardSyncStatus>;
+  incoming: Array<{
+    content_key: string;
+    name: string;
+    created: number;
+    status: 'pending_download' | 'downloading';
+  }>;
 }
 
 // 文件信息类型
@@ -38,6 +54,8 @@ export interface AppSettings {
   /** 设置读取返回的运行状态，不参与持久化。 */
   shortcut_registered?: boolean;
   auto_paste_permission?: AutoPastePermission;
+  file_backup_dir?: string | null;
+  default_file_backup_dir?: string | null;
   max_records: number;
   auto_start: number;
   shortcut_key: string;

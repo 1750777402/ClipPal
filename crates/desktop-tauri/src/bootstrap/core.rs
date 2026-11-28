@@ -54,7 +54,7 @@ pub async fn init_core() -> AppResult<BootstrapCore> {
     {
         #[cfg(feature = "sync")]
         { policy = Arc::new(crate::sync::policy::SelfhostPolicy {
-            max_file_size_bytes: crate::desktop::config::get_max_file_size_bytes().unwrap_or(0),
+            max_file_size_bytes: clip_sync_client::protocol::DEFAULT_RECORD_BYTES as u64,
         }); }
         #[cfg(not(feature = "sync"))]
         { policy = Arc::new(crate::core::policy::LocalPolicy); }
@@ -75,7 +75,7 @@ pub async fn init_core() -> AppResult<BootstrapCore> {
         {
             auth = match crate::desktop::config::get_cloud_sync().map_err(|error| error.to_string())
                 .and_then(|config| selfhost_app_core::deployment::DeploymentConfig::new(
-                    &config.domain, config.deployment_token.as_deref().unwrap_or(""), config.max_file_size_kb,
+                    &config.domain, config.deployment_token.as_deref().unwrap_or(""),
                 )) {
                 Ok(config) => Arc::new(config),
                 Err(error) => {

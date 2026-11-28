@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use tauri_plugin_dialog::DialogExt;
 
 use {
     crate::app_context::AppContext,
@@ -22,6 +23,21 @@ pub async fn save_settings(
 ) -> Result<CommandResponse<()>, String> {
     let service = SettingsService::from_context(state.inner().as_ref());
     Ok(crate::response::command_result(service.save_settings(settings).await))
+}
+
+/// 由系统目录选择器返回备份路径，不在选择时修改设置。
+#[tauri::command]
+pub async fn pick_file_backup_dir(state: tauri::State<'_, Arc<AppContext>>) -> Result<CommandResponse<Option<String>>, String> {
+    Ok(crate::response::command_result(async {
+        let app = state.app_handle()?;
+        let _window = crate::desktop::shell::window::WindowHideGuard::new(state.window_hide_flag());
+        let (sender, receiver) = tokio::sync::oneshot::channel();
+        app.dialog().file().set_title("选择文件备份目录").pick_folder(move |selection| {
+            let _ = sender.send(selection);
+        });
+        let selection = receiver.await.map_err(|error| crate::errors::AppError::System(error.to_string()))?;
+        Ok(selection.and_then(|item| item.as_path().map(|path| path.to_string_lossy().into_owned())))
+    }.await))
 }
 
 #[tauri::command]

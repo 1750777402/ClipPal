@@ -150,6 +150,7 @@ fn track_main_window_focus<R: Runtime>(
         }
         WindowEvent::Focused(true) => {
             focus_state.gained_focus();
+            focus_state.restore_main_topmost(&main_window);
             log::debug!("窗口获得焦点事件触发");
         }
         WindowEvent::CloseRequested { api, .. } => {
@@ -173,7 +174,10 @@ pub(super) fn track_image_viewer_focus<R: Runtime>(
 ) {
     let main_window = main.clone();
     viewer.on_window_event(move |event| match event {
-        WindowEvent::Focused(true) => focus_state.cancel_pending_check(),
+        WindowEvent::Focused(true) => {
+            focus_state.cancel_pending_check();
+            focus_state.lower_main_for_viewer(&main_window);
+        }
         WindowEvent::Focused(false) | WindowEvent::Destroyed => {
             schedule_focus_check(&main_window, &focus_state, &hide_flag);
         }
@@ -187,9 +191,6 @@ fn schedule_focus_check<R: Runtime>(
     hide_flag: &Arc<WindowHideFlag>,
 ) {
     let revision = focus_state.next_check();
-    if !hide_flag.is_can_hide() {
-        return;
-    }
     let state = focus_state.clone();
     let flag = hide_flag.clone();
     let window = main.clone();
@@ -198,11 +199,7 @@ fn schedule_focus_check<R: Runtime>(
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
         let app = window.app_handle().clone();
         if let Err(error) = app.run_on_main_thread(move || {
-            if !state.is_current_check(revision)
-                || !flag.is_can_hide()
-                || !window.is_visible().unwrap_or(false)
-                || window.is_focused().unwrap_or(true)
-            {
+            if !state.is_current_check(revision) {
                 return;
             }
             // 在 UI 线程读取实时焦点，避免依赖各平台发送焦点事件的先后顺序。
@@ -213,8 +210,19 @@ fn schedule_focus_check<R: Runtime>(
             {
                 return;
             }
+            if window.is_focused().unwrap_or(true) {
+                state.restore_main_topmost(&window);
+                return;
+            }
+            if !flag.is_can_hide() || !window.is_visible().unwrap_or(false) {
+                state.restore_main_topmost(&window);
+                return;
+            }
             if let Err(error) = window.hide() {
                 log::error!("隐藏窗口失败: {error}");
+            } else {
+                // 先收起主窗口，再恢复它的层级，避免遮挡刚切换到的其他应用。
+                state.restore_main_topmost(&window);
             }
         }) {
             log::error!("调度窗口失焦处理失败: {error}");
@@ -353,6 +361,8 @@ fn get_windows_work_area(screen_width: i32, window_width: i32, scale_factor: f64
 pub struct WindowFocusState {
     focused: AtomicBool,
     revision: AtomicU64,
+    // 只有预览期间确实降低过主窗口层级时才恢复置顶。
+    viewer_lowered_main: AtomicBool,
 }
 
 impl WindowFocusState {
@@ -375,6 +385,31 @@ impl WindowFocusState {
 
     fn is_current_check(&self, revision: u64) -> bool {
         self.revision.load(Ordering::SeqCst) == revision
+    }
+
+    /// 预览窗口获得焦点时，暂时取消置顶主窗口，避免它遮住预览。
+    fn lower_main_for_viewer<R: Runtime>(&self, main: &WebviewWindow<R>) {
+        if self.viewer_lowered_main.load(Ordering::SeqCst)
+            || !main.is_always_on_top().unwrap_or(false)
+        {
+            return;
+        }
+        if self.viewer_lowered_main.compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst).is_ok() {
+            if let Err(error) = main.set_always_on_top(false) {
+                self.viewer_lowered_main.store(false, Ordering::SeqCst);
+                log::error!("查看图片时降低主窗口层级失败: {error}");
+            }
+        }
+    }
+
+    /// 返回主窗口时恢复预览前的置顶状态。
+    fn restore_main_topmost<R: Runtime>(&self, main: &WebviewWindow<R>) {
+        if self.viewer_lowered_main.swap(false, Ordering::SeqCst) {
+            if let Err(error) = main.set_always_on_top(true) {
+                self.viewer_lowered_main.store(true, Ordering::SeqCst);
+                log::error!("恢复主窗口置顶失败: {error}");
+            }
+        }
     }
 }
 

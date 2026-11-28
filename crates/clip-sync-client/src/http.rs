@@ -1,5 +1,5 @@
 //! HTTPS 和 SSE 共用部署令牌及连接池。连接绑定到一个已验证的部署地址。
-use super::{protocol::*, StreamEvent, SyncError, SyncTransport};
+use super::{protocol::*, StreamEvent, SyncError, SyncTransport, TransferProgress};
 use crate::auth::SyncConnection;
 use async_trait::async_trait;
 use reqwest::{header, Client, Method, Response};
@@ -26,11 +26,6 @@ impl HttpsTransport {
             .build()
             .map_err(network_error)?;
         Ok(Self { http, connection })
-    }
-
-    /// 暴露规范化后的部署地址供本机绑定游标，不包含凭证。
-    pub fn endpoint(&self) -> &str {
-        self.connection.endpoint()
     }
 
     /// 为 JSON 和 SSE 请求设置统一认证头，并收敛HTTP状态分类。
@@ -84,30 +79,106 @@ fn network_error(error: reqwest::Error) -> SyncError {
     SyncError::Retry(format!("同步网络异常：{detail}"))
 }
 
+/// OSS 返回的诊断编号可关联控制台日志。只接受编号字符，避免把签名 URL 或响应内容写入日志。
+fn oss_error(status: reqwest::StatusCode, headers: &header::HeaderMap, action: &str) -> SyncError {
+    let diagnostic = |name| {
+        headers.get(name).and_then(|value| value.to_str().ok()).filter(|value| {
+            !value.is_empty() && value.len() <= 64
+                && value.bytes().all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+        })
+    };
+    let code = diagnostic("x-oss-ec");
+    let mut message = format!("OSS {action}失败（HTTP {status}）");
+    if let Some(code) = code {
+        message.push_str(&format!("，错误码 {code}"));
+    }
+    if let Some(request_id) = diagnostic("x-oss-request-id") {
+        message.push_str(&format!("，请求 ID {request_id}"));
+    }
+
+    // 权限和签名配置错误进入低频复查。未知的 403 仍可重新申请短期签名后重试。
+    match (status, code) {
+        (reqwest::StatusCode::FORBIDDEN, Some("0003-00000001")) => {
+            message.push_str("，请检查部署凭据对对象前缀的 RAM 授权");
+            SyncError::Blocked(message)
+        }
+        (reqwest::StatusCode::FORBIDDEN, Some("0002-00000201")) => {
+            message.push_str("，请检查 OSS 预签名与请求头是否一致");
+            SyncError::Blocked(message)
+        }
+        _ => SyncError::Retry(message),
+    }
+}
+
 #[async_trait]
 impl SyncTransport for HttpsTransport {
-    async fn scope(&self) -> Result<Scope, SyncError> {
-        let scope: Scope = self.json(Method::GET, "sync/v2/scope", None::<&()>).await?;
-        if !scope.is_valid() {
-            return Err(SyncError::Blocked("同步范围或数据集标识无效".into()));
+    async fn limits(&self) -> Result<SyncLimits, SyncError> {
+        self.json(Method::GET, "sync/limits", None::<&()>).await
+    }
+
+    async fn put_attachment(&self, attachment: &Attachment, bytes: Vec<u8>, progress: std::sync::Arc<TransferProgress>) -> Result<(), SyncError> {
+        let grant: AttachmentUrl = self.json(Method::POST, "sync/attachments/upload-url",
+            Some(&serde_json::json!({ "object_id": attachment.object_id, "size": attachment.size }))).await?;
+        // 使用固定长度的分块请求。进度在 HTTP 客户端消费这些字节时更新。
+        let payload = reqwest::Body::wrap_stream(futures_util::stream::unfold(
+            (bytes, 0usize, progress),
+            |(bytes, sent, progress)| async move {
+                if sent == bytes.len() { return None; }
+                let end = (sent + 64 * 1024).min(bytes.len());
+                let chunk = bytes[sent..end].to_vec();
+                progress(end as u64);
+                Some((Ok::<_, std::io::Error>(chunk), (bytes, end, progress)))
+            },
+        ));
+        let mut request = self.http.put(attachment_url(&grant.url)?)
+            .body(payload).timeout(REQUEST_TIMEOUT);
+        for (name, value) in grant.headers {
+            request = request.header(name, value);
         }
-        Ok(scope)
+        let response = request.send().await.map_err(network_error)?;
+        // 上一次 PUT 可能成功但响应丢失。提交动作前服务端还会核验对象。
+        if response.status().is_success() || response.status() == reqwest::StatusCode::CONFLICT {
+            return Ok(());
+        }
+        Err(oss_error(response.status(), response.headers(), "上传"))
+    }
+
+    async fn get_attachment(&self, attachment: &Attachment, progress: &TransferProgress) -> Result<Vec<u8>, SyncError> {
+        let grant: AttachmentUrl = self.json(Method::POST, "sync/attachments/download-url",
+            Some(&serde_json::json!({ "object_id": attachment.object_id, "size": attachment.size }))).await?;
+        let mut response = self.http.get(attachment_url(&grant.url)?).timeout(REQUEST_TIMEOUT)
+            .send().await.map_err(network_error)?;
+        if !response.status().is_success() {
+            return Err(oss_error(response.status(), response.headers(), "下载"));
+        }
+        let mut data = Vec::with_capacity(attachment.size);
+        while let Some(chunk) = response.chunk().await.map_err(network_error)? {
+            if chunk.len() > attachment.size - data.len() {
+                return Err(SyncError::Blocked("附件超过声明大小".into()));
+            }
+            data.extend_from_slice(&chunk);
+            progress(data.len() as u64);
+        }
+        if data.len() != attachment.size {
+            return Err(SyncError::Retry("附件未下载完整".into()));
+        }
+        Ok(data)
     }
 
     async fn upload(&self, request: &UploadRequest) -> Result<UploadResponse, SyncError> {
-        self.json(Method::POST, "sync/v2/operations", Some(request)).await
+        self.json(Method::POST, "sync/operations", Some(request)).await
     }
 
     async fn pull(&self, request: &PullRequest) -> Result<PullPage, SyncError> {
-        self.json(Method::GET, "sync/v2/changes", Some(request)).await
+        self.json(Method::GET, "sync/changes", Some(request)).await
     }
 
     async fn listen(
-        &self, scope: &Scope, notify: &(dyn Fn(StreamEvent) + Send + Sync),
+        &self, notify: &(dyn Fn(StreamEvent) + Send + Sync),
     ) -> Result<(), SyncError> {
         // SSE 需要长连接。连接后用独立的空闲超时识别半断开和心跳缺失。
         let mut response = tokio::time::timeout(REQUEST_TIMEOUT, self.send(
-            Method::GET, "sync/v2/events", Some(scope), "text/event-stream",
+            Method::GET, "sync/events", None::<&()>, "text/event-stream",
             Duration::from_secs(24 * 3600),
         )).await.map_err(|_| SyncError::Retry("等待同步通知连接超时".into()))??;
         let mime = response.headers().get(header::CONTENT_TYPE)
@@ -126,6 +197,17 @@ impl SyncTransport for HttpsTransport {
             frame.read(&chunk, notify)?;
         }
     }
+}
+
+/// OSS 使用自身的短时签名，禁止把部署凭据带到对象存储。
+fn attachment_url(value: &str) -> Result<url::Url, SyncError> {
+    let parsed = url::Url::parse(value).map_err(|_| SyncError::Blocked("OSS 地址无效".into()))?;
+    if parsed.scheme() != "https" || parsed.host_str().is_none()
+        || !parsed.username().is_empty() || parsed.password().is_some() || parsed.fragment().is_some()
+    {
+        return Err(SyncError::Blocked("OSS 必须使用 HTTPS 签名地址".into()));
+    }
+    Ok(parsed)
 }
 
 /// 只读取通知帧的类型和完整边界。支持分块、注释心跳、LF、CRLF 和 CR。
@@ -175,6 +257,22 @@ mod tests {
     use super::*;
     use std::cell::Cell;
 
+    /// 权限拒绝降低重试频率，未知的 403 仍允许重新申请签名。
+    #[test]
+    fn oss_permission_denial_reports_safe_diagnostics() {
+        let mut headers = header::HeaderMap::new();
+        headers.insert("x-oss-ec", header::HeaderValue::from_static("0003-00000001"));
+        headers.insert("x-oss-request-id", header::HeaderValue::from_static("ABCD1234"));
+        let error = oss_error(reqwest::StatusCode::FORBIDDEN, &headers, "上传");
+        assert!(matches!(&error, SyncError::Blocked(message)
+            if message.contains("0003-00000001") && message.contains("ABCD1234")));
+
+        headers.remove("x-oss-ec");
+        headers.insert("x-oss-request-id", header::HeaderValue::from_static("https://example.test/?signature=secret"));
+        let error = oss_error(reqwest::StatusCode::FORBIDDEN, &headers, "上传");
+        assert!(matches!(error, SyncError::Retry(message) if !message.contains("signature")));
+    }
+
     /// 真实 SSE 字节可以在任意位置分块。心跳和不完整事件都不应触发补拉。
     #[test]
     fn fragmented_sse_dispatches_only_complete_change_events() {
@@ -199,20 +297,18 @@ mod tests {
         assert_eq!(count.get(), 2);
     }
 
-    /// 分页使用 GET，验证真正的 HTTP 请求构造器能序列化扁平范围和 64 位游标。
+    /// 分页使用 GET，验证真正的 HTTP 请求构造器能序列化 64 位游标。
     #[test]
-    fn pull_query_contains_dataset_and_exact_cursor() {
+    fn pull_query_contains_only_cursor_and_limit() {
         let request = PullRequest {
-            scope: Scope { scope_id: "private".into(), dataset_id: "dataset-1".into() },
             after: i64::MAX - 1,
             limit: BATCH_LIMIT,
         };
         let http = Client::new();
-        let request = http.get("https://sync.test/sync/v2/changes").query(&request).build().unwrap();
+        let request = http.get("https://sync.test/sync/changes").query(&request).build().unwrap();
         let params: std::collections::HashMap<_, _> = request.url().query_pairs().into_owned().collect();
-        assert_eq!(params["scope_id"], "private");
-        assert_eq!(params["dataset_id"], "dataset-1");
         assert_eq!(params["after"], (i64::MAX - 1).to_string());
         assert_eq!(params["limit"], "100");
+        assert_eq!(params.len(), 2);
     }
 }

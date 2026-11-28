@@ -30,7 +30,7 @@
 ## 4. 关键入口
 
 - 打包启动：`src-tauri/src/lib.rs`；实际桌面启动：`crates/desktop-tauri/src/lib.rs`；Tauri command 注册：`crates/desktop-tauri/src/commands/mod.rs`。
-- SQLite 两表初始化：`crates/clip-core/src/storage/schema.rs`；旧库备份和升级：`crates/desktop-app-core/src/migration.rs`。
+- SQLite 两表初始化在 `crates/clip-core/src/storage/schema.rs`，自建版同步表初始化在 `crates/selfhost-app-core/src/sync_store.rs`。
 - 剪贴板记录模型：`crates/clip-core/src/domain/clip/clip_record.rs`。
 - 剪贴板记录查询与展示编排：`crates/desktop-app-core/src/records.rs`；Tauri 扩展副作用在 `crates/desktop-tauri/src/core/application/clip_record_service.rs`。
 - 搜索索引：`crates/clip-core/src/search/in_memory.rs`，通过注入的解码策略解密内容。
@@ -80,7 +80,7 @@
 - 本地业务在 `crates/desktop-app-core`、`crates/clip-core`，桌面系统适配在 `crates/desktop-tauri/src/desktop`，IPC 编排在 `core/application` 与 `commands`。这仍属于后端，前端只处理显示和交互。
 - 旧 `biz/services/infra/domain/dto/utils/api/system` 目录和散落的托盘/窗口入口已经删除，不新增兼容转发层。
 - 单机删除直接清理数据库、搜索索引和受管缓存，不等待同步确认；不得删除用户原始文件。
-- 结构检查：`python3 scripts/check-v2-structure.py`。迁移测试使用临时数据库，禁止测试访问用户正式数据。
+- 结构检查使用 `python3 scripts/check-v2-structure.py`。自动化测试使用临时数据库。
 
 - `src-tauri/src` 只允许 `main.rs` / `lib.rs`，不得重新添加业务、IPC、系统适配或生命周期模块。
 - 打包壳内的插件直接依赖用于 Tauri 构建权限元数据，不代表插件实现归属启动壳；不要删除这些声明导致 capability 失效。
@@ -91,8 +91,8 @@
 - 本地活动数据库只有 clip_record 和 clip_record_resource 两张业务表。
 - 两表使用 SQLite 自增 i64 主键；content_key 为唯一索引，资源通过 record_id 外键关联。
 - clip-core / desktop-app-core 不得加入 SyncStatus、SkipSyncReason、sync_flag、cloud_source、skip_type 或云同步设置。
-- 只有 desktop-app-core/src/migration.rs 可识别旧数据库字段，升级前完整备份、失败回滚；测试不得打开正式数据目录。
+- 首版开发阶段直接维护当前表结构。SQLite 使用当前结构初始化。服务端本地联调固定使用 MySQL 的 `clip_pal_sync`。需要重置时在同名库内按 `sql/init.sql` 重建。数据迁移和数据库版本升级留待正式发布需求明确后处理。
 - 文本按完整原文计算 SHA-256，再使用原算法加密；文件完整流式摘要，不使用采样摘要作唯一键。
 - 后端使用整数 ID，IPC 用十进制字符串防止 JS 精度丢失；单文件复制传 resource_id，不能按显示名定位。
-- legacy/sync-v1 是非编译参考源码。新的同步表和协议接入前，不启动旧同步运行时，不宣传自建同步已可用。
+- 自建版使用统一的有序增删协议，HTTP 路径统一为 `/sync/*`，同步代码与数据表由自建版按需启用。
 - 前端默认 local；商业入口通过 --mode commercial 才编译进入产物。改动必须保持本地页面样式。

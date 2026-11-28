@@ -51,12 +51,34 @@
             </div>
           </div>
 
-          <div v-if="appCapabilities?.cloud_sync" class="settings-item">
-            <div class="settings-label">
-              <span>文本云同步</span>
-              <span class="settings-description" aria-live="polite">{{ syncStatusText }}</span>
+          <div class="settings-item">
+            <div class="settings-label" style="min-width: 0">
+              <span>文件备份目录</span>
+              <span class="settings-description" style="overflow-wrap: anywhere">
+                {{ settings.file_backup_dir || settings.default_file_backup_dir || '应用默认目录' }}
+              </span>
+            </div>
+            <div class="permission-actions">
+              <button class="update-button" type="button" @click="pickFileBackupDir">选择目录</button>
+              <button v-if="settings.file_backup_dir" class="update-button" type="button"
+                @click="settings.file_backup_dir = null">恢复默认</button>
             </div>
           </div>
+
+          <SyncSettingsStatus v-if="SyncSettingsStatus && appCapabilities?.edition === 'self-hosted'"
+            :available="appCapabilities.cloud_sync" v-slot="{ statusText, checked, disabled, setEnabled }">
+            <div class="settings-item">
+              <div class="settings-label">
+                <span>云同步</span>
+                <span class="settings-description" aria-live="polite">{{ statusText }}</span>
+              </div>
+              <label class="switch sync-switch" title="云同步开关立即生效">
+                <input type="checkbox" role="switch" aria-label="云同步" :checked="checked"
+                  :disabled="disabled" @change="setEnabled">
+                <span class="slider"></span>
+              </label>
+            </div>
+          </SyncSettingsStatus>
 
           <div class="settings-item-wrapper auto-paste-setting">
             <div class="settings-item">
@@ -114,10 +136,9 @@
 
 <script setup lang="ts">
 // 本地设置弹窗管理表单和权限提示，由后端应用快捷键、自启与保留数量。
-import { ref, watch, onMounted, onBeforeUnmount, computed, inject } from 'vue';
+import { ref, watch, onMounted, onBeforeUnmount, computed, inject, defineAsyncComponent } from 'vue';
 import { useWindowAdaptive, generateResponsiveClasses } from '../utils/responsive';
-import { settingsApi, syncApi, isSuccess } from '../utils/api';
-import type { SyncStatus } from '../utils/api';
+import { settingsApi, isSuccess } from '../utils/api';
 import { appCapabilities, loadAppCapabilities } from '../utils/capabilities';
 import type { AppSettings, AutoPastePermission } from '../types/global';
 import { getCurrentWindow } from '@tauri-apps/api/window';
@@ -132,6 +153,11 @@ const emit = defineEmits<{
 }>();
 
 type Settings = AppSettings;
+
+const pickFileBackupDir = async () => {
+  const result = await settingsApi.pickFileBackupDir();
+  if (isSuccess(result) && result.data) settings.value.file_backup_dir = result.data;
+};
 
 const settings = ref<Settings>({
   auto_start: 0,
@@ -192,38 +218,8 @@ let isSettingsDialogUnmounted = false;
 // 记录上限来自后端版本策略；前端只用于显示和输入范围提示。
 const recordLimit = computed(() => appCapabilities.value?.max_records ?? 300);
 
-const syncStatus = ref<SyncStatus | null>(null);
-const syncStatusText = computed(() => {
-  const status = syncStatus.value;
-  if (!status) return '正在读取状态';
-  if (!status.enabled) return '启动失败，请检查部署配置';
-  if (status.upload === 'blocked' || status.pull === 'blocked') return '同步异常，待上传记录已保留';
-  if (status.upload === 'retrying' || status.pull === 'retrying') return '连接或同步失败，等待重试';
-  if (status.waiting_for_binding) return '正在验证部署';
-  if (status.upload === 'working' || status.pull === 'working') return '正在同步';
-  return '等待同步';
-});
-
-// 只在自建版设置可见时读取状态。上一条查询结束后再安排下一次。
-watch([() => props.modelValue, () => appCapabilities.value?.cloud_sync], ([visible, enabled], _, onCleanup) => {
-  if (!visible || !enabled) {
-    syncStatus.value = null;
-    return;
-  }
-  let stopped = false;
-  let timeout: ReturnType<typeof setTimeout> | undefined;
-  onCleanup(() => {
-    stopped = true;
-    clearTimeout(timeout);
-  });
-  const refresh = async () => {
-    const response = await syncApi.getStatus();
-    if (stopped) return;
-    if (isSuccess(response)) syncStatus.value = response.data;
-    timeout = setTimeout(refresh, 2000);
-  };
-  void refresh();
-}, { immediate: true });
+const SyncSettingsStatus = import.meta.env.VITE_EDITION === 'self-hosted'
+  ? defineAsyncComponent(() => import('../extensions/SyncSettingsStatus.vue')) : null;
 
 // 使用响应式工具
 const responsive = useWindowAdaptive();
@@ -757,6 +753,20 @@ onBeforeUnmount(() => {
   opacity: 0;
   width: 0;
   height: 0;
+}
+
+.sync-switch {
+  flex-shrink: 0;
+}
+
+.sync-switch input:disabled + .slider {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.sync-switch input:focus-visible + .slider {
+  outline: 2px solid var(--primary-color, #2c7a7b);
+  outline-offset: 2px;
 }
 
 .slider {

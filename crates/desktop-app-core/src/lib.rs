@@ -53,7 +53,7 @@ impl LocalContext {
         Self::open_with_resources(db_path, settings_path, decoder, None).await
     }
 
-    /// 升级旧库时必须在打开阶段提供资源根目录，迁移不猜测正式数据位置。
+    /// 打开本机数据库，并使用调用方提供的资源根目录。
     pub async fn open_with_resources(
         db_path: &Path,
         settings_path: Option<std::path::PathBuf>,
@@ -62,9 +62,7 @@ impl LocalContext {
     ) -> AppResult<Self> {
         let settings_repository = Arc::new(FileSettingsRepository::new(settings_path));
         let settings = Arc::new(RwLock::new(settings_repository.load()));
-        // 先连接并识别新旧结构，再在应用层注入解密器完成旧数据转换。
         let db = clip_core::storage::connect(db_path).await?;
-        migration::migrate(&db, db_path, decoder.as_ref(), resources_dir.as_deref()).await?;
         let repositories = AppRepositories::new(
             Arc::new(SqliteClipRecordRepository::new(db.clone())),
             settings_repository,
@@ -75,7 +73,7 @@ impl LocalContext {
             cleaning: AtomicBool::new(false), capture_lock: tokio::sync::Mutex::new(()) })
     }
 
-    /// 为已打开的新库设置资源目录；旧库迁移必须在 open_with_resources 时就提供目录。
+    /// 为已打开的应用上下文设置资源目录。
     pub fn with_resources_dir(mut self, path: Option<std::path::PathBuf>) -> Self {
         self.resources_dir = path;
         self
@@ -86,10 +84,27 @@ impl LocalContext {
 
     /// 返回当前组装时指定的资源目录，不猜测或读取用户的正式目录。
     pub fn resources_dir(&self) -> Option<std::path::PathBuf> { self.resources_dir.clone() }
+
+    /// 默认备份目录与数据库目录并列。自定义目录只影响新采集的文件。
+    pub fn file_backup_dir(&self) -> Option<std::path::PathBuf> {
+        self.with_settings(|settings| {
+            settings.file_backup_dir.as_deref().map(std::path::PathBuf::from)
+        }).ok().flatten().or_else(|| self.resources_dir())
+    }
+
+    /// 旧记录继续使用原有副本，按相对路径在使用过的备份目录中查找。
+    pub(crate) fn file_backup_roots(&self) -> Vec<std::path::PathBuf> {
+        let mut roots: Vec<_> = self.file_backup_dir().into_iter().collect();
+        roots.extend(self.resources_dir());
+        if let Ok(previous) = self.with_settings(|settings| settings.previous_file_backup_dirs.clone()) {
+            roots.extend(previous.into_iter().map(std::path::PathBuf::from));
+        }
+        roots
+    }
     /// 取得注入的解密能力；密钥管理仍归桌面层。
     pub fn decoder(&self) -> &dyn TextDecoder { self.decoder.as_ref() }
 
-    /// 共享当前 SQLite 连接池，供同库迁移与扩展事务使用。
+    /// 共享当前 SQLite 连接池，供同库扩展事务使用。
     pub fn db(&self) -> &RBatis {
         &self.db
     }
@@ -147,7 +162,5 @@ pub mod cleanup;
 pub mod temporary_files;
 pub mod update;
 pub mod settings;
-
-mod migration;
 
 pub mod clipboard;

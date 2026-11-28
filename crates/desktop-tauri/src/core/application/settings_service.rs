@@ -18,6 +18,8 @@ pub struct SettingsView {
     pub shortcut_registered: bool,
     /// 系统实时权限状态，不写回 settings.json。
     pub auto_paste_permission: crate::desktop::system::accessibility::AutoPastePermission,
+    /// 当前默认目录只用于页面展示，设置为空时由本地核心选择。
+    pub default_file_backup_dir: Option<String>,
 }
 
 /// 设置应用服务，负责配置校验、系统能力应用、持久化和内存缓存更新。
@@ -44,14 +46,28 @@ impl<'a> SettingsService<'a> {
         let actual = self.system.registered_shortcut()?;
         if let Some(key) = &actual { settings.shortcut_key = key.clone(); }
         Ok(SettingsView { settings, shortcut_registered: actual.is_some(),
+            default_file_backup_dir: self.context.core().resources_dir().map(|path| path.to_string_lossy().into_owned()),
             auto_paste_permission: crate::desktop::system::accessibility::status() })
     }
 
     /// 保存完整设置，并保证系统设置、配置文件和内存缓存按顺序一致更新。
-    pub async fn save_settings(&self, settings: Settings) -> AppResult<()> {
+    pub async fn save_settings(&self, mut settings: Settings) -> AppResult<()> {
         let _save = self.context.core().settings_save_lock().lock().await;
         // 先完成记录数、快捷键和权限等业务校验，校验失败时不产生任何副作用。
         self.validate_settings(&settings).await?;
+        // 目录历史由后端维护。切换后已有记录仍能找到原来的备份。
+        let previous = self.repository.load();
+        settings.previous_file_backup_dirs = previous.previous_file_backup_dirs;
+        if previous.file_backup_dir != settings.file_backup_dir {
+            if let Some(directory) = &settings.file_backup_dir {
+                desktop_app_core::settings::ensure_backup_dir(directory)?;
+            }
+            if let Some(directory) = previous.file_backup_dir {
+                if !settings.previous_file_backup_dirs.contains(&directory) {
+                    settings.previous_file_backup_dirs.push(directory);
+                }
+            }
+        }
 
         // 保存实际系统快照；相同配置也执行注册检查，修复启动时未能注册的快捷键。
         let previous_shortcut = self.system.registered_shortcut()?;
@@ -112,7 +128,7 @@ mod tests {
     /// 验证设置响应保持平铺，快捷键和权限运行状态不写入配置。
     #[test]
     fn settings_view_keeps_existing_flat_ipc_fields_without_persisting_runtime_status() {
-        let view = SettingsView { settings: Settings::default(), shortcut_registered: false,
+        let view = SettingsView { settings: Settings::default(), shortcut_registered: false, default_file_backup_dir: None,
             auto_paste_permission: crate::desktop::system::accessibility::AutoPastePermission::Required };
         let response = serde_json::to_value(view).unwrap();
         assert_eq!(response["shortcut_registered"], false);

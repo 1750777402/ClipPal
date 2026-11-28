@@ -100,7 +100,7 @@ fn local_ipc_keeps_record_queries_errors_and_edition_registration() {
         let local = desktop_app_core::LocalContext::open(&dir.join("test.db"), Some(dir.join("settings.json")), Arc::new(decode)).await.unwrap();
         let record = clip_core::domain::clip::ClipRecord {
             r#type: "text".into(), content: Some("迁移后的本地 IPC".into()),
-            content_key: "v1:text:ipc-test-hash".into(), ..Default::default()
+            content_key: "text:ipc-test-hash".into(), ..Default::default()
         };
         local.repositories().clip_records().save_capture(&record).await.unwrap();
         local

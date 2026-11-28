@@ -29,6 +29,7 @@ pub fn register_commands<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri
         clipboard_commands::copy_single_file,
         settings_commands::load_settings,
         settings_commands::save_settings,
+        settings_commands::pick_file_backup_dir,
         settings_commands::validate_shortcut,
         settings_commands::get_auto_paste_permission,
         settings_commands::request_auto_paste_permission,
@@ -58,7 +59,7 @@ pub fn register_commands<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri
     ])
 }
 
-// 由外层 cfg 选择命令，避免单机包暴露跨端删除入口。
+// 由外层 cfg 选择同步专用命令。
 #[cfg(not(feature = "commercial-extension"))]
 macro_rules! register_standard_commands {
     ($builder:ident $(, $command:path)*) => {
@@ -75,6 +76,7 @@ macro_rules! register_standard_commands {
         clipboard_commands::copy_single_file,
         settings_commands::load_settings,
         settings_commands::save_settings,
+        settings_commands::pick_file_backup_dir,
         settings_commands::validate_shortcut,
         settings_commands::get_auto_paste_permission,
         settings_commands::request_auto_paste_permission,
@@ -92,7 +94,12 @@ macro_rules! register_standard_commands {
 #[cfg(not(feature = "commercial-extension"))]
 pub fn register_commands<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri::Builder<R> {
     #[cfg(feature = "sync")]
-    return register_standard_commands!(builder, sync_commands::get_sync_status, sync_commands::delete_synced_record);
+    return register_standard_commands!(
+        builder,
+        sync_commands::get_sync_status,
+        sync_commands::set_sync_enabled,
+        sync_commands::get_sync_card_states
+    );
     #[cfg(not(feature = "sync"))]
     register_standard_commands!(builder)
 }

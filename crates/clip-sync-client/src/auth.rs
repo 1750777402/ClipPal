@@ -91,32 +91,3 @@ impl SyncAuthProvider for DisabledSyncAuth {
         Err("尚未配置同步服务认证".into())
     }
 }
-
-/// 传输结果不绑定特定 HTTP 客户端或账号实现。
-pub struct SyncResponse<T> { pub code: i32, pub message: String, pub data: Option<T> }
-pub enum SyncRequestError<E> {
-    Auth(String),
-    Transport(E),
-    Rejected { code: i32, message: String },
-}
-
-/// 统一认证重试边界：只对 401 尝试刷新，且最多重发一次。
-/// 部署令牌 provider 默认不刷新；网络失败不修改认证状态。
-pub async fn authenticated_request<T, E, F, Fut>(
-    auth: &dyn SyncAuthProvider, request: F,
-) -> Result<Option<T>, SyncRequestError<E>>
-where
-    F: Fn(SyncConnection) -> Fut,
-    Fut: std::future::Future<Output = Result<SyncResponse<T>, E>>,
-{
-    for attempt in 0..2 {
-        let connection = auth.connection().await.map_err(SyncRequestError::Auth)?;
-        let response = request(connection).await.map_err(SyncRequestError::Transport)?;
-        if response.code == 200 { return Ok(response.data); }
-        if response.code == 401 && attempt == 0 && auth.refresh().await.map_err(SyncRequestError::Auth)? {
-            continue;
-        }
-        return Err(SyncRequestError::Rejected { code: response.code, message: response.message });
-    }
-    unreachable!("最多两次请求均在循环内返回结果")
-}

@@ -8,9 +8,10 @@
         <button class="icon-button iconfont icon-setting settings-button" title="设置" type="button" @click="showSettings = true"></button>
       </div>
     </header>
+    <SyncCardPolling v-if="SyncCardPolling" :content-keys="visibleSyncKeys" @change="syncStates = $event" />
 
     <!-- 只在初始加载和空状态时显示 -->
-    <div v-if="isInitialLoading && cards.length === 0" class="loading-container">
+    <div v-if="isInitialLoading && displayCards.length === 0" class="loading-container">
       <div class="loading-spinner"></div>
       <span class="loading-text">加载中...</span>
     </div>
@@ -37,8 +38,10 @@
             class="virtual-item"
             :style="{ transform: `translateY(${virtualItem.offsetY}px)` }">
             <ClipCard
-              v-memo="[virtualItem.item.id, virtualItem.item.pinned_flag, virtualItem.item.content, virtualItem.item.created, virtualItem.item.file_info]"
+              v-memo="[virtualItem.item.id, virtualItem.item.pinned_flag, virtualItem.item.content, virtualItem.item.created, virtualItem.item.file_info, virtualItem.item.sync_skip_reason, virtualItem.item.download_name, syncStates.enabled, cardStatus(virtualItem.item)]"
               :record="virtualItem.item"
+              :sync-enabled="syncStates.enabled"
+              :sync-status="cardStatus(virtualItem.item)"
               :is-mobile="responsive.isMobile.value"
               @click="handleCardClick"
               @pin="handlePin"
@@ -51,7 +54,7 @@
     <!-- 正常数据显示 - 流式布局 -->
     <div class="clip-list" v-else ref="scrollContainer" @scroll.passive="handleScroll">
       <!-- 空状态显示 -->
-      <div v-if="cards.length === 0 && !isInitialLoading && !isRefreshing" class="empty-state">
+      <div v-if="displayCards.length === 0 && !isInitialLoading && !isRefreshing" class="empty-state">
         <div class="empty-text">暂无数据</div>
         <div class="empty-subtitle">剪贴板记录为空</div>
       </div>
@@ -64,8 +67,10 @@
           class="virtual-item"
           :style="{ transform: `translateY(${virtualItem.offsetY}px)` }">
           <ClipCard
-            v-memo="[virtualItem.item.id, virtualItem.item.pinned_flag, virtualItem.item.content, virtualItem.item.created, virtualItem.item.file_info]"
+            v-memo="[virtualItem.item.id, virtualItem.item.pinned_flag, virtualItem.item.content, virtualItem.item.created, virtualItem.item.file_info, virtualItem.item.sync_skip_reason, virtualItem.item.download_name, syncStates.enabled, cardStatus(virtualItem.item)]"
             :record="virtualItem.item"
+            :sync-enabled="syncStates.enabled"
+            :sync-status="cardStatus(virtualItem.item)"
             :is-mobile="responsive.isMobile.value"
             @click="handleCardClick"
             @pin="handlePin"
@@ -102,13 +107,14 @@
 <script setup lang="ts">
 // 主列表负责搜索、分页和虚拟滚动，卡片负责单条记录的展示与操作。
 import { listen } from '@tauri-apps/api/event';
-import { ref, onMounted, onBeforeUnmount, watch, nextTick, defineAsyncComponent } from 'vue';
+import { computed, ref, shallowRef, onMounted, onBeforeUnmount, watch, nextTick, defineAsyncComponent } from 'vue';
 import SettingsDialog from './SettingsDialog.vue';
 import ClipCard from './ClipCard.vue';
 import { useWindowAdaptive } from '../utils/responsive';
 import { clipApi, isSuccess } from '../utils/api';
 import { createDebouncedFunction, useMemoryManager } from '../utils/memoryManager';
 import { useDynamicVirtualScroll } from '../utils/dynamicVirtualScroll';
+import type { CardSyncStatus, ClipRecord, SyncCardStates } from '../types/global';
 
 // 使用内存安全的防抖函数
 // 原有的防抖函数保留以确保兼容性，但推荐使用新的createDebouncedFunction
@@ -130,11 +136,59 @@ let requestSequence = 0;
 
 // 当前列表只监听统一的本地记录变化事件，刷新频率由 smartRefresh 控制。
 
+// 自建版统一读取可见卡片的状态。下载中的新附件在列表里临时占一张卡片。
+const SyncCardPolling = import.meta.env.VITE_EDITION === 'local'
+  ? null : defineAsyncComponent(() => import('../extensions/SyncCardPolling.vue'));
+const syncStates = shallowRef<SyncCardStates>({ enabled: false, cards: {}, incoming: [] });
+const incomingByKey = computed(() => {
+  const incoming = new Map<string, SyncCardStates['incoming'][number]>();
+  for (const item of syncStates.value.incoming) {
+    if (incoming.get(item.content_key)?.status !== 'downloading') incoming.set(item.content_key, item);
+  }
+  return incoming;
+});
+
+function cardStatus(record: ClipRecord): CardSyncStatus | undefined {
+  const key = record.sync_content_key;
+  if (!key) return undefined;
+  return syncStates.value.cards[key] ?? incomingByKey.value.get(key)?.status;
+}
+
+const displayCards = computed(() => {
+  if (!incomingByKey.value.size) return cards.value;
+  const existing = new Set(cards.value.map(card => card.sync_content_key));
+  const keyword = search.value.trim().toLowerCase();
+  const incoming: ClipRecord[] = [];
+  for (const item of incomingByKey.value.values()) {
+    if (existing.has(item.content_key) || !item.name.toLowerCase().includes(keyword)) continue;
+    incoming.push({
+      id: 'download:' + item.content_key,
+      type: item.content_key.startsWith('image:') ? 'Image' : 'File',
+      content: '',
+      created: item.created,
+      sync_content_key: item.content_key,
+      download_name: item.name,
+    });
+  }
+  return [...incoming.sort((a, b) => b.created - a.created), ...cards.value];
+});
+
 const scrollContainer = ref<HTMLElement | null>(null);
 const {
   visibleItems: virtualItems,
   totalHeight: virtualTotalHeight,
-} = useDynamicVirtualScroll(cards, scrollContainer);
+  heightCache,
+} = useDynamicVirtualScroll(displayCards, scrollContainer);
+
+watch(incomingByKey, (current, previous) => {
+  for (const key of previous.keys()) {
+    if (!current.has(key)) heightCache.delete('download:' + key);
+  }
+});
+
+const visibleSyncKeys = computed(() => virtualItems.value.flatMap(({ item }) =>
+  item.sync_content_key && !item.download_name ? [item.sync_content_key] : []
+));
 
 // 回到顶部按钮相关
 const showBackToTop = ref(false);
@@ -148,36 +202,6 @@ const memoryManager = useMemoryManager();
 // 构建时决定是否引入商业前端，单机产物不包含账号/VIP/支付代码。
 const CommercialAccount = import.meta.env.VITE_EDITION === 'commercial'
   ? defineAsyncComponent(() => import('../extensions/CommercialAccount.vue')) : null;
-
-/** 列表使用的轻量记录；不包含数据库密文或同步状态。 */
-interface ClipRecord {
-  // i64 主键通过字符串传输，不能转换成 number 后再调用接口。
-  id: string;
-  type: string;
-  content: string;
-  created: number;
-  fileSize?: number;
-  pinned_flag?: number;
-  file_info?: FileInfo[];
-  image_info?: ImageInfo;
-}
-
-/** 图片按需读取的本地路径和展示元数据。 */
-interface ImageInfo {
-  path: string;
-  size: number;
-  width?: number;
-  height?: number;
-}
-
-/** 每个附件的展示信息，实际磁盘路径由后端根据资源主键解析。 */
-interface FileInfo {
-  // 同一条记录可有多个同名文件，操作时使用该主键精确选择。
-  resource_id: string;
-  path: string;
-  size: number;
-  type?: string;
-}
 
 /** 接收卡片点击通知。复制动作已由卡片发起，这里只记录点击。 */
 const handleCardClick = async (item: ClipRecord) => {

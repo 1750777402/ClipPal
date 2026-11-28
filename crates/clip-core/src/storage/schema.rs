@@ -2,7 +2,7 @@
 use std::path::Path;
 use rbatis::RBatis;
 use rbs::to_value;
-use crate::errors::{AppError,AppResult};
+use crate::errors::AppResult;
 
 /// 仅定义本地业务表。外键由 SQLite 连接选项对每个池连接启用。
 pub async fn create_tables(executor: &dyn rbatis::executor::Executor) -> AppResult<()> {
@@ -25,27 +25,11 @@ pub async fn has_table(db: &RBatis, name: &str) -> AppResult<bool> {
     Ok(rows[0].count != 0)
 }
 
-/// 旧 UUID/MD5 表没有 content_key，用这一特征区分新旧结构。
-pub async fn is_legacy(db: &RBatis) -> AppResult<bool> {
-    if !has_table(db, "clip_record").await? { return Ok(false); }
-    #[derive(serde::Deserialize)] struct Column { name: String }
-    let columns: Vec<Column> = db.query_decode("PRAGMA table_info(clip_record)", vec![]).await?;
-    Ok(!columns.iter().any(|column| column.name == "content_key"))
-}
-
-/// 建立连接，不隐式迁移旧表；旧表需要由持有解密能力和资源路径的应用层迁移。
+/// 建立连接并按当前结构初始化本机数据库。
 pub async fn connect(path: &Path) -> AppResult<RBatis> {
     let db = RBatis::new();
     // 驱动默认为每个连接设置 foreign_keys=ON、WAL 和 busy_timeout。
     db.init(rbdc_sqlite::Driver {}, &format!("sqlite://{}", path.to_string_lossy()))?;
-    #[derive(serde::Deserialize)] struct Version { user_version:i32 }
-    let version:Vec<Version>=db.query_decode("PRAGMA user_version",vec![]).await?;
-    // 新版数据库不能交给旧程序降级处理，否则可能破坏尚不认识的结构。
-    if version[0].user_version>2{return Err(AppError::Config("数据库版本高于当前应用支持的版本，请升级应用".into()));}
-    if !is_legacy(&db).await? {
-        // 新库直接建两表；旧库留给具有解密能力的应用层完整迁移。
-        create_tables(&db).await?;
-        db.exec("PRAGMA user_version=2",vec![]).await?;
-    }
+    create_tables(&db).await?;
     Ok(db)
 }

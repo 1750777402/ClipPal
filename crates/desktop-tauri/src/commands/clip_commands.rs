@@ -16,14 +16,45 @@ use {
     crate::core::application::ClipRecordService,
 };
 
+/// 同步版列表附加内容身份和同步限制提示。
+#[cfg(feature = "sync")]
+#[derive(serde::Serialize)]
+pub struct ClipRecordView {
+    #[serde(flatten)]
+    record: ClipRecordLiteDTO,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    sync_skip_reason: Option<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    sync_content_key: Option<String>,
+}
+
+#[cfg(not(feature = "sync"))]
+pub type ClipRecordView = ClipRecordLiteDTO;
+
 #[tauri::command]
 /// 查询剪贴记录列表，将分页与搜索参数交给剪贴记录服务，并统一包装查询结果。
 pub async fn get_clip_records(
     state: tauri::State<'_, Arc<AppContext>>,
     param: QueryParam,
-) -> Result<CommandResponse<Vec<ClipRecordLiteDTO>>, String> {
+) -> Result<CommandResponse<Vec<ClipRecordView>>, String> {
     let service = ClipRecordService::from_context(state.inner().as_ref());
-    Ok(command_result(service.query_clip_records(param).await))
+    #[cfg(feature = "sync")]
+    let result = {
+        #[cfg(not(feature = "commercial-extension"))]
+        let enabled = crate::sync::runtime::enabled();
+        #[cfg(feature = "commercial-extension")]
+        let enabled = state.sync().status().await.enabled;
+        let limits = state.sync().limits().await;
+        service.query_clip_records_with(param, |record, dto| {
+            let text_bytes = dto.original_content_length.unwrap_or(dto.content.len());
+            let reason = if enabled { selfhost_app_core::skip_reason(record, limits, text_bytes) } else { None };
+            ClipRecordView { record: dto, sync_skip_reason: reason,
+                sync_content_key: enabled.then(|| record.content_key.clone()) }
+        }).await
+    };
+    #[cfg(not(feature = "sync"))]
+    let result = service.query_clip_records(param).await;
+    Ok(command_result(result))
 }
 
 #[tauri::command]
@@ -77,11 +108,15 @@ pub async fn set_pinned(
 }
 
 #[tauri::command]
-/// 物理删除本地记录、关联资源行并回收受管缓存和搜索索引。
+/// 删除本机记录。启用部署能力的自建包同时登记同步删除。
 pub async fn del_record(
     state: tauri::State<'_, Arc<AppContext>>,
     param: ClipRecordIdParam,
 ) -> Result<CommandResponse<String>, String> {
+    #[cfg(all(feature = "sync", not(feature = "commercial-extension")))]
+    if crate::sync::runtime::enabled() {
+        return Ok(command_result(state.sync().delete_everywhere(param.record_id).await));
+    }
     let service = ClipRecordService::from_context(state.inner().as_ref());
     Ok(command_result(service.delete_record(param.record_id).await))
 }

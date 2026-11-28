@@ -4,15 +4,19 @@ pub use desktop_app_core;
 pub mod deployment;
 mod sync_store;
 mod sync_runtime;
+mod attachment;
+mod transfers;
+pub use transfers::{CardSyncStatus, IncomingAttachment};
+pub use attachment::skip_reason;
 
 use clip_sync_client::auth::{DisabledSyncAuth, SyncAuthProvider};
 use desktop_app_core::{
-    capture::{CaptureInput, CaptureService, TextEncoder},
+    capture::{CaptureInput, TextEncoder},
     clip_core::{domain::clip::ClipRecord, errors::AppResult},
     LocalContext,
 };
 use std::sync::Arc;
-pub use sync_runtime::{SyncContext, SyncStatus};
+pub use sync_runtime::{SyncCardStates, SyncContext, SyncStatus};
 
 /// 自建应用上下文。一个进程共用同一份本地数据、索引和会话。
 pub struct SelfhostContext {
@@ -46,6 +50,6 @@ impl SelfhostContext {
     pub async fn capture(
         &self, input: CaptureInput<'_>, encoder: &dyn TextEncoder,
     ) -> AppResult<Option<ClipRecord>> {
-        self.sync.capture(CaptureService::new(self.local(), encoder), input).await
+        self.sync.capture(input, encoder).await
     }
 }

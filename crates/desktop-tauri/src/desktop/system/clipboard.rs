@@ -25,11 +25,9 @@ pub async fn write_payload(context:&AppContext,payload:desktop_app_core::clipboa
             clipboard.write_image_binary(bytes)?;
         }
         ClipboardPayload::Files{names,paths,..}=>{
-            // 先恢复原显示名；临时副本准备失败时仍可用真实来源路径完成复制。
-            match create_named_temp_files(&names,&paths).await{
-                Ok(files)=>clipboard.write_files_uris(files)?,
-                Err(error)=>{log::warn!("临时复制失败，使用实际路径: {}",error);clipboard.write_files_uris(paths)?;}
-            }
+            // 只把独立副本交给目标应用，保护剪贴板历史中的备份。
+            let files = create_named_temp_files(&names, &paths).await?;
+            clipboard.write_files_uris(files)?;
         }
     }Ok(())
 }

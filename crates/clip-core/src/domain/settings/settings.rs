@@ -19,6 +19,10 @@ pub struct Settings {
     pub auto_paste: u32,
     /// 新手教程是否已完成，`1` 表示完成。
     pub tutorial_completed: u32,
+    /// 新文件备份的根目录。空值使用应用默认的资源目录。
+    pub file_backup_dir: Option<String>,
+    /// 以前使用的备份目录，供读取和清理尚存的历史文件。
+    pub previous_file_backup_dirs: Vec<String>,
     /// 大内容直接信任布隆过滤器的字节阈值。
     pub bloom_filter_trust_threshold: Option<usize>,
     /// 小内容直接执行字符串包含查询的字节阈值。
@@ -34,6 +38,8 @@ impl Default for Settings {
             shortcut_key: String::from("Ctrl+`"),
             auto_paste: 1,
             tutorial_completed: 0,
+            file_backup_dir: None,
+            previous_file_backup_dirs: Vec::new(),
             bloom_filter_trust_threshold: Some(DEFAULT_BLOOM_FILTER_TRUST_THRESHOLD),
             direct_contains_threshold: Some(DEFAULT_DIRECT_CONTAINS_THRESHOLD),
         }

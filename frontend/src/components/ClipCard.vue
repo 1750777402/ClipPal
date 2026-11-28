@@ -1,22 +1,17 @@
 <template>
     <div class="clip-card" :class="{'is-pinned': record.pinned_flag}"
-        :data-type="record.type" :data-item-id="record.id" @dblclick="handleCardDoubleClick">
+        :data-type="record.type" :data-item-id="record.id" @dblclick="!record.download_name && handleCardDoubleClick()">
         <div class="card-header">
             <div class="card-left">
                 <div class="card-type">
                     <i class="iconfont" :class="getTypeIcon" :title="getTypeTitle"></i>
-                    <span class="type-text">{{ getTypeTitle }}
-                        <template v-if="record.type === 'File' && fileList.length > 1">
-                            <span class="tip-icon-wrapper" @mouseenter="showTip = true" @mouseleave="showTip = false">
-                                <i class="iconfont icon-tishi"></i>
-                                <span v-if="showTip" class="tip-pop">该条目为多文件类型，双击复制全部文件，或点击单个文件的"仅复制此文件"按钮。若有源文件丢失将提示失败</span>
-                            </span>
-                        </template>
-                    </span>
+                    <span class="type-text">{{ getTypeTitle }}</span>
                 </div>
-                <span class="time-text">{{ formatTime(record.created) }}</span>
+                <span v-if="syncLabel" class="sync-dot" :data-status="syncStatus ?? 'skipped'"
+                    role="img" :aria-label="syncLabel" :title="syncLabel"></span>
+                <span v-if="!record.download_name" class="time-text">{{ formatTime(record.created) }}</span>
             </div>
-            <div class="card-actions" @click.stop @dblclick.stop>
+            <div v-if="!record.download_name" class="card-actions" @click.stop @dblclick.stop>
                 <!-- 图片预览按钮 - 排在最前面 -->
                 <button v-if="record.type === 'Image'" class="action-btn preview-btn" @click.stop="handleImagePreview" title="预览图片">
                     <i class="iconfont icon-yulan"></i>
@@ -38,8 +33,12 @@
         </div>
 
         <div class="card-content">
+            <div v-if="record.download_name" class="download-name" :title="record.download_name">
+                {{ record.download_name }}
+            </div>
+
             <!-- 文本类型 - 使用智能内容显示 -->
-            <template v-if="record.type === 'Text'">
+            <template v-else-if="record.type === 'Text'">
                 <SmartContentDisplay 
                     :content="currentTextContent" 
                     :show-type-indicator="false"
@@ -140,24 +139,20 @@
         </div>
     </div>
 
-    <template v-if="showConfirm">
-        <div class="confirm-mask" @click.self="cancelDelete">
-            <div class="confirm-dialog">
-                <div class="confirm-title">删除确认</div>
-                <div class="confirm-content">
-                    {{ canDeleteEverywhere ? '跨端删除会移除云端及其他设备的这条记录。' : '确定要删除该条记录吗？删除后无法恢复' }}
-                </div>
+    <!-- 挂载到窗口根部，避免虚拟列表的 transform 和层叠顺序遮挡弹窗。 -->
+    <Teleport to="body">
+        <div v-if="showConfirm" class="confirm-mask" @click.self="cancelDelete" @keydown.esc.stop="cancelDelete">
+            <div class="confirm-dialog delete-dialog" role="alertdialog" aria-modal="true" aria-label="删除记录">
+                <div class="confirm-title">删除这条记录？</div>
                 <div class="confirm-actions">
-                    <button class="confirm-btn confirm-cancel" @click="cancelDelete">取消</button>
-                    <button class="confirm-btn confirm-ok" :disabled="deleting" @click="confirmDelete(false)">
-                        {{ canDeleteEverywhere ? '仅删本机' : '确定' }}
-                    </button>
-                    <button v-if="canDeleteEverywhere" class="confirm-btn confirm-ok" :disabled="deleting"
-                        @click="confirmDelete(true)">跨端删除</button>
+                    <button ref="cancelDeleteButton" class="confirm-btn confirm-cancel" type="button"
+                        :disabled="deleting" @click="cancelDelete">取消</button>
+                    <button class="confirm-btn delete-confirm" type="button" :disabled="deleting"
+                        @click="confirmDelete">{{ deleting ? '删除中…' : '删除' }}</button>
                 </div>
             </div>
         </div>
-    </template>
+    </Teleport>
 
     <!-- 自动粘贴警告对话框 -->
     <template v-if="showAutoPasteWarning">
@@ -187,22 +182,23 @@
 
 <script setup lang="ts">
 // 单条历史记录卡片。列表先展示轻量数据，图片和长文本按需加载。
-import { ref, computed, onMounted, onUnmounted } from 'vue';
+import { ref, computed, nextTick, onMounted, onUnmounted } from 'vue';
 import { formatDistanceToNow } from 'date-fns';
 import { zhCN } from 'date-fns/locale';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import SmartContentDisplay from './SmartContentDisplay.vue';
-import { apiInvoke, clipApi, settingsApi, syncApi, isSuccess } from '../utils/api';
-import { loadAppCapabilities } from '../utils/capabilities';
+import { apiInvoke, clipApi, settingsApi, isSuccess } from '../utils/api';
 
 // 导入全局类型
-import type { ClipRecord } from '../types/global';
+import type { CardSyncStatus, ClipRecord } from '../types/global';
 
 // 组件 props 定义
 
 const props = defineProps<{
     record: ClipRecord;
     isMobile: boolean;
+    syncStatus?: CardSyncStatus;
+    syncEnabled?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -214,11 +210,9 @@ const emit = defineEmits<{
 
 const isImageLoaded = ref(false);
 const imageError = ref(false);
-const showTip = ref(false);
 const showConfirm = ref(false);
-const canDeleteEverywhere = ref(false);
+const cancelDeleteButton = ref<HTMLButtonElement | null>(null);
 const deleting = ref(false);
-let deleteAttempt = 0;
 const showAutoPasteWarning = ref(false);
 
 // 大文本处理状态
@@ -538,38 +532,45 @@ const retryLoadImage = async () => {
     await loadImage();
 };
 
-/** 先打开现有确认框。只有已绑定的自建文本同步才添加跨端删除选项。 */
+const syncLabels = {
+    pending_upload: '待上传',
+    uploading: '上传中',
+    uploaded: '已上传完成',
+    pending_download: '待下载',
+    downloading: '下载中',
+} satisfies Record<CardSyncStatus, string>;
+
+const syncLabel = computed(() => {
+    if (import.meta.env.VITE_EDITION === 'local' || !props.syncEnabled) return undefined;
+    if (props.syncStatus) return syncLabels[props.syncStatus];
+    return props.record.sync_skip_reason;
+});
+
+/** 打开确认框并聚焦取消，避免直接确认危险操作。 */
 const handleDelete = async () => {
-    const attempt = ++deleteAttempt;
-    canDeleteEverywhere.value = false;
     showConfirm.value = true;
-    if (props.record.type !== 'Text' || !(await loadAppCapabilities())?.cloud_sync) return;
-    const status = await syncApi.getStatus();
-    if (attempt === deleteAttempt && isSuccess(status)) {
-        canDeleteEverywhere.value = status.data.can_delete_everywhere;
-    }
+    await nextTick();
+    cancelDeleteButton.value?.focus();
 };
 
-/** 提交用户选定的删除范围。重复点击不会产生第二次请求。 */
-const confirmDelete = async (everywhere: boolean) => {
+/** 删除范围由当前版本的后端决定。 */
+const confirmDelete = async () => {
     if (deleting.value) return;
     deleting.value = true;
     const record = props.record;
     try {
-        const response = await clipApi.deleteRecord(record.id, everywhere);
+        const response = await clipApi.deleteRecord(record.id);
         if (isSuccess(response)) {
+            showConfirm.value = false;
             emit('delete', record);
-            cancelDelete();
         }
     } finally {
         deleting.value = false;
     }
 };
 
-/** 清除本次状态查询，让晚到的响应不会影响下一次确认。 */
 const cancelDelete = () => {
-    ++deleteAttempt;
-    showConfirm.value = false;
+    if (!deleting.value) showConfirm.value = false;
 };
 
 /** 提交新的置顶状态。全局只保留一条置顶的规则由后端执行。 */
@@ -670,98 +671,11 @@ onUnmounted(() => {
     box-shadow: 0 4px 12px rgba(44, 122, 123, 0.12);
 }
 
-.sync-status {
-    font-size: 12px;
-    color: var(--text-secondary, #a0aec0);
-    font-weight: 500;
-    display: flex;
-    align-items: center;
-    gap: 4px;
-}
-
-.sync-unsynced { color: #f39c12; }
-.sync-syncing { color: #3498db; }
-.sync-synced { color: #2ecc71; }
-.sync-skipped { color: #95a5a6; }
-
-.sync-loading {
-  display: inline-block;
-  margin-right: 4px;
-  animation: spin 1s linear infinite;
-}
-
-@keyframes spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
-}
-
-.clip-card.sync-flag-0 { border-color: #f39c12; }
-.clip-card.sync-flag-1 { 
-  border-color: #3498db; 
-  background: #ecf6fb;
-  animation: pulse-sync 2s ease-in-out infinite;
-}
-.clip-card.sync-flag-2 { border-color: #2ecc71; background: #f0fff0; }
-.clip-card.sync-flag-3 { border-color: #95a5a6; background: #f8f9fa; }
-
-@keyframes pulse-sync {
-  0%, 100% { 
-    background: #ecf6fb;
-    box-shadow: var(--shadow-md);
-  }
-  50% { 
-    background: #d4edda;
-    box-shadow: 0 4px 12px rgba(52, 152, 219, 0.15);
-  }
-}
-
-.sync-status-indicator {
-  position: absolute;
-  top: 8px;
-  right: 8px;
-  width: 20px;
-  height: 20px;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 10;
-  font-size: 12px;
-}
-
-.sync-unsynced {
-  background: #f39c12;
-  color: white;
-}
-
-.sync-syncing {
-  background: #3498db;
-  color: white;
-}
-
-.sync-synced {
-  background: #2ecc71;
-  color: white;
-}
-
-.sync-skipped {
-  background: #95a5a6;
-  color: white;
-}
-
-.sync-loading {
-  animation: spin 1s linear infinite;
-}
-
-@keyframes spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
-}
-
 .card-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
+    gap: var(--spacing-sm);
     padding: var(--spacing-md) var(--spacing-lg);
     border-bottom: var(--border-width) solid var(--border-color);
     background: #f8fafc;
@@ -771,7 +685,10 @@ onUnmounted(() => {
 .card-left {
     display: flex;
     align-items: center;
-    gap: var(--spacing-lg);
+    flex: 1;
+    flex-wrap: wrap;
+    min-width: 0;
+    gap: 2px var(--spacing-lg);
 }
 
 .card-type {
@@ -785,12 +702,57 @@ onUnmounted(() => {
 
 .type-text {
     font-weight: 500;
+    white-space: nowrap;
+}
+
+.sync-dot {
+    flex: 0 0 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #95a5a6;
+}
+
+.sync-dot[data-status="pending_upload"],
+.sync-dot[data-status="pending_download"] {
+    background: #f39c12;
+}
+
+.sync-dot[data-status="uploading"],
+.sync-dot[data-status="downloading"] {
+    background: #3498db;
+}
+
+.sync-dot[data-status="uploaded"] {
+    background: #2ecc71;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+    .sync-dot[data-status="uploading"],
+    .sync-dot[data-status="downloading"] {
+        animation: sync-dot-pulse 1s ease-in-out infinite alternate;
+    }
+}
+
+@keyframes sync-dot-pulse {
+    from { opacity: 0.5; }
+    to { opacity: 1; }
+}
+
+.download-name {
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    color: var(--text-secondary);
+    font-size: 13px;
 }
 
 .time-text {
     font-size: 12px;
     color: var(--text-tertiary, #94a3b8);
     white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 100%;
     transition: color 0.2s ease;
     font-weight: 400;
 }
@@ -799,11 +761,14 @@ onUnmounted(() => {
     display: flex;
     align-items: center;
     gap: 6px;
-    flex-shrink: 0; /* 防止按钮被压缩 */
-    min-width: fit-content; /* 确保有足够空间 */
+    flex: 0 0 auto;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    max-width: 55%;
 }
 
 .action-btn {
+    flex: 0 0 auto;
     width: 28px;
     height: 28px;
     border-radius: 8px;
@@ -1483,53 +1448,6 @@ onUnmounted(() => {
     user-select: text;
 }
 
-.tip-icon-wrapper {
-    display: inline-block;
-    position: relative;
-    margin-left: 4px;
-    cursor: pointer;
-}
-
-.tip-icon-wrapper .iconfont {
-    font-size: 16px;
-    color: #2c7a7b;
-    vertical-align: middle;
-}
-
-.tip-pop {
-    position: absolute;
-    left: 50%;
-    top: 130%;
-    transform: translateX(-50%);
-    background: #fffbe6;
-    color: #222;
-    border: 1px solid #ffe58f;
-    border-radius: 8px;
-    padding: 8px 18px;
-    font-size: 13px;
-    line-height: 1.6;
-    max-width: 220px;
-    min-width: 120px;
-    white-space: normal;
-    box-shadow: 0 6px 24px rgba(44, 122, 123, 0.18);
-    z-index: 20;
-    margin-top: 8px;
-    text-align: left;
-    word-break: break-all;
-}
-
-.tip-pop::before {
-    content: '';
-    position: absolute;
-    top: -8px;
-    left: 50%;
-    transform: translateX(-50%);
-    border-width: 0 8px 8px 8px;
-    border-style: solid;
-    border-color: transparent transparent #fffbe6 transparent;
-    filter: drop-shadow(0 -1px 0 #ffe58f);
-}
-
 .confirm-mask {
     position: fixed;
     left: 0;
@@ -1552,6 +1470,24 @@ onUnmounted(() => {
     max-width: 90vw;
     text-align: center;
     animation: popin 0.18s cubic-bezier(.4, 1.6, .6, 1) both;
+}
+
+.delete-dialog {
+    box-sizing: border-box;
+    width: min(300px, calc(100vw - 32px));
+    min-width: 0;
+    padding: 22px 20px 18px;
+    background: var(--card-bg, #fff);
+}
+
+.delete-dialog .confirm-title {
+    color: var(--text-primary, #2d3748);
+    margin-bottom: 20px;
+}
+
+.delete-confirm {
+    background: #be3d3d;
+    color: #fff;
 }
 
 @keyframes popin {
@@ -1762,7 +1698,7 @@ onUnmounted(() => {
   }
   
   .card-left {
-    gap: 10px;
+    column-gap: 7px;
   }
   
   .card-type .type-text {
@@ -1843,11 +1779,6 @@ onUnmounted(() => {
     max-height: 120px;
   }
   
-  .tip-pop {
-    max-width: 180px;
-    font-size: 11px;
-    padding: 6px 12px;
-  }
 }
 
 @media (max-width: 360px) {
@@ -1860,7 +1791,7 @@ onUnmounted(() => {
   }
   
   .card-left {
-    gap: 8px;
+    column-gap: 6px;
   }
   
   .card-actions {
@@ -1927,7 +1858,7 @@ onUnmounted(() => {
   }
 
   .card-left {
-    gap: 12px;
+    column-gap: 7px;
   }
 
   .card-actions {
@@ -2040,65 +1971,6 @@ onUnmounted(() => {
   .clip-card {
     border-width: 0.5px;
   }
-}
-
-.sync-dot {
-  display: inline-flex;
-  align-items: center;
-  margin-left: 6px;
-}
-
-.sync-unsynced {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: #f39c12;
-}
-
-.sync-syncing {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: #3498db;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 8px;
-  color: white;
-  animation: pulse-scale 1s ease-in-out infinite;
-}
-
-@keyframes pulse-scale {
-  0%, 100% { 
-    transform: scale(1);
-  }
-  50% { 
-    transform: scale(1.3);
-  }
-}
-
-.sync-synced {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: #2ecc71;
-}
-
-.sync-skipped {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: #95a5a6;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 6px;
-  color: white;
-  position: relative;
-}
-
-.sync-loading {
-  animation: spin 1s linear infinite;
 }
 
 @keyframes spin {

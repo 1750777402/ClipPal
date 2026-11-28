@@ -7,24 +7,17 @@ license.workspace = true
 repository.workspace = true
 description = "ClipPal synchronization client primitives and transport boundary"
 
-[features]
-default = []
-sqlite = ["clip-core/sqlite", "dep:rbatis", "dep:rbs"]
-
 [dependencies]
-clip-core = { path = "../clip-core", default-features = false }
 clip-sync-protocol = { path = "../clip-sync-protocol" }
 async-trait.workspace = true
-async-channel.workspace = true
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
 tokio.workspace = true
 serde.workspace = true
 url = "2"
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "stream"] }
 serde_json.workspace = true
 log.workspace = true
 thiserror.workspace = true
-rbatis = { workspace = true, optional = true }
-rbs = { workspace = true, optional = true }
 
 [dev-dependencies]
 tokio.workspace = true

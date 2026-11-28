@@ -106,7 +106,7 @@ mod tests {
         let local = desktop_app_core::LocalContext::open(&dir.join("test.db"), Some(dir.join("settings.json")), Arc::new(decode)).await.unwrap();
         #[cfg(feature = "sync")]
         let application = selfhost_app_core::SelfhostContext::with_auth(local, Arc::new(
-            selfhost_app_core::deployment::DeploymentConfig::new("https://sync.test", "test-deployment-token", 1).unwrap(),
+            selfhost_app_core::deployment::DeploymentConfig::new("https://sync.test", "test-deployment-token").unwrap(),
         ));
         #[cfg(not(feature = "sync"))]
         let application = local;

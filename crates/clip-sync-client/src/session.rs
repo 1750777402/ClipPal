@@ -20,6 +20,24 @@ pub enum SessionStatus {
     Blocked,
 }
 
+/// SSE 连接状态独立于上传和补拉，空闲时也能区分在线与重连中。
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum NotificationStatus {
+    #[default]
+    Connecting,
+    Connected,
+    Retrying,
+    Blocked,
+}
+
+#[derive(Clone, Copy, Default, serde::Serialize)]
+pub struct SessionState {
+    pub upload: SessionStatus,
+    pub pull: SessionStatus,
+    pub notifications: NotificationStatus,
+}
+
 /// 会话的轻量唤醒入口。通道只合并信号，业务数据始终保存在仓储中。
 #[derive(Clone)]
 pub struct SyncTriggers {
@@ -50,27 +68,27 @@ pub struct SyncSession {
     triggers: SyncTriggers,
     stop: watch::Sender<bool>,
     task: JoinHandle<()>,
-    status: watch::Receiver<(SessionStatus, SessionStatus)>,
+    status: watch::Receiver<SessionState>,
 }
 
 impl SyncSession {
     /// 调用方已完成本地范围初始化。退出时先完成在途 SQLite 提交，再结束任务。
-    pub fn start(scope: Scope, transport: Arc<dyn SyncTransport>, store: Arc<dyn SyncStore>) -> Self {
+    pub fn start(transport: Arc<dyn SyncTransport>, store: Arc<dyn SyncStore>) -> Self {
         let (pull, pull_rx) = mpsc::channel(1);
         let (upload, upload_rx) = mpsc::channel(1);
         let triggers = SyncTriggers { pull, upload };
         let (stop, stop_rx) = watch::channel(false);
-        let (status_tx, status) = watch::channel((SessionStatus::Idle, SessionStatus::Idle));
-        let workers = Workers { scope, transport, store, triggers: triggers.clone() };
+        let (status_tx, status) = watch::channel(SessionState::default());
+        let workers = Workers { transport, store, triggers: triggers.clone() };
         let task = tokio::spawn(async move {
             tokio::join!(
                 run_worker("补拉", pull_rx, stop_rx.clone(),
-                    |status| status_tx.send_modify(|state| state.1 = status),
+                    |status| status_tx.send_modify(|state| state.pull = status),
                     || workers.pull_round(stop_rx.clone())),
                 run_worker("上传", upload_rx, stop_rx.clone(),
-                    |status| status_tx.send_modify(|state| state.0 = status),
+                    |status| status_tx.send_modify(|state| state.upload = status),
                     || workers.upload_round(stop_rx.clone())),
-                workers.listen(stop_rx.clone()),
+                workers.listen(stop_rx.clone(), |status| status_tx.send_modify(|state| state.notifications = status)),
                 workers.fallback(stop_rx.clone()),
             );
         });
@@ -81,8 +99,8 @@ impl SyncSession {
     /// 返回唤醒句柄，事件监听器不需要持有整个会话。
     pub fn triggers(&self) -> &SyncTriggers { &self.triggers }
 
-    /// 订阅上传和补拉各自的状态。元组顺序是上传、补拉。
-    pub fn subscribe_status(&self) -> watch::Receiver<(SessionStatus, SessionStatus)> {
+    /// 订阅上传、补拉和通知连接的最新状态。
+    pub fn subscribe_status(&self) -> watch::Receiver<SessionState> {
         self.status.clone()
     }
 
@@ -101,7 +119,6 @@ impl Drop for SyncSession {
 }
 
 struct Workers {
-    scope: Scope,
     transport: Arc<dyn SyncTransport>,
     store: Arc<dyn SyncStore>,
     triggers: SyncTriggers,
@@ -116,20 +133,23 @@ impl Workers {
             let operations = self.store.pending().await?;
             if operations.is_empty() { return Ok(false); }
 
-            let request = UploadRequest { scope: self.scope.clone(), operations };
+            let request = UploadRequest { operations };
             // 网络请求可取消。即使服务器已提交，持久化队列仍能按原 ID 重试。
+            self.store.uploading(&request.operations, true);
             let response = tokio::select! {
                 biased;
-                _ = stop.changed() => return Ok(false),
-                response = self.transport.upload(&request) => response?,
+                _ = stop.changed() => None,
+                response = self.transport.upload(&request) => Some(response),
             };
+            self.store.uploading(&request.operations, false);
+            let Some(response) = response else { return Ok(false); };
+            let response = response?;
             let ids: HashSet<_> = response.acknowledgements.iter()
                 .map(|ack| ack.operation_id.as_str()).collect();
             let sequences: HashSet<_> = response.acknowledgements.iter()
                 .map(|ack| ack.sync_seq).collect();
             // 即使云端曾经提交，缺失确认时也保留整个批次，下一次仍发送原操作 ID。
-            if response.scope != self.scope
-                || response.acknowledgements.len() != request.operations.len()
+            if response.acknowledgements.len() != request.operations.len()
                 || ids.len() != request.operations.len()
                 || sequences.len() != request.operations.len()
                 || sequences.iter().any(|seq| *seq <= 0)
@@ -150,14 +170,14 @@ impl Workers {
         for _ in 0..MAX_BATCHES {
             if *stop.borrow() { return Ok(false); }
             let after = self.store.cursor().await?;
-            let request = PullRequest { scope: self.scope.clone(), after, limit: BATCH_LIMIT };
+            let request = PullRequest { after, limit: BATCH_LIMIT };
             let page = tokio::select! {
                 biased;
                 _ = stop.changed() => return Ok(false),
                 page = self.transport.pull(&request) => page?,
             };
             let mut previous = after;
-            if page.scope != self.scope || page.changes.len() > request.limit
+            if page.changes.len() > request.limit
                 || (page.has_more && page.changes.is_empty())
                 || page.changes.iter().any(|change| {
                     let valid = change.sync_seq > previous;
@@ -165,7 +185,7 @@ impl Workers {
                     !valid
                 })
             {
-                return Err(SyncError::Blocked("服务端返回的同步范围或分页顺序无效".into()));
+                return Err(SyncError::Blocked("服务端返回的分页内容或顺序无效".into()));
             }
             let has_more = page.has_more;
             if !page.changes.is_empty() { self.store.apply(after, page).await?; }
@@ -176,21 +196,30 @@ impl Workers {
     }
 
     /// SSE 生命周期独立于补拉。通知只产生唤醒，断线时按退避重连。
-    async fn listen(&self, mut stop: watch::Receiver<bool>) {
+    async fn listen(&self, mut stop: watch::Receiver<bool>, status: impl Fn(NotificationStatus) + Sync) {
         let mut retry = Duration::from_secs(1);
         let notify = |event| match event {
-            StreamEvent::Connected => self.triggers.network_restored(),
+            StreamEvent::Connected => {
+                status(NotificationStatus::Connected);
+                self.triggers.network_restored();
+            }
             StreamEvent::Changed => self.triggers.request_pull(),
         };
         while !*stop.borrow() {
             let started = Instant::now();
             let result = tokio::select! {
                 _ = stop.changed() => break,
-                result = self.transport.listen(&self.scope, &notify) => result,
+                result = self.transport.listen(&notify) => result,
             };
             if let Err(error) = &result { log::warn!("同步通知连接结束：{error}"); }
             if started.elapsed() >= MAX_RETRY { retry = Duration::from_secs(1); }
-            let delay = if matches!(result, Err(SyncError::Blocked(_))) { RECHECK } else { retry };
+            let delay = if matches!(result, Err(SyncError::Blocked(_))) {
+                status(NotificationStatus::Blocked);
+                RECHECK
+            } else {
+                status(NotificationStatus::Retrying);
+                retry
+            };
             tokio::select! {
                 _ = stop.changed() => break,
                 _ = time::sleep(delay) => {}

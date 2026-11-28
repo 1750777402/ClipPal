@@ -9,4 +9,3 @@ description = "ClipPal shared synchronization wire contracts"
 
 [dependencies]
 serde.workspace = true
-serde_json.workspace = true

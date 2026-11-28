@@ -63,16 +63,6 @@ async fn pin_failure_restores_previous_pin_and_overflow_returns_resource_snapsho
     let removed=repo.remove_overflow(1).await.unwrap();assert_eq!(removed[0].id,b.id);assert_eq!(repo.count().await.unwrap(),1);
 }
 
-/// 验证未来版本数据库被拒绝打开，不降级修改其版本。
-#[tokio::test]
-async fn newer_schema_is_rejected_without_modifying_database(){
-    let(dir,db,_repo)=repo().await;
-    db.exec("PRAGMA user_version=99",vec![]).await.unwrap();
-    assert!(connect(&dir.path().join("test.db")).await.is_err());
-    #[derive(serde::Deserialize)]struct Version{user_version:i32}
-    let rows:Vec<Version>=db.query_decode("PRAGMA user_version",vec![]).await.unwrap();assert_eq!(rows[0].user_version,99);
-}
-
 /// 验证大量两表实体字段读写、资源归属、顺序及分批分页。
 #[tokio::test]
 async fn table_entities_roundtrip_and_bulk_loading_keeps_resource_ownership_and_order() {

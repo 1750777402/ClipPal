@@ -14,15 +14,14 @@ default = ["local"]
 local = []
 self-hosted = ["sync"]
 commercial = ["self-hosted", "commercial-extension"]
-sync = ["dep:clip-sync-protocol", "dep:clip-sync-client", "dep:selfhost-app-core", "dep:async-channel", "dep:tauri-plugin-http", "dep:chrono", "dep:backon", "dep:rbatis", "dep:uuid", "dep:thiserror"]
+sync = ["dep:clip-sync-client", "dep:selfhost-app-core", "dep:async-channel", "dep:tauri-plugin-http", "dep:chrono", "dep:backon", "dep:rbatis", "dep:uuid", "dep:thiserror"]
 commercial-extension = ["self-hosted", "dep:bincode"]
 
 [dependencies]
 desktop-app-core = { path = "../desktop-app-core" }
 selfhost-app-core = { path = "../selfhost-app-core", optional = true }
-clip-sync-client = { path = "../clip-sync-client", features = ["sqlite"], optional = true }
+clip-sync-client = { path = "../clip-sync-client", optional = true }
 clip-core = { path = "../clip-core" }
-clip-sync-protocol = { path = "../clip-sync-protocol", optional = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true }

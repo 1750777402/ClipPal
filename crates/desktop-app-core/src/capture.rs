@@ -67,7 +67,7 @@ impl<'a> CaptureService<'a>{
             }
             CaptureInput::Files(Some(paths)) if !paths.is_empty()=>{
                 // 磁盘操作放到阻塞线程；任何一项失败都不保存不完整的文件清单。
-                let paths=paths.clone();let base=self.local.resources_dir();
+                let paths=paths.clone();let base=self.local.file_backup_dir();
                 next.resources=tokio::task::spawn_blocking(move||prepare_files(&paths,base.as_deref())).await.map_err(|error|AppError::System(error.to_string()))??;
                 next.r#type=if next.resources.len()==1 && next.resources[0].resource_kind=="directory"{DIRECTORY_TYPE}else{FILE_TYPE}.into();
                 next.content_key=content_key::resource_key(&next.resources)?;
@@ -120,11 +120,17 @@ fn prepare_files(paths:&[String],base:Option<&Path>)->AppResult<Vec<ClipRecordRe
                     // 保留 tar.gz 等完整扩展名，随机命名避免覆盖同名文件。
                     let relative=format!("files/{}{}",uuid::Uuid::new_v4(),if extension.is_empty(){String::new()}else{format!(".{extension}")});
                     let target=base.join(&relative);std::fs::create_dir_all(target.parent().unwrap())?;
+                    if !target.parent().unwrap().canonicalize()?.starts_with(base.canonicalize()?) {
+                        return Err(AppError::Config("文件备份目录越界".into()));
+                    }
                     match std::fs::copy(&source,&target){
                         Ok(_)=>{resource.storage_kind="managed".into();resource.path=relative;}
-                        Err(error)=>{let _=std::fs::remove_file(&target);log::warn!("缓存复制失败，保留外部引用: {}",error);}
+                        Err(error)=>{
+                            let _=std::fs::remove_file(&target);
+                            return Err(error.into());
+                        }
                     }
-                }
+                }else{return Err(AppError::Config("文件备份目录不可用".into()));}
                 // 先登记副本，后续校验失败时也能清理。
                 resources.push(resource);
                 let resource=resources.last_mut().unwrap();

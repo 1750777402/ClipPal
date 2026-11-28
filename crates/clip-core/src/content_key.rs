@@ -15,14 +15,14 @@ pub fn file_hash(path: &Path) -> AppResult<String> {
     Ok(format!("{:x}",hasher.finalize()))
 }
 /// 文本以加密前的完整 UTF-8 原文确定身份，首尾空白和换行参与计算。
-pub fn text_key(text: &str) -> String { format!("v1:text:{}",bytes_hash(text.as_bytes())) }
+pub fn text_key(text: &str) -> String { format!("text:{}",bytes_hash(text.as_bytes())) }
 /// 图片以文件字节确定身份；版本和类型前缀避免与其他内容类型混淆。
-pub fn image_key(bytes: &[u8]) -> String { format!("v1:image:{}",bytes_hash(bytes)) }
+pub fn image_key(bytes: &[u8]) -> String { format!("image:{}",bytes_hash(bytes)) }
 /// 把资源清单转成稳定的内容身份；多选顺序变化不产生新的记录。
 pub fn resource_key(resources: &[ClipRecordResource]) -> AppResult<String> {
     // 目录只表示本机路径引用，不递归读取目录，也不表示跨设备目录相同。
     if resources.len()==1 && resources[0].resource_kind=="directory" {
-        return Ok(format!("v1:directory:{}",bytes_hash(resources[0].path.as_bytes())));
+        return Ok(format!("directory:{}",bytes_hash(resources[0].path.as_bytes())));
     }
     // 单文件忽略显示名，多资源清单包含名称、类型和完整摘要；排序后保留重复项。
     let mut entries = resources.iter().map(|resource| {
@@ -32,5 +32,5 @@ pub fn resource_key(resources: &[ClipRecordResource]) -> AppResult<String> {
     }).collect::<Vec<_>>();
     // 使用结构化 JSON 避免字符串拼接歧义；排序不去重，保留重复文件项。
     entries.sort();
-    Ok(format!("v1:files:{}",bytes_hash(&serde_json::to_vec(&entries)?)))
+    Ok(format!("files:{}",bytes_hash(&serde_json::to_vec(&entries)?)))
 }

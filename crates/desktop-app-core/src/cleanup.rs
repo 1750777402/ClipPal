@@ -1,5 +1,5 @@
 //! 单机保留数量与资源生命周期。不包含同步墓碑或云端确认。
-use std::{path::Path,sync::atomic::Ordering};
+use std::sync::atomic::Ordering;
 use clip_core::{domain::clip::ClipRecord,errors::AppResult};
 use crate::LocalContext;
 
@@ -36,14 +36,11 @@ impl<'a> CleanupService<'a>{
 
 /// 只有明确声明为 managed 且位于资源根内的普通文件可删除，外部原件和目录不删除。
 pub async fn delete_managed_resources(local:&LocalContext,record:&ClipRecord){
-    let Some(base)=local.resources_dir().and_then(|base|base.canonicalize().ok())else{return;};
     // reference 属于用户原件，无论路径看起来在哪里都不在此处删除。
     for resource in record.resources.iter().filter(|resource|resource.storage_kind=="managed"){
-        if Path::new(&resource.path).is_absolute(){continue;}
-        let path=base.join(&resource.path);
-        // 解析符号链接后再次验证归属；不存在的文件无需清理。
-        let Ok(actual)=path.canonicalize()else{continue;};
-        if actual!=base && actual.starts_with(&base) && actual.is_file(){
+        // 复用受管资源的路径检查，支持用户改过备份目录的旧记录。
+        let Ok(path)=crate::records::resolve_resource(local, resource)else{continue;};
+        if path.is_file(){
             if let Err(error)=std::fs::remove_file(&path){log::error!("删除受管缓存失败: {}",error);}
         }
     }

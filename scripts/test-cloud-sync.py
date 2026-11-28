@@ -57,26 +57,20 @@ def main():
     def get(resource, parameters=None):
         suffix = "?" + parse.urlencode(parameters) if parameters else ""
         req = request.Request(
-            f"{endpoint}/sync/v2/{resource}{suffix}",
+            f"{endpoint}/sync/{resource}{suffix}",
             headers={"Authorization": f"Bearer {sync['deployment_token']}"},
         )
         with opener.open(req, timeout=5) as response:
             return json.load(response)
 
-    scope = get("scope")
     with sqlite3.connect(database.as_uri() + "?mode=ro", uri=True) as db:
-        # 同一个库可能绑定过多个部署。只读取当前地址与数据集的游标和队列。
-        binding_query = """
-            SELECT id, pull_cursor FROM clip_sync_scope
-            WHERE RTRIM(endpoint, '/') = ? AND scope_id = ? AND dataset_id = ?
-        """
-        binding = db.execute(binding_query, (endpoint, scope["scope_id"], scope["dataset_id"])).fetchone()
-        if binding is None:
-            raise RuntimeError("客户端还未绑定当前部署，请先在设置中确认同步状态。")
-        scope_row, after = binding
+        state = db.execute("SELECT pull_cursor FROM clip_sync_state WHERE id = 1").fetchone()
+        if state is None:
+            raise RuntimeError("客户端还未初始化云同步，请先在设置中确认同步状态。")
+        (after,) = state
 
         text = f"ClipPal 云同步联调 {uuid4().hex[:12]}"
-        content_key = "v1:text:" + hashlib.sha256(text.encode("utf-8")).hexdigest()
+        content_key = "text:" + hashlib.sha256(text.encode("utf-8")).hexdigest()
         copy_text(text)
         print(f"已写入系统剪贴板：{text}", flush=True)
 
@@ -86,7 +80,7 @@ def main():
         local = None
         while time.monotonic() < deadline:
             if change is None:
-                page = get("changes", {**scope, "after": after, "limit": 100})
+                page = get("changes", {"after": after, "limit": 100})
                 for item in page["changes"]:
                     after = item["sync_seq"]
                     if item["content_key"] == content_key and item["action"] == "upsert":
@@ -97,12 +91,16 @@ def main():
                 (content_key,),
             ).fetchone()
             if change and local and local[1] == change["ciphertext"]:
-                cursor = db.execute("SELECT pull_cursor FROM clip_sync_scope WHERE id = ?", (scope_row,)).fetchone()
+                cursor = db.execute("SELECT pull_cursor FROM clip_sync_state WHERE id = 1").fetchone()
                 pending = db.execute(
-                    "SELECT 1 FROM clip_sync_record WHERE scope = ? AND content_key = ? LIMIT 1",
-                    (scope_row, content_key),
+                    "SELECT 1 FROM clip_sync_record WHERE content_key = ? AND upload_status = 0 LIMIT 1",
+                    (content_key,),
                 ).fetchone()
-                if cursor and cursor[0] >= change["sync_seq"] and pending is None:
+                confirmed = db.execute(
+                    "SELECT 1 FROM clip_sync_record WHERE record_id = ? AND upload_status = 1",
+                    (local[0],),
+                ).fetchone()
+                if cursor and cursor[0] >= change["sync_seq"] and pending is None and confirmed:
                     print(f"通过：SQLite 记录 {local[0]}，MySQL 同步序号 {change['sync_seq']}，上传队列已确认。")
                     return
             if change is not None or not page["has_more"]:

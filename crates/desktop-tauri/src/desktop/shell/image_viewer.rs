@@ -170,6 +170,11 @@ fn create_window<R: Runtime>(
     if monitor.is_none() {
         builder = builder.center();
     }
+    #[cfg(windows)]
+    {
+        // Windows owned windows stay above the main window without becoming globally topmost.
+        builder = builder.owner(main)?;
+    }
     let window = builder.build()?;
     if let Some(monitor) = monitor {
         let area = monitor.work_area();

@@ -5,7 +5,6 @@
   "cloud_sync": {
     "enabled": false,
     "domain": "https://clipboard.example.com",
-    "deployment_token": "REPLACE_WITH_A_RANDOM_DEPLOYMENT_TOKEN",
-    "max_file_size_kb": 102400
+    "deployment_token": "REPLACE_WITH_A_RANDOM_DEPLOYMENT_TOKEN"
   }
 }

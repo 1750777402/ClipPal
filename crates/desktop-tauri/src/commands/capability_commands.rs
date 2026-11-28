@@ -7,7 +7,7 @@ use crate::{app_context::AppContext, response::{string_result, CommandResponse}}
 pub struct AppCapabilities {
     /// 当前编译版本：local / self-hosted / commercial。
     edition: &'static str,
-    /// 当前安装包是否已明确启用自建文本同步。
+    /// 当前安装包是否已明确启用自建同步。
     cloud_sync: bool,
     /// 只有商业扩展提供账号入口。
     account: bool,

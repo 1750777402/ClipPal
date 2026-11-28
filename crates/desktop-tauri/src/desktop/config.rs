@@ -25,7 +25,6 @@ pub struct CloudSync {
     #[serde(default, skip_serializing)]
     pub deployment_token: Option<String>,
     pub domain: String,
-    pub max_file_size_kb: u64,
 }
 
 /// 已解析的配置及托盘资源只属于当前进程，不读取宿主文件。
@@ -79,20 +78,11 @@ pub fn get_cloud_sync_domain() -> AppResult<&'static str> {
     Ok(&secret.domain)
 }
 
-/// 获取全局缓存的文件大小限制（字节）
-#[cfg(feature = "sync")]
-pub fn get_max_file_size_bytes() -> AppResult<u64> {
-    let cloud_sync = get_cloud_sync()?;
-    cloud_sync.max_file_size_kb.checked_mul(1024)
-        .ok_or_else(|| AppError::Config("同步文件大小配置超出范围".into()))
-}
-
 #[cfg(feature = "sync")]
 impl std::fmt::Debug for CloudSync {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("CloudSync").field("domain", &self.domain)
             .field("enabled", &self.enabled)
-            .field("max_file_size_kb", &self.max_file_size_kb)
             .field("deployment_token", &"[REDACTED]").finish()
     }
 }
@@ -111,7 +101,7 @@ mod tests {
         assert!(initialize(make_assets("invalid-json")).is_err());
         assert!(tray_icon_png().is_err());
 
-        let config = r#"{"app_secret":{"secret_key":"test-packaged-value"},"cloud_sync":{"domain":"https://sync.test","max_file_size_kb":1024}}"#;
+        let config = r#"{"app_secret":{"secret_key":"test-packaged-value"},"cloud_sync":{"domain":"https://sync.test"}}"#;
         initialize(make_assets(config)).unwrap();
         assert_eq!(get_global_secret_key().unwrap(), "test-packaged-value");
         assert_eq!(tray_icon_png().unwrap(), b"test-icon-bytes");
@@ -122,10 +112,10 @@ mod tests {
     #[test]
     #[cfg(feature = "sync")]
     fn deployment_token_is_optional_and_never_serialized_or_debugged() {
-        let old: CloudSync = serde_json::from_str(r#"{"domain":"https://sync.test","max_file_size_kb":100}"#).unwrap();
+        let old: CloudSync = serde_json::from_str(r#"{"domain":"https://sync.test"}"#).unwrap();
         assert!(old.deployment_token.is_none());
         assert!(!old.enabled);
-        let configured: CloudSync = serde_json::from_str(r#"{"domain":"https://sync.test","max_file_size_kb":100,"deployment_token":"test-private-token"}"#).unwrap();
+        let configured: CloudSync = serde_json::from_str(r#"{"domain":"https://sync.test","deployment_token":"test-private-token"}"#).unwrap();
         assert!(!format!("{configured:?}").contains("test-private-token"));
         let value = serde_json::to_value(configured).unwrap();
         assert!(value.get("deployment_token").is_none());

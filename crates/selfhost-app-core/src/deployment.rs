@@ -4,15 +4,13 @@ use clip_sync_client::auth::{SyncAuthProvider, SyncConnection};
 
 pub struct DeploymentConfig {
     connection: SyncConnection,
-    max_file_size_bytes: u64,
 }
+
 impl DeploymentConfig {
-    pub fn new(endpoint: &str, token: &str, max_file_size_kb: u64) -> Result<Self, String> {
-        let max_file_size_bytes = max_file_size_kb.checked_mul(1024)
-            .ok_or_else(|| "同步文件大小配置超出范围".to_owned())?;
-        Ok(Self { connection: SyncConnection::for_development(endpoint, token)?, max_file_size_bytes })
+    /// 打包时注入认证配置。同步限额由自建版代码及服务端握手提供。
+    pub fn new(endpoint: &str, token: &str) -> Result<Self, String> {
+        Ok(Self { connection: SyncConnection::for_development(endpoint, token)? })
     }
-    pub fn max_file_size_bytes(&self) -> u64 { self.max_file_size_bytes }
 }
 #[async_trait]
 impl SyncAuthProvider for DeploymentConfig {

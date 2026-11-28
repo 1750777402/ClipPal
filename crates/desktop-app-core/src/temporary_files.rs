@@ -1,5 +1,5 @@
 //! 本地文件复制时恢复原始显示名称及临时资源清理。
-/// 为文件记录创建带显示名称的临时硬链接，必要时退回文件复制。
+/// 为文件记录创建带显示名称的独立副本，供其他应用读取或编辑。
 pub async fn create_named_temp_files(
     display_names: &[String],
     actual_paths: &[String],
@@ -70,17 +70,11 @@ pub async fn create_named_temp_files(
         }
         let temp_file_path = file_temp_dir.join(display_name);
 
-        // 同盘优先使用硬链接，跨盘或文件系统不支持时复制文件。
-        match std::fs::hard_link(source_path, &temp_file_path) {
-            Ok(_) => temp_file_paths.push(temp_file_path.to_string_lossy().to_string()),
-            Err(_) => {
-                if let Err(error) = std::fs::copy(source_path, &temp_file_path) {
-                    let _ = std::fs::remove_dir_all(&operation_temp_dir);
-                    return Err(format!("创建临时文件失败: {}", error));
-                }
-                temp_file_paths.push(temp_file_path.to_string_lossy().to_string());
-            }
+        if let Err(error) = std::fs::copy(source_path, &temp_file_path) {
+            let _ = std::fs::remove_dir_all(&operation_temp_dir);
+            return Err(format!("创建临时文件失败: {}", error));
         }
+        temp_file_paths.push(temp_file_path.to_string_lossy().to_string());
     }
 
     // 临时文件的生命周期由系统剪贴板适配器管理；内容被替换后才回收。
